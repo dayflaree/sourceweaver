@@ -1,5 +1,7 @@
 # SourceWeaver
 
+[![CI](https://github.com/dayflaree/sourceweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/dayflaree/sourceweaver/actions/workflows/ci.yml)
+
 **Automation-first VMF analysis, map stitching, and compiler-verified optimization for Source 1 and Garry's Mod.**
 
 SourceWeaver is a pre-alpha engineering project for automating repetitive Hammer++ map work while keeping geometry changes deterministic, reversible, and proven by the exact game compiler/runtime being targeted.
@@ -83,6 +85,10 @@ VMF is text, but a conventional semantic parser is insufficient for editor-safe 
 | Compiler harness | Fingerprinted VBSP/VVIS/VRAD/BSPZIP execution, logs, BSP/PRT inspection, reproducibility |
 | Runtime harness | GMod scenario runs, console assertions, trigger checks, PVS samples, screenshots, regression verdicts |
 | AI planner | Natural-language intent, candidate ranking, explanations, and ambiguity handling |
+
+## Delivery backlog
+
+Implementation work is organized under the [verified two-map stitcher milestone](https://github.com/dayflaree/sourceweaver/milestone/1) and the [issue tracker](https://github.com/dayflaree/sourceweaver/issues). Every issue defines deliverables and a measurable exit gate.
 
 ## Documentation
 
