@@ -1,0 +1,31 @@
+name: Bug report
+about: Report a reproducible SourceWeaver defect
+body:
+  - type: markdown
+    attributes:
+      value: Never upload proprietary or redistributed Valve VMFs. Provide a minimal synthetic or redacted fixture.
+  - type: input
+    id: version
+    attributes:
+      label: SourceWeaver version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Include exact commands, compiler fingerprints, and the smallest legal fixture.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dayflaree/sourceweaver/schemas/patch-manifest.schema.json",
+  "title": "SourceWeaver patch manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "source_files",
+    "profile",
+    "policy_hash",
+    "transformations",
+    "static_checks",
+    "compile_runs",
+    "runtime_runs",
+    "metrics",
+    "verdict"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "profile": {
+      "type": "object"
+    },
+    "policy_hash": {
+      "type": "string"
+    },
+    "transformations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "static_checks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "compile_runs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "runtime_runs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "verdict": {
+      "enum": [
+        "accepted",
+        "rejected",
+        "review-required",
+        "blocked"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

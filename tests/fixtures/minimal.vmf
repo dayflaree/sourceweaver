@@ -1,0 +1,28 @@
+versioninfo
+{
+    "editorversion" "400"
+    "editorbuild" "10000"
+    "mapversion" "1"
+    "formatversion" "100"
+    "prefab" "0"
+}
+// Unknown Hammer++-style data must survive exactly.
+custom_editor_extension
+{
+    "future_key" "future value"
+}
+world
+{
+    "id" "1"
+    "mapversion" "1"
+    "classname" "worldspawn"
+    "skyname" "sky_day01_01"
+}
+cameras
+{
+    "activecamera" "-1"
+}
+cordons
+{
+    "active" "0"
+}

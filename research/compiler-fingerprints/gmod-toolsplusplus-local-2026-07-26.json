@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "observed_at": "2026-07-26",
+  "qualification_status": "observed-unqualified",
+  "environment": {
+    "game": "Garry's Mod",
+    "directory_redacted": "<GarrysMod>/bin/win64"
+  },
+  "executables": [
+    {
+      "role": "vbsp",
+      "basename": "vbspplusplus.exe",
+      "size": 1136128,
+      "sha256": "4a1e69e5d3fa562fc669c82f47db122714ef28f30ad7a0f7a03a65053ef6fc2e"
+    },
+    {
+      "role": "vvis",
+      "basename": "vvisplusplus.exe",
+      "size": 617984,
+      "sha256": "17a9c834e82b1e6e2efcd29e1569da52859c5d396159609855eb4bc4d4a9c9f1"
+    },
+    {
+      "role": "vrad",
+      "basename": "vradplusplus.exe",
+      "size": 1180672,
+      "sha256": "76d9918e1f72436719f6afd7903ef41e7819cb07a3bf74dcdd05d817611af4c4"
+    },
+    {
+      "role": "bspzip",
+      "basename": "bspzipplusplus.exe",
+      "size": 472576,
+      "sha256": "ca6a98ebeb6e8436b8281176abd4bcce514700438f7e8e0ee41edb639d704216"
+    }
+  ],
+  "notes": [
+    "Hashes identify the observed files only.",
+    "No compiler binary is included or redistributable through this repository.",
+    "Qualification fixtures and runtime tests are still required."
+  ]
+}

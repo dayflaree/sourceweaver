@@ -1,0 +1,58 @@
+schema_version = "1.0"
+id = "gmod-toolsplusplus"
+display_name = "Garry's Mod with Hammer++ Tools++"
+status = "template-unqualified"
+
+[game]
+family = "source1"
+name = "Garry's Mod"
+branch = "explicit-per-install"
+app_id = 4000
+
+[discovery]
+environment_variable = "SOURCEWEAVER_GMOD_ROOT"
+common_roots = [
+  "~/.local/share/Steam/steamapps/common/GarrysMod",
+  "~/.steam/steam/steamapps/common/GarrysMod",
+  "~/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod",
+  "C:/Program Files (x86)/Steam/steamapps/common/GarrysMod",
+]
+compiler_directories = ["bin/win64", "bin/x64", "bin"]
+
+[compilers]
+vbsp = ["vbspplusplus.exe", "vbsp.exe", "vbsp"]
+vvis = ["vvisplusplus.exe", "vvis.exe", "vvis"]
+vrad = ["vradplusplus.exe", "vrad.exe", "vrad"]
+bspzip = ["bspzipplusplus.exe", "bspzip.exe", "bspzip"]
+redistribute = false
+qualification_required = true
+
+[features]
+lossless_vmf = true
+map_stitching = "experimental-disabled"
+nodraw = "experimental-disabled"
+func_detail = "experimental-disabled"
+areaportal = "experimental-disabled"
+hint_skip = "experimental-disabled"
+func_occluder = "experimental-disabled"
+func_viscluster = "disabled-deprecated-by-toolsplusplus"
+
+[materials]
+nodraw = "TOOLS/TOOLSNODRAW"
+hint = "TOOLS/TOOLSHINT"
+skip = "TOOLS/TOOLSSKIP"
+areaportal = "TOOLS/TOOLSAREAPORTAL"
+
+[tolerances]
+status = "must-be-qualified-per-fingerprint"
+
+[limits]
+source = "synthetic-probe-and-runtime-qualification"
+status = "unknown-until-qualified"
+safety_margin_fraction = 0.85
+
+[policy]
+leak_is_fatal = true
+areaportal_leak_is_fatal = true
+unknown_error_like_output_is_fatal = true
+unknown_affected_entity_field_is_fatal = true
