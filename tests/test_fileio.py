@@ -1,10 +1,40 @@
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from sourceweaver.errors import UnsafeOutputError
-from sourceweaver.fileio import atomic_write_bytes, paths_refer_to_same_file
+from sourceweaver.fileio import atomic_write_bytes, paths_refer_to_same_file, stable_stat_identity
+
+
+@dataclass(frozen=True, slots=True)
+class _FakeStat:
+    st_dev: int
+    st_ino: int
+    st_size: int
+    st_mtime_ns: int
+    st_ctime_ns: int
+
+
+def test_windows_stat_identity_uses_cross_api_stable_fields() -> None:
+    first = _FakeStat(st_dev=1, st_ino=2, st_size=10, st_mtime_ns=20, st_ctime_ns=30)
+    second = _FakeStat(st_dev=9, st_ino=8, st_size=10, st_mtime_ns=20, st_ctime_ns=7)
+    assert stable_stat_identity(first, platform_name="nt") == stable_stat_identity(
+        second, platform_name="nt"
+    )
+    assert stable_stat_identity(first, platform_name="posix") != stable_stat_identity(
+        second, platform_name="posix"
+    )
+
+
+def test_windows_stat_identity_detects_size_or_write_time_change() -> None:
+    first = _FakeStat(st_dev=1, st_ino=2, st_size=10, st_mtime_ns=20, st_ctime_ns=30)
+    resized = _FakeStat(st_dev=1, st_ino=2, st_size=11, st_mtime_ns=20, st_ctime_ns=30)
+    rewritten = _FakeStat(st_dev=1, st_ino=2, st_size=10, st_mtime_ns=21, st_ctime_ns=30)
+    baseline = stable_stat_identity(first, platform_name="nt")
+    assert baseline != stable_stat_identity(resized, platform_name="nt")
+    assert baseline != stable_stat_identity(rewritten, platform_name="nt")
 
 
 def test_paths_refer_to_same_literal_path(tmp_path: Path) -> None:

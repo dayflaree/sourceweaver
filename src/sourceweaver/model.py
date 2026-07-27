@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from sourceweaver.errors import ArtifactChangedError
+from sourceweaver.fileio import stable_stat_identity
 
 
 class Severity(StrEnum):
@@ -67,33 +68,15 @@ class ArtifactFingerprint(BaseModel):
                 digest.update(chunk)
             after = os.fstat(stream.fileno())
 
-        identity_before = (
-            before.st_dev,
-            before.st_ino,
-            before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
-        )
-        identity_after = (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        )
+        identity_before = stable_stat_identity(before)
+        identity_after = stable_stat_identity(after)
         try:
             current = source.stat()
         except OSError as exc:
             raise ArtifactChangedError(
                 f"Artifact path disappeared while being fingerprinted: {source}"
             ) from exc
-        identity_current = (
-            current.st_dev,
-            current.st_ino,
-            current.st_size,
-            current.st_mtime_ns,
-            current.st_ctime_ns,
-        )
+        identity_current = stable_stat_identity(current)
         if (
             identity_before != identity_after
             or identity_before != identity_current

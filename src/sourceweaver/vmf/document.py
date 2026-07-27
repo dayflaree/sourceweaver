@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Final
 
 from sourceweaver.errors import ArtifactChangedError, VmfLimitError
+from sourceweaver.fileio import stable_stat_identity
 from sourceweaver.vmf.lexer import DEFAULT_MAX_SOURCE_CHARS, DEFAULT_MAX_TOKENS
 from sourceweaver.vmf.parser import DEFAULT_MAX_DEPTH, ParsedVmf, parse
 from sourceweaver.vmf.patch import TextEdit, apply_edits
@@ -106,27 +107,9 @@ class VmfDocument:
         except OSError as exc:
             raise ArtifactChangedError(f"VMF path disappeared while being read: {source}") from exc
 
-        identity_before = (
-            before.st_dev,
-            before.st_ino,
-            before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
-        )
-        identity_after = (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        )
-        identity_current = (
-            current.st_dev,
-            current.st_ino,
-            current.st_size,
-            current.st_mtime_ns,
-            current.st_ctime_ns,
-        )
+        identity_before = stable_stat_identity(before)
+        identity_after = stable_stat_identity(after)
+        identity_current = stable_stat_identity(current)
         if identity_before != identity_after or identity_before != identity_current:
             raise ArtifactChangedError(f"VMF changed while being read: {source}")
         if len(data) > max_bytes:

@@ -5,8 +5,42 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from typing import Protocol
 
 from sourceweaver.errors import UnsafeOutputError
+
+
+class StatLike(Protocol):
+    """Read-only fields used to compare file identity across platforms."""
+
+    @property
+    def st_dev(self) -> int: ...
+
+    @property
+    def st_ino(self) -> int: ...
+
+    @property
+    def st_size(self) -> int: ...
+
+    @property
+    def st_mtime_ns(self) -> int: ...
+
+    @property
+    def st_ctime_ns(self) -> int: ...
+
+
+def stable_stat_identity(info: StatLike, *, platform_name: str | None = None) -> tuple[int, ...]:
+    """Return metadata fields that are stable for one platform's stat APIs.
+
+    Windows does not guarantee that file-index and creation-time fields exposed
+    through ``fstat()`` and path ``stat()`` are represented identically on every
+    filesystem. Size and last-write time are stable across both calls. POSIX
+    platforms additionally use device, inode, and status-change time.
+    """
+    current_platform = os.name if platform_name is None else platform_name
+    if current_platform == "nt":
+        return (info.st_size, info.st_mtime_ns)
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
 def paths_refer_to_same_file(first: str | Path, second: str | Path) -> bool:

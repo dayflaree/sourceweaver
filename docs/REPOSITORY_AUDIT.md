@@ -22,7 +22,7 @@ Map stitching, semantic FGD adaptation, geometry automation, compiler execution,
 
 1. `roundtrip` could overwrite its input or an existing output. Input identity is now checked across literal paths, resolved paths, symlinks, and hard links. Existing output requires `--force`; the source VMF remains immutable.
 2. VMF parsing had no implemented resource limits. File bytes, decoded characters, tokens, and nesting depth are now bounded with clean user-facing failures.
-3. VMF reads and executable fingerprints did not detect every mid-read path replacement. Descriptor and current-path identities are now compared before a result is accepted.
+3. VMF reads and executable fingerprints did not detect every mid-read path replacement. Descriptor and current-path identities are now compared before a result is accepted. Native Windows CI then showed that device, inode, and creation/change-time fields are not consistently represented across `stat()` and `fstat()` on every Windows filesystem; Windows now compares the cross-API-stable size and last-write time fields, while POSIX retains the stronger device/inode/size/mtime/ctime identity.
 4. GMod discovery accepted arbitrary existing directories. A valid install root now requires both `bin` and `garrysmod`, or a valid inner `garrysmod/gameinfo.txt` path with a parent `bin` directory.
 5. Steam discovery missed legacy `libraryfolders.vdf` syntax, secondary libraries, Debian-native, Flatpak, and Snap Steam roots. These cases now have platform-neutral regression tests.
 6. Compiler discovery could silently fall back to an unrelated executable on `PATH`. PATH fallback is now opt-in.
