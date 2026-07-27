@@ -50,11 +50,11 @@ Map stitching, semantic FGD adaptation, geometry automation, compiler execution,
 
 ### Tests
 
-- 94 tests pass on Linux.
-- Branch-aware coverage is 88.9%, above the enforced 80% floor.
+- 96 tests pass on Windows and Linux.
+- Branch-aware coverage is 89.0%, above the enforced 80% floor.
 - Property-based VMF round-trip tests use Hypothesis.
 - Local Linux runs pass on Python 3.11, 3.12, 3.13, and 3.14.
-- GitHub Actions runs the same test suite on `ubuntu-latest` and `windows-latest` for Python 3.11–3.14.
+- GitHub Actions runs the same test suite on `ubuntu-latest` and `windows-latest` for Python 3.11–3.14; all thirteen quality, test, package, dependency, and documentation jobs passed in [run 30241981184](https://github.com/dayflaree/sourceweaver/actions/runs/30241981184).
 
 ### Packaging and dependencies
 
