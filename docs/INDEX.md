@@ -6,6 +6,7 @@
 - [Research](RESEARCH.md)
 - [Research ledger](RESEARCH_LEDGER.md)
 - [Source index](SOURCE_INDEX.md)
+- [Repository audit](REPOSITORY_AUDIT.md)
 - [AI boundaries](AI_BOUNDARIES.md)
 - [Legal and distribution](LEGAL_AND_DISTRIBUTION.md)
 

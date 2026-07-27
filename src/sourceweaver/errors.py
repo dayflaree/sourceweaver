@@ -15,8 +15,20 @@ class VmfSyntaxError(SourceWeaverError):
         super().__init__(f"{message} at line {line}, column {column}")
 
 
+class VmfLimitError(SourceWeaverError):
+    """Raised when a configured VMF parsing safety limit is exceeded."""
+
+
 class PatchConflictError(SourceWeaverError):
     """Raised when two source-preserving edits overlap."""
+
+
+class UnsafeOutputError(SourceWeaverError):
+    """Raised when an output operation could overwrite user-owned data."""
+
+
+class ArtifactChangedError(SourceWeaverError):
+    """Raised when a file changes while it is being fingerprinted."""
 
 
 class ProfileError(SourceWeaverError):

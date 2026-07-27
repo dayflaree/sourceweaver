@@ -6,11 +6,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import shutil
+import tempfile
 from pathlib import Path
 
 
 def tree_digest(path: Path) -> str:
     """Return a stable digest for all regular files in *path*."""
+    if not path.is_dir():
+        raise ValueError(f"Skill path is not a directory: {path}")
     digest = hashlib.sha256()
     for file_path in sorted(candidate for candidate in path.rglob("*") if candidate.is_file()):
         digest.update(file_path.relative_to(path).as_posix().encode("utf-8"))
@@ -20,32 +23,66 @@ def tree_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _remove_destination(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
 def install(source_root: Path, destination_root: Path, *, force: bool, dry_run: bool) -> int:
     """Install all ``sourceweaver-*`` skill directories."""
-    destination_root.mkdir(parents=True, exist_ok=True)
-    installed = 0
+    if not source_root.is_dir():
+        raise ValueError(f"Skill source root does not exist: {source_root}")
+    if not dry_run:
+        destination_root.mkdir(parents=True, exist_ok=True)
+
+    changed = 0
     for source in sorted(source_root.glob("sourceweaver-*")):
         if not source.is_dir() or not (source / "SKILL.md").is_file():
             continue
         destination = destination_root / source.name
         source_hash = tree_digest(source)
-        if destination.exists():
-            destination_hash = tree_digest(destination)
-            if destination_hash == source_hash:
-                print(f"up to date: {source.name} ({source_hash[:12]})")
-                continue
-            if not force:
-                raise SystemExit(
-                    f"refusing to replace changed skill {destination}; rerun with --force"
-                )
-        print(f"install: {source.name} -> {destination} ({source_hash[:12]})")
+        if destination.is_dir() and tree_digest(destination) == source_hash:
+            print(f"up to date: {source.name} ({source_hash[:12]})")
+            continue
+        if (destination.exists() or destination.is_symlink()) and not force:
+            raise SystemExit(f"refusing to replace changed skill {destination}; rerun with --force")
+
+        action = "would install" if dry_run else "install"
+        print(f"{action}: {source.name} -> {destination} ({source_hash[:12]})")
+        changed += 1
         if dry_run:
             continue
-        if destination.exists():
-            shutil.rmtree(destination)
-        shutil.copytree(source, destination)
-        installed += 1
-    return installed
+
+        temporary_parent = destination_root
+        temporary = Path(
+            tempfile.mkdtemp(prefix=f".{source.name}.", suffix=".tmp", dir=temporary_parent)
+        )
+        backup = temporary / f"{source.name}.backup"
+        destination_moved = False
+        try:
+            staged = temporary / source.name
+            shutil.copytree(source, staged)
+            if destination.exists() or destination.is_symlink():
+                destination.replace(backup)
+                destination_moved = True
+            try:
+                staged.replace(destination)
+            except OSError:
+                _remove_destination(destination)
+                if destination_moved:
+                    backup.replace(destination)
+                    destination_moved = False
+                raise
+            if destination_moved:
+                _remove_destination(backup)
+                destination_moved = False
+        finally:
+            if destination_moved and not (destination.exists() or destination.is_symlink()):
+                backup.replace(destination)
+            shutil.rmtree(temporary, ignore_errors=True)
+    return changed
 
 
 def main() -> int:
@@ -65,7 +102,8 @@ def main() -> int:
     count = install(
         source_root, args.destination.expanduser(), force=args.force, dry_run=args.dry_run
     )
-    print(f"installed {count} skill directories")
+    verb = "would install" if args.dry_run else "installed"
+    print(f"{verb} {count} skill directories")
     return 0
 
 

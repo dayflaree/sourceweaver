@@ -1,8 +1,7 @@
 """A lossless lexer for VMF's KeyValues-derived syntax.
 
-The lexer retains every byte represented as decoded text: whitespace, comments,
-quoted strings, bare atoms, and braces. VMF files are normally Windows-1251 or
-ASCII-compatible text. Byte decoding is handled by :mod:`document`.
+The lexer retains every decoded source character: whitespace, comments, quoted
+strings, bare atoms, and braces. Byte decoding is handled by :mod:`document`.
 """
 
 from __future__ import annotations
@@ -11,7 +10,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
-from sourceweaver.errors import VmfSyntaxError
+from sourceweaver.errors import VmfLimitError, VmfSyntaxError
+
+DEFAULT_MAX_SOURCE_CHARS: Final[int] = 256 * 1024 * 1024
+DEFAULT_MAX_TOKENS: Final[int] = 10_000_000
 
 
 class TokenKind(StrEnum):
@@ -31,7 +33,7 @@ TRIVIA_KINDS: Final[frozenset[TokenKind]] = frozenset({TokenKind.WHITESPACE, Tok
 
 @dataclass(frozen=True, slots=True)
 class Token:
-    """One source token with an exact span."""
+    """One source token with an exact character span."""
 
     kind: TokenKind
     raw: str
@@ -53,8 +55,8 @@ class Token:
                 if char in {'"', "\\"}:
                     output.append(char)
                 else:
-                    # Source KeyValues accepts game-dependent escape behavior.
-                    # Preserve unknown escapes semantically as two characters.
+                    # Source branches differ in escape handling. Preserve unknown
+                    # escapes semantically as the original two characters.
                     output.extend(("\\", char))
                 escaped = False
             elif char == "\\":
@@ -67,14 +69,31 @@ class Token:
 
 
 def _advance_position(raw: str, line: int, column: int) -> tuple[int, int]:
-    newline_count = raw.count("\n")
+    normalized = raw.replace("\r\n", "\n").replace("\r", "\n")
+    newline_count = normalized.count("\n")
     if newline_count == 0:
         return line, column + len(raw)
-    return line + newline_count, len(raw.rsplit("\n", 1)[-1]) + 1
+    return line + newline_count, len(normalized.rsplit("\n", 1)[-1]) + 1
 
 
-def lex(text: str) -> tuple[Token, ...]:
-    """Lex *text* while preserving all source characters and spans."""
+def lex(
+    text: str,
+    *,
+    max_chars: int = DEFAULT_MAX_SOURCE_CHARS,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> tuple[Token, ...]:
+    """Lex *text* while preserving all source characters and spans.
+
+    Limits prevent untrusted files from causing unbounded memory consumption.
+    Callers may lower them for services with stricter resource budgets.
+    """
+    if max_chars < 0 or max_tokens < 1:
+        raise ValueError("Lexer limits must be positive")
+    if len(text) > max_chars:
+        raise VmfLimitError(
+            f"VMF contains {len(text):,} decoded characters; limit is {max_chars:,}"
+        )
+
     tokens: list[Token] = []
     index = 0
     line = 1
@@ -82,6 +101,8 @@ def lex(text: str) -> tuple[Token, ...]:
     length = len(text)
 
     def emit(kind: TokenKind, start: int, end: int, token_line: int, token_col: int) -> None:
+        if len(tokens) >= max_tokens:
+            raise VmfLimitError(f"VMF token count exceeds configured limit of {max_tokens:,}")
         tokens.append(Token(kind, text[start:end], start, end, token_line, token_col))
 
     while index < length:

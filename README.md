@@ -44,9 +44,10 @@ The repository currently provides the verified foundation:
 - exact preservation of comments, duplicate keys, whitespace, line endings, encodings, and unknown blocks;
 - conflict-checked source edits;
 - VMF structural inspection;
-- compiler discovery and SHA-256 fingerprinting;
-- byte-identical round-trip fixtures;
-- cross-platform CI;
+- Steam-library-aware GMod compiler discovery and stable SHA-256 fingerprinting;
+- byte-identical round-trip fixtures with bounded parser depth, size, and token counts;
+- Windows and Linux CI across Python 3.11–3.14;
+- clean wheel/source-distribution builds and installed-wheel smoke tests;
 - complete research, architecture, validation, and implementation plans;
 - reusable project skills under [`skills/`](skills/README.md).
 
@@ -70,7 +71,7 @@ pytest
 
 VMF is text, but a conventional semantic parser is insufficient for editor-safe automation. Existing parsers generally reconstruct known structures when exporting. That can change formatting and may discard unknown Hammer++ or future editor data. SourceWeaver keeps a concrete syntax tree and applies span-based patches so untouched text remains exactly untouched.
 
-`srctools` remains the preferred semantic Source-format library. It is used behind the lossless layer for FGD, VMF, BSP, VPK, material, instance, and entity-I/O semantics.
+`srctools` remains the planned semantic Source-format library for FGD, VMF, BSP, VPK, material, instance, and entity-I/O support. The semantic adapter is roadmap work and is available to developers through the optional `semantics` dependency group.
 
 ## Major systems
 

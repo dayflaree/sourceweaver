@@ -30,7 +30,10 @@
     "newline": {
       "enum": [
         "LF",
-        "CRLF"
+        "CRLF",
+        "CR",
+        "MIXED",
+        "NONE"
       ]
     },
     "top_level_blocks": {

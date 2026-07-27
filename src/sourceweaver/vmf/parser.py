@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import Final, TypeAlias
 
-from sourceweaver.errors import VmfSyntaxError
-from sourceweaver.vmf.lexer import TRIVIA_KINDS, Token, TokenKind, lex
+from sourceweaver.errors import VmfLimitError, VmfSyntaxError
+from sourceweaver.vmf.lexer import (
+    DEFAULT_MAX_SOURCE_CHARS,
+    DEFAULT_MAX_TOKENS,
+    TRIVIA_KINDS,
+    Token,
+    TokenKind,
+    lex,
+)
+
+DEFAULT_MAX_DEPTH: Final[int] = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +52,7 @@ class ParsedVmf:
     entries: tuple[EntryNode, ...]
 
     def render(self) -> str:
-        """Return the original text byte-for-text at the decoded-text layer."""
+        """Return the original text character-for-character."""
         return "".join(token.raw for token in self.tokens if token.kind is not TokenKind.EOF)
 
     def blocks(self, name: str | None = None) -> tuple[BlockNode, ...]:
@@ -56,10 +65,11 @@ class ParsedVmf:
 
 
 class _Parser:
-    def __init__(self, text: str, tokens: tuple[Token, ...]) -> None:
+    def __init__(self, text: str, tokens: tuple[Token, ...], *, max_depth: int) -> None:
         self.text = text
         self.tokens = tokens
         self.index = 0
+        self.max_depth = max_depth
 
     def _skip_trivia(self) -> None:
         while self.tokens[self.index].kind in TRIVIA_KINDS:
@@ -72,7 +82,7 @@ class _Parser:
     def _is_value_token(token: Token) -> bool:
         return token.kind in {TokenKind.STRING, TokenKind.ATOM}
 
-    def parse_entries(self, *, stop_on_rbrace: bool) -> tuple[EntryNode, ...]:
+    def parse_entries(self, *, stop_on_rbrace: bool, depth: int) -> tuple[EntryNode, ...]:
         entries: list[EntryNode] = []
         while True:
             self._skip_trivia()
@@ -109,9 +119,15 @@ class _Parser:
             next_token = self._current()
 
             if next_token.kind is TokenKind.LBRACE:
+                child_depth = depth + 1
+                if child_depth > self.max_depth:
+                    raise VmfLimitError(
+                        f"VMF nesting depth exceeds configured limit of {self.max_depth} "
+                        f"near line {next_token.line}, column {next_token.column}"
+                    )
                 open_brace = next_token
                 self.index += 1
-                children = self.parse_entries(stop_on_rbrace=True)
+                children = self.parse_entries(stop_on_rbrace=True, depth=child_depth)
                 close_brace = self._current()
                 self.index += 1
                 entries.append(
@@ -141,9 +157,17 @@ class _Parser:
             )
 
 
-def parse(text: str) -> ParsedVmf:
+def parse(
+    text: str,
+    *,
+    max_chars: int = DEFAULT_MAX_SOURCE_CHARS,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+) -> ParsedVmf:
     """Parse VMF text into a lossless concrete syntax tree."""
-    tokens = lex(text)
-    parser = _Parser(text, tokens)
-    entries = parser.parse_entries(stop_on_rbrace=False)
+    if max_depth < 1:
+        raise ValueError("Parser depth limit must be positive")
+    tokens = lex(text, max_chars=max_chars, max_tokens=max_tokens)
+    parser = _Parser(text, tokens, max_depth=max_depth)
+    entries = parser.parse_entries(stop_on_rbrace=False, depth=0)
     return ParsedVmf(text=text, tokens=tokens, entries=entries)
