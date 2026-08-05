@@ -36,10 +36,10 @@ def test_fingerprint_rejects_disappearing_path(
     path.write_bytes(b"artifact")
     original_stat = Path.stat
 
-    def fail_for_artifact(self: Path, *args: object, **kwargs: object) -> object:
+    def fail_for_artifact(self: Path, *, follow_symlinks: bool = True) -> object:
         if self == path:
             raise FileNotFoundError(path)
-        return original_stat(self, *args, **kwargs)
+        return original_stat(self, follow_symlinks=follow_symlinks)
 
     monkeypatch.setattr(Path, "stat", fail_for_artifact)
     with pytest.raises(ArtifactChangedError, match="path disappeared"):

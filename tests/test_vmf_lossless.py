@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +16,19 @@ from sourceweaver.vmf import TextEdit, VmfDocument, apply_edits, parse
 from sourceweaver.vmf.lexer import TokenKind, lex
 
 FIXTURE = Path(__file__).parent / "fixtures/minimal.vmf"
+LOSSLESS_FIXTURE_ROOT = Path(__file__).parent / "fixtures/lossless"
+
+
+def _lossless_fixture_cases() -> list[tuple[Path, dict[str, object]]]:
+    manifest_path = LOSSLESS_FIXTURE_ROOT / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cases: list[tuple[Path, dict[str, object]]] = []
+    for fixture in manifest["fixtures"]:
+        if not isinstance(fixture, dict):
+            raise AssertionError(f"Invalid fixture entry in {manifest_path}: {fixture!r}")
+        path = LOSSLESS_FIXTURE_ROOT / str(fixture["path"])
+        cases.append((path, fixture))
+    return cases
 
 
 def test_fixture_roundtrips_byte_identically() -> None:
@@ -27,6 +41,23 @@ def test_fixture_roundtrips_byte_identically() -> None:
         "cameras",
         "cordons",
     ]
+
+
+@pytest.mark.parametrize(("path", "metadata"), _lossless_fixture_cases())
+def test_manifested_lossless_fixture_roundtrips_byte_identically(
+    path: Path, metadata: dict[str, object]
+) -> None:
+    document = VmfDocument.read(path)
+    assert document.render_bytes() == document.raw_bytes
+    assert document.encoding == metadata["encoding"]
+    assert document.newline_style == metadata["expected_newline_style"]
+    assert [block.key.value for block in document.syntax.blocks()] == metadata[
+        "expected_top_level_blocks"
+    ]
+    assert metadata["provenance"] == (
+        "synthetic, authored specifically for SourceWeaver tests; contains no game content"
+    )
+    assert metadata["coverage"]
 
 
 def test_duplicate_keys_and_comments_are_retained() -> None:

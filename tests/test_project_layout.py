@@ -2,6 +2,7 @@ import json
 import tomllib
 from importlib import metadata
 from pathlib import Path
+from typing import cast
 
 from jsonschema import Draft202012Validator
 
@@ -13,7 +14,8 @@ FIXTURE = ROOT / "tests" / "fixtures" / "minimal.vmf"
 
 
 def _load_schema(name: str) -> dict[str, object]:
-    return json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
+    payload = json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
+    return cast(dict[str, object], payload)
 
 
 def test_json_schemas_are_valid_draft_2020_12() -> None:
