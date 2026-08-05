@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from sourceweaver.compiler import CompilerRunPreflight, CompilerRunStatus
 from sourceweaver.geometry import (
     BoundsRelation,
     BrushRelation,
@@ -239,6 +240,25 @@ class StitchMaterializationBlockerCode(StrEnum):
 
     MANIFEST_BLOCKED = "manifest_blocked"
     OUTPUT_REPARSE_FAILED = "output_reparse_failed"
+
+
+class StitchRemovalAuthorityStatus(StrEnum):
+    """Final status for duplicate-removal authority."""
+
+    AUTHORIZED = "authorized"
+    BLOCKED = "blocked"
+
+
+class StitchRemovalAuthorityBlockerCode(StrEnum):
+    """Deterministic blockers for duplicate-removal authority."""
+
+    MANIFEST_BLOCKED = "manifest_blocked"
+    SEAM_CONFIDENCE_BLOCKED = "seam_confidence_blocked"
+    NO_CANDIDATE_REMOVALS = "no_candidate_removals"
+    MATERIAL_EQUIVALENCE_MISSING = "material_equivalence_missing"
+    COMPILER_PREFLIGHT_BLOCKED = "compiler_preflight_blocked"
+    RUNTIME_ACCEPTANCE_MISSING = "runtime_acceptance_missing"
+    UNSAFE_REMOVAL_CLASS = "unsafe_removal_class"
 
 
 @dataclass(frozen=True, slots=True)
@@ -567,6 +587,25 @@ class MaterializedStitch:
 
 
 @dataclass(frozen=True, slots=True)
+class StitchRemovalAuthorityBlocker:
+    """A reason candidate duplicate removal lacks commit authority."""
+
+    code: StitchRemovalAuthorityBlockerCode
+    message: str
+    candidate_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StitchRemovalAuthorityReport:
+    """Compiler/runtime-gated authority for candidate duplicate removal."""
+
+    status: StitchRemovalAuthorityStatus
+    candidate_removals: tuple[str, ...]
+    blockers: tuple[StitchRemovalAuthorityBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportIdRecord:
     kind: ImportIdKind
     raw_id: str | None
@@ -877,6 +916,78 @@ def materialize_stitch_from_manifest(
         output_bytes=output_bytes,
         provenance=_materialization_provenance(source_document, candidate_semantic, snippets),
         blockers=(),
+    )
+
+
+def build_stitch_removal_authority_report(
+    manifest: StitchPlanManifest,
+    deletion_evidence: SeamDeletionEvidence,
+    seam_confidence: SeamConfidenceReport,
+    compiler_preflight: CompilerRunPreflight,
+    *,
+    material_equivalent_candidate_keys: Iterable[str],
+    runtime_acceptance_passed: bool,
+) -> StitchRemovalAuthorityReport:
+    """Authorize candidate duplicate removals only after all commit gates pass."""
+    blockers: list[StitchRemovalAuthorityBlocker] = []
+    candidate_removals = manifest.candidate_removals
+    material_equivalent = set(material_equivalent_candidate_keys)
+    if manifest.status is not StitchPlanManifestStatus.VALID:
+        blockers.append(
+            StitchRemovalAuthorityBlocker(
+                code=StitchRemovalAuthorityBlockerCode.MANIFEST_BLOCKED,
+                message="Stitch plan manifest is blocked.",
+            )
+        )
+    if seam_confidence.status is not SeamConfidenceStatus.READY_FOR_REVIEW:
+        blockers.append(
+            StitchRemovalAuthorityBlocker(
+                code=StitchRemovalAuthorityBlockerCode.SEAM_CONFIDENCE_BLOCKED,
+                message="Seam confidence evidence is blocked.",
+            )
+        )
+    if not candidate_removals:
+        blockers.append(
+            StitchRemovalAuthorityBlocker(
+                code=StitchRemovalAuthorityBlockerCode.NO_CANDIDATE_REMOVALS,
+                message="Manifest contains no candidate removals to authorize.",
+            )
+        )
+    for candidate_key in candidate_removals:
+        if candidate_key not in material_equivalent:
+            blockers.append(
+                StitchRemovalAuthorityBlocker(
+                    code=StitchRemovalAuthorityBlockerCode.MATERIAL_EQUIVALENCE_MISSING,
+                    message="Candidate removal lacks material equivalence evidence.",
+                    candidate_key=candidate_key,
+                )
+            )
+    if compiler_preflight.status is not CompilerRunStatus.READY:
+        blockers.append(
+            StitchRemovalAuthorityBlocker(
+                code=StitchRemovalAuthorityBlockerCode.COMPILER_PREFLIGHT_BLOCKED,
+                message="Compiler run preflight is not ready.",
+            )
+        )
+    if not runtime_acceptance_passed:
+        blockers.append(
+            StitchRemovalAuthorityBlocker(
+                code=StitchRemovalAuthorityBlockerCode.RUNTIME_ACCEPTANCE_MISSING,
+                message="Runtime acceptance gate has not passed.",
+            )
+        )
+    blockers.extend(_unsafe_removal_class_blockers(deletion_evidence, candidate_removals))
+    if blockers:
+        return StitchRemovalAuthorityReport(
+            status=StitchRemovalAuthorityStatus.BLOCKED,
+            candidate_removals=(),
+            blockers=tuple(blockers),
+        )
+    return StitchRemovalAuthorityReport(
+        status=StitchRemovalAuthorityStatus.AUTHORIZED,
+        candidate_removals=candidate_removals,
+        blockers=(),
+        mutation_authorized=True,
     )
 
 
@@ -1762,6 +1873,30 @@ def _classify_deletion(relation: BrushRelation) -> tuple[SeamDeletionClass, bool
     if relation is BrushRelation.OVERLAPPING:
         return SeamDeletionClass.PRESERVE_UNSAFE_OVERLAP, False, False
     return SeamDeletionClass.PRESERVE_DISJOINT_OR_UNCLASSIFIED, False, False
+
+
+def _unsafe_removal_class_blockers(
+    deletion_evidence: SeamDeletionEvidence,
+    candidate_removals: tuple[str, ...],
+) -> tuple[StitchRemovalAuthorityBlocker, ...]:
+    removal_classes = {
+        item.candidate_key: item.deletion_class
+        for item in deletion_evidence.items
+        if item.candidate_key in candidate_removals
+    }
+    safe_classes = {
+        SeamDeletionClass.CANDIDATE_EQUAL_VOLUME_DUPLICATE,
+        SeamDeletionClass.CANDIDATE_CONTAINED_IN_SOURCE,
+    }
+    return tuple(
+        StitchRemovalAuthorityBlocker(
+            code=StitchRemovalAuthorityBlockerCode.UNSAFE_REMOVAL_CLASS,
+            message="Candidate removal is not an exact duplicate or contained brush.",
+            candidate_key=candidate_key,
+        )
+        for candidate_key in candidate_removals
+        if removal_classes.get(candidate_key) not in safe_classes
+    )
 
 
 def _confidence_item_blockers(
