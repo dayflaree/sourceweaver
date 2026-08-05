@@ -70,7 +70,9 @@ Current code provides an evidence-only lifecycle policy matrix. It classifies th
 
 Transition scaffolding already handled by stitching (`info_landmark`, `trigger_changelevel`, `trigger_transition`) is ignored by the lifecycle matrix. Unknown activation-affecting classes block synthesis until a class policy is added. The matrix is evidence-only and does not generate controllers, rewrite entities, or authorize source mutation.
 
-Current code also builds a deterministic lifecycle controller plan from a clear matrix. The plan expands each entity policy into ordered `preload`, `activate`, `deactivate`, `reset`, and `remove` steps for one named region. Empty region names and blocked policy matrices stop planning. The controller plan is read-only: it does not emit VMF controller entities, wire outputs, or prove runtime behavior.
+Current code also builds a deterministic lifecycle controller plan from a clear matrix. The plan expands each entity policy into ordered `preload`, `activate`, `deactivate`, `reset`, and `remove` steps for one named region. Empty region names and blocked policy matrices stop planning.
+
+Lifecycle controller entity specs are available as read-only phase relays. They allocate one `logic_relay` specification per lifecycle phase and assign each planned lifecycle step to its phase relay. Invalid first entity IDs and blocked controller plans stop entity-spec creation. This does not yet materialize the controller entities into the generated VMF, wire outputs, or prove runtime behavior.
 
 ## Synthesized controller
 

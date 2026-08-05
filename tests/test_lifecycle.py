@@ -3,8 +3,11 @@ from pathlib import Path
 from sourceweaver.lifecycle import (
     LifecycleBlockerCode,
     LifecycleControllerBlockerCode,
+    LifecycleControllerEntityBlockerCode,
+    LifecycleControllerEntityStatus,
     LifecycleControllerStatus,
     LifecyclePolicyStatus,
+    build_lifecycle_controller_entity_plan,
     build_lifecycle_controller_plan,
     build_lifecycle_policy_matrix,
 )
@@ -224,4 +227,72 @@ entity
     assert [blocker.code for blocker in plan.blockers] == [
         LifecycleControllerBlockerCode.EMPTY_REGION_NAME,
         LifecycleControllerBlockerCode.POLICY_MATRIX_BLOCKED,
+    ]
+
+
+def test_lifecycle_controller_entity_plan_emits_phase_relays() -> None:
+    semantic = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_auto"
+}
+"""
+    )
+    controller_plan = build_lifecycle_controller_plan(
+        build_lifecycle_policy_matrix(semantic), region_name="transition_beta"
+    )
+
+    entity_plan = build_lifecycle_controller_entity_plan(controller_plan, first_entity_id=100)
+
+    assert entity_plan.status is LifecycleControllerEntityStatus.READY
+    assert entity_plan.blockers == ()
+    assert entity_plan.mutation_authorized is False
+    assert [entity.targetname for entity in entity_plan.entities] == [
+        "sourceweaver_transition_beta_preload",
+        "sourceweaver_transition_beta_activate",
+        "sourceweaver_transition_beta_deactivate",
+        "sourceweaver_transition_beta_reset",
+        "sourceweaver_transition_beta_remove",
+    ]
+    assert [entity.entity_id for entity in entity_plan.entities] == [
+        "100",
+        "101",
+        "102",
+        "103",
+        "104",
+    ]
+    assert entity_plan.entities[0].classname == "logic_relay"
+    assert [record.phase for record in entity_plan.step_records] == [
+        "preload",
+        "activate",
+        "deactivate",
+        "reset",
+        "remove",
+    ]
+    assert (
+        entity_plan.step_records[0].controller_targetname == "sourceweaver_transition_beta_preload"
+    )
+
+
+def test_lifecycle_controller_entity_plan_blocks_invalid_input() -> None:
+    blocked_plan = build_lifecycle_controller_plan(
+        build_lifecycle_policy_matrix(
+            _semantic('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+        ),
+        region_name="",
+    )
+
+    entity_plan = build_lifecycle_controller_entity_plan(blocked_plan, first_entity_id=0)
+
+    assert entity_plan.status is LifecycleControllerEntityStatus.BLOCKED
+    assert entity_plan.entities == ()
+    assert [blocker.code for blocker in entity_plan.blockers] == [
+        LifecycleControllerEntityBlockerCode.CONTROLLER_PLAN_BLOCKED,
+        LifecycleControllerEntityBlockerCode.INVALID_FIRST_ENTITY_ID,
     ]

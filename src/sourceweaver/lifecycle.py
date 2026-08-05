@@ -40,6 +40,20 @@ class LifecycleControllerBlockerCode(StrEnum):
     POLICY_MATRIX_BLOCKED = "policy_matrix_blocked"
 
 
+class LifecycleControllerEntityStatus(StrEnum):
+    """Final status for lifecycle controller entity specification."""
+
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class LifecycleControllerEntityBlockerCode(StrEnum):
+    """Deterministic blockers for lifecycle controller entity specs."""
+
+    CONTROLLER_PLAN_BLOCKED = "controller_plan_blocked"
+    INVALID_FIRST_ENTITY_ID = "invalid_first_entity_id"
+
+
 @dataclass(frozen=True, slots=True)
 class LifecyclePolicy:
     """Lifecycle actions for one known class or class family."""
@@ -108,6 +122,44 @@ class LifecycleControllerPlan:
     region_name: str
     steps: tuple[LifecycleControllerStep, ...]
     blockers: tuple[LifecycleControllerBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerEntitySpec:
+    """One VMF entity specification for a lifecycle phase relay."""
+
+    entity_id: str
+    classname: str
+    targetname: str
+    phase: str
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerStepRecord:
+    """One lifecycle step assigned to a controller phase relay."""
+
+    controller_targetname: str
+    phase: str
+    step: LifecycleControllerStep
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerEntityBlocker:
+    """A reason lifecycle controller entity specs cannot be produced."""
+
+    code: LifecycleControllerEntityBlockerCode
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerEntityPlan:
+    """Read-only VMF entity specs for lifecycle phase relays."""
+
+    status: LifecycleControllerEntityStatus
+    entities: tuple[LifecycleControllerEntitySpec, ...]
+    step_records: tuple[LifecycleControllerStepRecord, ...]
+    blockers: tuple[LifecycleControllerEntityBlocker, ...]
     mutation_authorized: bool = False
 
 
@@ -278,6 +330,63 @@ def build_lifecycle_controller_plan(
         status=LifecycleControllerStatus.READY,
         region_name=region_name,
         steps=_controller_steps(matrix.entries),
+        blockers=(),
+    )
+
+
+def build_lifecycle_controller_entity_plan(
+    controller_plan: LifecycleControllerPlan,
+    *,
+    first_entity_id: int,
+) -> LifecycleControllerEntityPlan:
+    """Build read-only phase relay entity specs for a lifecycle controller."""
+    blockers: list[LifecycleControllerEntityBlocker] = []
+    if controller_plan.status is not LifecycleControllerStatus.READY:
+        blockers.append(
+            LifecycleControllerEntityBlocker(
+                code=LifecycleControllerEntityBlockerCode.CONTROLLER_PLAN_BLOCKED,
+                message="Lifecycle controller plan is blocked.",
+            )
+        )
+    if first_entity_id <= 0:
+        blockers.append(
+            LifecycleControllerEntityBlocker(
+                code=LifecycleControllerEntityBlockerCode.INVALID_FIRST_ENTITY_ID,
+                message="First controller entity ID must be a positive integer.",
+            )
+        )
+    if blockers:
+        return LifecycleControllerEntityPlan(
+            status=LifecycleControllerEntityStatus.BLOCKED,
+            entities=(),
+            step_records=(),
+            blockers=tuple(blockers),
+        )
+    phase_names = tuple(dict.fromkeys(step.phase for step in controller_plan.steps))
+    targetnames = {
+        phase: f"sourceweaver_{controller_plan.region_name}_{phase}" for phase in phase_names
+    }
+    entities = tuple(
+        LifecycleControllerEntitySpec(
+            entity_id=str(first_entity_id + index),
+            classname="logic_relay",
+            targetname=targetnames[phase],
+            phase=phase,
+        )
+        for index, phase in enumerate(phase_names)
+    )
+    step_records = tuple(
+        LifecycleControllerStepRecord(
+            controller_targetname=targetnames[step.phase],
+            phase=step.phase,
+            step=step,
+        )
+        for step in controller_plan.steps
+    )
+    return LifecycleControllerEntityPlan(
+        status=LifecycleControllerEntityStatus.READY,
+        entities=entities,
+        step_records=step_records,
         blockers=(),
     )
 
