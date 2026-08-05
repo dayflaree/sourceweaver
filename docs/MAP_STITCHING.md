@@ -30,8 +30,9 @@ The current repository implementation provides a read-only transition graph slic
 - computes the candidate-to-source offset as `source_landmark_origin - candidate_landmark_origin` and blocks nonfinite results.
 - builds read-only seam overlap evidence by translating candidate brush records in memory, selecting AABB candidate pairs, and attaching exact convex brush relation classifications.
 - classifies seam brush pairs into review-only deletion evidence: equal-volume candidate duplicates, candidate-contained-in-source, source-contained-in-candidate, touching seams to preserve, unsafe overlaps to preserve, and unclassified preserve cases.
+- summarizes bounded seam confidence as review-ready only when deletion evidence is valid, seam evidence is non-empty, unsafe overlaps are absent, and source-map brush removal is not required.
 
-This slice is intentionally non-mutating. Alignment, seam overlap, and deletion-class outputs are evidence only and always carry `mutation_authorized = false`. The implementation does not score seam confidence, transform entity fields, namespace references, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates.
+This slice is intentionally non-mutating. Alignment, seam overlap, deletion-class, and seam-confidence outputs are evidence only and always carry `mutation_authorized = false`. The implementation does not transform entity fields, namespace references, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates.
 
 ## Pipeline
 

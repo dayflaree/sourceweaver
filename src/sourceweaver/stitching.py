@@ -90,6 +90,22 @@ class SeamDeletionClass(StrEnum):
     PRESERVE_DISJOINT_OR_UNCLASSIFIED = "preserve_disjoint_or_unclassified"
 
 
+class SeamConfidenceStatus(StrEnum):
+    """Final status for bounded seam confidence review."""
+
+    READY_FOR_REVIEW = "ready_for_review"
+    BLOCKED = "blocked"
+
+
+class SeamConfidenceBlockerCode(StrEnum):
+    """Deterministic blockers for seam confidence evidence."""
+
+    DELETION_EVIDENCE_BLOCKED = "deletion_evidence_blocked"
+    EMPTY_SEAM_EVIDENCE = "empty_seam_evidence"
+    UNSAFE_OVERLAP = "unsafe_overlap"
+    SOURCE_REMOVAL_UNSUPPORTED = "source_removal_unsupported"
+
+
 @dataclass(frozen=True, slots=True)
 class TransitionBlocker:
     """A reason a transition edge cannot become stitching authority."""
@@ -233,6 +249,29 @@ class SeamDeletionEvidence:
     status: SeamDeletionEvidenceStatus
     items: tuple[SeamDeletionItemEvidence, ...]
     blockers: tuple[SeamEvidenceBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SeamConfidenceBlocker:
+    """A reason seam confidence cannot advance to review-ready state."""
+
+    code: SeamConfidenceBlockerCode
+    message: str
+    item_index: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SeamConfidenceReport:
+    """Bounded seam confidence summary with no mutation authority."""
+
+    status: SeamConfidenceStatus
+    pair_count: int
+    candidate_removal_count: int
+    source_removal_count: int
+    touching_pair_count: int
+    unsafe_overlap_count: int
+    blockers: tuple[SeamConfidenceBlocker, ...]
     mutation_authorized: bool = False
 
 
@@ -497,6 +536,52 @@ def build_seam_deletion_evidence(
     )
 
 
+def build_seam_confidence_report(
+    deletion_evidence: SeamDeletionEvidence,
+) -> SeamConfidenceReport:
+    """Summarize seam evidence and block unsupported overlap classes."""
+    pair_count = len(deletion_evidence.items)
+    candidate_removal_count = sum(1 for item in deletion_evidence.items if item.remove_candidate)
+    source_removal_count = sum(1 for item in deletion_evidence.items if item.remove_source)
+    touching_pair_count = sum(
+        1
+        for item in deletion_evidence.items
+        if item.deletion_class is SeamDeletionClass.PRESERVE_TOUCHING_SEAM
+    )
+    unsafe_overlap_count = sum(
+        1
+        for item in deletion_evidence.items
+        if item.deletion_class is SeamDeletionClass.PRESERVE_UNSAFE_OVERLAP
+    )
+    blockers: list[SeamConfidenceBlocker] = []
+    if deletion_evidence.status is not SeamDeletionEvidenceStatus.VALID:
+        blockers.append(
+            SeamConfidenceBlocker(
+                code=SeamConfidenceBlockerCode.DELETION_EVIDENCE_BLOCKED,
+                message="Seam deletion evidence is blocked.",
+            )
+        )
+    if deletion_evidence.status is SeamDeletionEvidenceStatus.VALID and pair_count == 0:
+        blockers.append(
+            SeamConfidenceBlocker(
+                code=SeamConfidenceBlockerCode.EMPTY_SEAM_EVIDENCE,
+                message="No seam brush pairs were found for confidence review.",
+            )
+        )
+    blockers.extend(_confidence_item_blockers(deletion_evidence.items))
+    return SeamConfidenceReport(
+        status=(
+            SeamConfidenceStatus.BLOCKED if blockers else SeamConfidenceStatus.READY_FOR_REVIEW
+        ),
+        pair_count=pair_count,
+        candidate_removal_count=candidate_removal_count,
+        source_removal_count=source_removal_count,
+        touching_pair_count=touching_pair_count,
+        unsafe_overlap_count=unsafe_overlap_count,
+        blockers=tuple(blockers),
+    )
+
+
 def _classname_is(entity: SemanticEntity, classname: str) -> bool:
     return entity.classname is not None and entity.classname.casefold() == classname
 
@@ -558,6 +643,30 @@ def _classify_deletion(relation: BrushRelation) -> tuple[SeamDeletionClass, bool
     if relation is BrushRelation.OVERLAPPING:
         return SeamDeletionClass.PRESERVE_UNSAFE_OVERLAP, False, False
     return SeamDeletionClass.PRESERVE_DISJOINT_OR_UNCLASSIFIED, False, False
+
+
+def _confidence_item_blockers(
+    items: tuple[SeamDeletionItemEvidence, ...],
+) -> tuple[SeamConfidenceBlocker, ...]:
+    blockers: list[SeamConfidenceBlocker] = []
+    for index, item in enumerate(items):
+        if item.deletion_class is SeamDeletionClass.PRESERVE_UNSAFE_OVERLAP:
+            blockers.append(
+                SeamConfidenceBlocker(
+                    code=SeamConfidenceBlockerCode.UNSAFE_OVERLAP,
+                    message="Unsupported overlapping seam brush pair requires review.",
+                    item_index=index,
+                )
+            )
+        if item.remove_source:
+            blockers.append(
+                SeamConfidenceBlocker(
+                    code=SeamConfidenceBlockerCode.SOURCE_REMOVAL_UNSUPPORTED,
+                    message="Source-map brush removal is unsupported in this stitcher slice.",
+                    item_index=index,
+                )
+            )
+    return tuple(blockers)
 
 
 def _first_pair(entity: SemanticEntity, key: str) -> SemanticPair | None:
