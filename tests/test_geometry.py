@@ -6,6 +6,7 @@ from sourceweaver.geometry import (
     BrushRelation,
     ConvexBrush,
     GeometryTolerances,
+    GeometryTransformStatus,
     Plane,
     PlaneParseError,
     ReconstructionStatus,
@@ -13,6 +14,7 @@ from sourceweaver.geometry import (
     classify_brush_relation,
     extract_brush_sources,
     reconstruct_convex_brush,
+    translate_convex_brush_for_analysis,
 )
 from sourceweaver.vmf.document import VmfDocument
 
@@ -174,3 +176,58 @@ def test_classifies_reversed_containment() -> None:
     inner = _cube_brush(Vec3(32.0, 32.0, 32.0), Vec3(96.0, 96.0, 96.0))
 
     assert classify_brush_relation(inner, base) is BrushRelation.B_CONTAINS_A
+
+
+def test_translates_convex_brush_for_analysis_without_mutation_authority() -> None:
+    brush = _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))
+    offset = Vec3(512.0, -64.0, 32.0)
+
+    result = translate_convex_brush_for_analysis(brush, offset)
+
+    assert result.status is GeometryTransformStatus.VALID
+    assert result.brush is not None
+    assert result.mutation_authorized is False
+    assert result.operation == "translation"
+    assert result.brush.volume == pytest.approx(brush.volume)
+    assert result.brush.bounds_min.as_tuple() == pytest.approx((512.0, -64.0, 32.0))
+    assert result.brush.bounds_max.as_tuple() == pytest.approx((640.0, 64.0, 160.0))
+    assert result.brush.vertices == tuple(vertex + offset for vertex in brush.vertices)
+    for original, translated in zip(brush.faces, result.brush.faces, strict=True):
+        assert translated.plane.raw.startswith("<generated:analysis-translation")
+        assert translated.plane.normal.as_tuple() == pytest.approx(original.plane.normal.as_tuple())
+        assert translated.plane.distance == pytest.approx(
+            original.plane.distance + original.plane.normal.dot(offset)
+        )
+        assert translated.area == pytest.approx(original.area)
+        assert translated.vertices == tuple(vertex + offset for vertex in original.vertices)
+
+
+def test_nonfinite_translation_offset_is_blocked() -> None:
+    brush = _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))
+
+    result = translate_convex_brush_for_analysis(brush, Vec3(math.inf, 0.0, 0.0))
+
+    assert result.status is GeometryTransformStatus.INVALID
+    assert result.brush is None
+    assert any(blocker.code == "TRANSFORM_NONFINITE_OFFSET" for blocker in result.blockers)
+
+
+def test_translation_world_bound_violation_is_blocked() -> None:
+    brush = _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))
+
+    result = translate_convex_brush_for_analysis(brush, Vec3(70_000.0, 0.0, 0.0))
+
+    assert result.status is GeometryTransformStatus.INVALID
+    assert result.brush is None
+    assert any(blocker.code == "BRUSH_WORLD_BOUNDS_EXCEEDED" for blocker in result.blockers)
+
+
+def test_translated_brush_can_feed_relation_classification() -> None:
+    source = _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))
+    candidate = _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))
+
+    transformed = translate_convex_brush_for_analysis(candidate, Vec3(128.0, 0.0, 0.0))
+
+    assert transformed.status is GeometryTransformStatus.VALID
+    assert transformed.brush is not None
+    assert classify_brush_relation(source, transformed.brush) is BrushRelation.TOUCHING

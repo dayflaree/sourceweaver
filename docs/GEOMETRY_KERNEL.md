@@ -44,9 +44,10 @@ The current repository implementation provides the first read-only geometry slic
 - convex-brush reconstruction by triple-plane half-space intersection;
 - vertex deduplication, face polygon sorting, area checks, minimum-edge checks, volume checks, and world-bound checks;
 - conservative convex brush relation classification for equal volume, containment, touching, overlapping, and disjoint brushes;
+- analysis-only translation of validated convex brushes for seam/relation evidence, with explicit nonfinite and world-bound blockers and no mutation authority;
 - deterministic invalid-result blockers surfaced through `sourceweaver inspect` as `GEO001` diagnostics.
 
-This slice is intentionally non-mutating. It does not transform brushes, emit generated solids, validate texture axes, compare compiler BSP topology, reconcile Hammer++ `vertices_plus`, or authorize duplicate removal. Relation classification is evidence for reports and later seam planning only; automatic removal remains disabled until semantic/material/compiler/runtime gates exist.
+This slice is intentionally non-mutating. Translation output is derived geometry for evidence only and always carries `mutation_authorized = false`. The implementation does not emit generated solids, validate texture axes, compare compiler BSP topology, reconcile Hammer++ `vertices_plus`, or authorize duplicate removal. Relation classification is evidence for reports and later seam planning only; automatic removal remains disabled until semantic/material/compiler/runtime gates exist.
 
 ## Brush reconstruction
 
@@ -78,6 +79,15 @@ No universal epsilon is hardcoded as truth. Profiles define:
 Qualification maps determine safe defaults. Reports include every tolerance used.
 
 ## Transform propagation
+
+Implemented so far:
+
+- validated convex-brush translation for analysis-only relation checks;
+- plane distance propagation using `translated_distance = original_distance + normal·offset` while preserving the original outward normal;
+- translated face vertices, bounds, and source-derived plane points marked as generated analysis geometry;
+- deterministic blockers for nonfinite offsets, nonfinite results, and world-bound violations.
+
+The implemented transform is not a VMF patch writer and does not rewrite side plane strings.
 
 A translation affects:
 

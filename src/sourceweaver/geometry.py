@@ -57,6 +57,13 @@ class BrushRelation(StrEnum):
     DISJOINT = "disjoint"
 
 
+class GeometryTransformStatus(StrEnum):
+    """Final status for an analysis-only geometry transform."""
+
+    VALID = "valid"
+    INVALID = "invalid"
+
+
 @dataclass(frozen=True, slots=True)
 class NumericValue:
     """A parsed numeric coordinate with exact source spelling retained."""
@@ -241,6 +248,18 @@ class BrushReconstruction:
     brush: ConvexBrush | None
     blockers: tuple[GeometryBlocker, ...]
     tolerances: GeometryTolerances
+
+
+@dataclass(frozen=True, slots=True)
+class BrushTransformResult:
+    """Result of a geometry transform that carries no mutation authority."""
+
+    status: GeometryTransformStatus
+    brush: ConvexBrush | None
+    blockers: tuple[GeometryBlocker, ...]
+    tolerances: GeometryTolerances
+    operation: str
+    mutation_authorized: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -542,6 +561,80 @@ def classify_brush_relation(
     return BrushRelation.OVERLAPPING
 
 
+def translate_convex_brush_for_analysis(
+    brush: ConvexBrush,
+    offset: Vec3,
+    *,
+    tolerances: GeometryTolerances | None = None,
+) -> BrushTransformResult:
+    """Translate a validated convex brush for relation/seam analysis only.
+
+    The returned brush is derived geometry. It is suitable for conservative
+    intersection checks and report evidence, but it is not a source-spelling VMF
+    patch and carries ``mutation_authorized=False`` unconditionally.
+    """
+    active_tolerances = tolerances or GeometryTolerances()
+    if not _is_finite_vec(offset):
+        return BrushTransformResult(
+            status=GeometryTransformStatus.INVALID,
+            brush=None,
+            blockers=(
+                GeometryBlocker(
+                    code="TRANSFORM_NONFINITE_OFFSET",
+                    message="Translation offset contains a non-finite coordinate.",
+                ),
+            ),
+            tolerances=active_tolerances,
+            operation="translation",
+        )
+
+    vertices = tuple(vertex + offset for vertex in brush.vertices)
+    if not all(_is_finite_vec(vertex) for vertex in vertices):
+        return BrushTransformResult(
+            status=GeometryTransformStatus.INVALID,
+            brush=None,
+            blockers=(
+                GeometryBlocker(
+                    code="TRANSFORM_NONFINITE_RESULT",
+                    message="Translation produced a non-finite brush coordinate.",
+                ),
+            ),
+            tolerances=active_tolerances,
+            operation="translation",
+        )
+
+    bounds_min, bounds_max = _bounds(vertices)
+    bound_limit = active_tolerances.world_bound - active_tolerances.world_margin
+    if any(max(abs(vertex.x), abs(vertex.y), abs(vertex.z)) > bound_limit for vertex in vertices):
+        return BrushTransformResult(
+            status=GeometryTransformStatus.INVALID,
+            brush=None,
+            blockers=(
+                GeometryBlocker(
+                    code="BRUSH_WORLD_BOUNDS_EXCEEDED",
+                    message="Translated brush vertex exceeds configured world bounds.",
+                ),
+            ),
+            tolerances=active_tolerances,
+            operation="translation",
+        )
+
+    faces = tuple(_translate_face_for_analysis(face, offset) for face in brush.faces)
+    return BrushTransformResult(
+        status=GeometryTransformStatus.VALID,
+        brush=ConvexBrush(
+            vertices=vertices,
+            faces=faces,
+            volume=brush.volume,
+            bounds_min=bounds_min,
+            bounds_max=bounds_max,
+        ),
+        blockers=(),
+        tolerances=active_tolerances,
+        operation="translation",
+    )
+
+
 def _candidate_vertices(
     planes: tuple[Plane, ...], tolerances: GeometryTolerances
 ) -> tuple[Vec3, ...]:
@@ -560,6 +653,47 @@ def _candidate_vertices(
         ):
             candidates.append(intersection)
     return tuple(candidates)
+
+
+def _translate_face_for_analysis(face: FaceGeometry, offset: Vec3) -> FaceGeometry:
+    translated_vertices = tuple(vertex + offset for vertex in face.vertices)
+    translated_plane_points = (
+        _derived_plane_point(face.plane.points[0].vector + offset),
+        _derived_plane_point(face.plane.points[1].vector + offset),
+        _derived_plane_point(face.plane.points[2].vector + offset),
+    )
+    translated_plane = Plane(
+        normal=face.plane.normal,
+        distance=face.plane.distance + face.plane.normal.dot(offset),
+        points=translated_plane_points,
+        raw=f"<generated:analysis-translation offset={_format_vec(offset)}>",
+    )
+    return FaceGeometry(
+        side_id=face.side_id,
+        plane=translated_plane,
+        vertices=translated_vertices,
+        area=face.area,
+    )
+
+
+def _derived_plane_point(point: Vec3) -> PlanePoint:
+    return PlanePoint(
+        NumericValue(raw=_format_float(point.x), value=point.x),
+        NumericValue(raw=_format_float(point.y), value=point.y),
+        NumericValue(raw=_format_float(point.z), value=point.z),
+    )
+
+
+def _format_vec(point: Vec3) -> str:
+    return f"({_format_float(point.x)} {_format_float(point.y)} {_format_float(point.z)})"
+
+
+def _format_float(value: float) -> str:
+    return format(value, ".12g")
+
+
+def _is_finite_vec(point: Vec3) -> bool:
+    return all(math.isfinite(value) for value in point.as_tuple())
 
 
 def _intersect_three_planes(
