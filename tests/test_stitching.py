@@ -14,9 +14,13 @@ from sourceweaver.semantics import SemanticDocument, build_semantic_document
 from sourceweaver.stitching import (
     AlignmentBlockerCode,
     AlignmentStatus,
+    SeamDeletionClass,
+    SeamDeletionEvidenceStatus,
     SeamEvidenceBlockerCode,
     SeamEvidenceStatus,
     TransitionBlockerCode,
+    TranslationAlignmentHypothesis,
+    build_seam_deletion_evidence,
     build_seam_overlap_evidence,
     build_transition_graph,
     build_translation_alignment_hypothesis,
@@ -715,3 +719,197 @@ entity
         (SeamEvidenceBlockerCode.CANDIDATE_TRANSFORM_BLOCKED, "beta/world/solid/1")
     ]
     assert evidence.blockers[0].geometry_blocker_codes == ("BRUSH_WORLD_BOUNDS_EXCEEDED",)
+
+
+def _valid_zero_offset_alignment() -> TranslationAlignmentHypothesis:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    return build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+
+
+def test_classifies_equal_seam_pair_as_candidate_duplicate_evidence() -> None:
+    alignment = _valid_zero_offset_alignment()
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/world/solid/1",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/world/solid/1",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    overlap = build_seam_overlap_evidence(alignment, source_records, candidate_records)
+
+    deletion = build_seam_deletion_evidence(overlap)
+
+    assert deletion.status is SeamDeletionEvidenceStatus.VALID
+    assert deletion.mutation_authorized is False
+    assert deletion.blockers == ()
+    assert [
+        (item.source_key, item.candidate_key, item.deletion_class) for item in deletion.items
+    ] == [
+        (
+            "alpha/world/solid/1",
+            "beta/world/solid/1",
+            SeamDeletionClass.CANDIDATE_EQUAL_VOLUME_DUPLICATE,
+        )
+    ]
+    assert deletion.items[0].remove_candidate is True
+    assert deletion.items[0].remove_source is False
+
+
+def test_classifies_contained_candidate_as_candidate_containment_evidence() -> None:
+    alignment = _valid_zero_offset_alignment()
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/world/solid/outer",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/world/solid/inner",
+            _cube_brush(Vec3(32.0, 32.0, 32.0), Vec3(96.0, 96.0, 96.0)),
+        ),
+    )
+    overlap = build_seam_overlap_evidence(alignment, source_records, candidate_records)
+
+    deletion = build_seam_deletion_evidence(overlap)
+
+    assert [item.deletion_class for item in deletion.items] == [
+        SeamDeletionClass.CANDIDATE_CONTAINED_IN_SOURCE
+    ]
+    assert deletion.items[0].remove_candidate is True
+    assert deletion.items[0].remove_source is False
+
+
+def test_classifies_touching_and_overlapping_pairs_as_preserve_evidence() -> None:
+    alignment = _valid_zero_offset_alignment()
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/touch-source",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+        BrushSpatialRecord(
+            "alpha/overlap-source",
+            _cube_brush(Vec3(256.0, 0.0, 0.0), Vec3(384.0, 128.0, 128.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/touch-candidate",
+            _cube_brush(Vec3(128.0, 0.0, 0.0), Vec3(256.0, 128.0, 128.0)),
+        ),
+        BrushSpatialRecord(
+            "beta/overlap-candidate",
+            _cube_brush(Vec3(320.0, 0.0, 0.0), Vec3(448.0, 128.0, 128.0)),
+        ),
+    )
+    overlap = build_seam_overlap_evidence(alignment, source_records, candidate_records)
+
+    deletion = build_seam_deletion_evidence(overlap)
+
+    assert [
+        (item.source_key, item.candidate_key, item.deletion_class) for item in deletion.items
+    ] == [
+        (
+            "alpha/overlap-source",
+            "beta/overlap-candidate",
+            SeamDeletionClass.PRESERVE_UNSAFE_OVERLAP,
+        ),
+        (
+            "alpha/overlap-source",
+            "beta/touch-candidate",
+            SeamDeletionClass.PRESERVE_TOUCHING_SEAM,
+        ),
+        (
+            "alpha/touch-source",
+            "beta/touch-candidate",
+            SeamDeletionClass.PRESERVE_TOUCHING_SEAM,
+        ),
+    ]
+    assert all(not item.remove_candidate and not item.remove_source for item in deletion.items)
+
+
+def test_deletion_evidence_blocks_when_seam_evidence_is_blocked() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+"""
+        )
+    )
+    alignment = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+    overlap = build_seam_overlap_evidence(alignment, (), ())
+
+    deletion = build_seam_deletion_evidence(overlap)
+
+    assert deletion.status is SeamDeletionEvidenceStatus.BLOCKED
+    assert deletion.items == ()
+    assert deletion.blockers == overlap.blockers
