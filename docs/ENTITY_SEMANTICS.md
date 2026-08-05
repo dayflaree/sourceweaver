@@ -62,6 +62,24 @@ A name is exempt when it is:
 
 All typed references and outputs are rewritten in the same transaction. The transaction fails if any affected reference is unknown or ambiguous.
 
+## Implemented FGD-typed keyvalue coverage
+
+Current code extends the CST-backed targetname graph with a conservative built-in Source schema for typed keyvalue references outside `parentname` and outputs. Covered classes/keys include:
+
+- `env_entity_maker.EntityTemplate`;
+- `filter_activator_name.filtername`;
+- `func_button.target`;
+- `func_door.filtername` and `func_door_rotating.filtername`;
+- `func_tracktrain.target`;
+- `logic_branch_listener.Branch01` through `Branch16`;
+- `math_counter.OutValue`;
+- `momentary_rot_button.target`;
+- `path_track.target` and `path_track.altpath`;
+- `point_template.Template01` through `Template16`;
+- `trigger_multiple.filtername` and `trigger_once.filtername`.
+
+These references resolve through the same targetname graph as parent/output references. Unknown key strings remain opaque and are not rewritten by appearance.
+
 ## Outputs
 
 Source output values may use comma or ESC separators depending on branch and tooling. The semantic adapter must parse both and materialize using the original separator unless the target profile requires conversion.
