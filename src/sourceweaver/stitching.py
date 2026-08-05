@@ -25,6 +25,7 @@ from sourceweaver.geometry import (
 )
 from sourceweaver.semantics import (
     EntityBlockKind,
+    ReferenceKind,
     SemanticDocument,
     SemanticEntity,
     SemanticPair,
@@ -133,6 +134,31 @@ class ImportIdAllocationBlockerCode(StrEnum):
     MISSING_CANDIDATE_ID = "missing_candidate_id"
     NON_NUMERIC_ID = "non_numeric_id"
     DUPLICATE_CANDIDATE_ID = "duplicate_candidate_id"
+
+
+class TargetNameNamespaceStatus(StrEnum):
+    """Final status for a targetname namespace plan."""
+
+    VALID = "valid"
+    BLOCKED = "blocked"
+
+
+class TargetNameNamespaceEditKind(StrEnum):
+    """Kind of source-backed targetname namespace edit."""
+
+    DEFINITION = "definition"
+    REFERENCE = "reference"
+
+
+class TargetNameNamespaceBlockerCode(StrEnum):
+    """Deterministic blockers for targetname namespace planning."""
+
+    EMPTY_PREFIX = "empty_prefix"
+    NAMESPACED_NAME_COLLISION = "namespaced_name_collision"
+    UNRESOLVED_REFERENCE = "unresolved_reference"
+    AMBIGUOUS_REFERENCE = "ambiguous_reference"
+    SPECIAL_REFERENCE_UNSUPPORTED = "special_reference_unsupported"
+    WILDCARD_REFERENCE_UNSUPPORTED = "wildcard_reference_unsupported"
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,6 +360,38 @@ class ImportIdAllocationPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class TargetNameNamespaceEdit:
+    """One source-backed targetname namespace edit planned for later materialization."""
+
+    kind: TargetNameNamespaceEditKind
+    entity_index: int
+    original_value: str
+    namespaced_value: str
+    reference_kind: ReferenceKind | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetNameNamespaceBlocker:
+    """A reason a targetname namespace plan cannot be trusted."""
+
+    code: TargetNameNamespaceBlockerCode
+    message: str
+    entity_index: int | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetNameNamespacePlan:
+    """CST-backed targetname namespace plan with no mutation authority."""
+
+    status: TargetNameNamespaceStatus
+    prefix: str
+    edits: tuple[TargetNameNamespaceEdit, ...]
+    blockers: tuple[TargetNameNamespaceBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportIdRecord:
     kind: ImportIdKind
     raw_id: str | None
@@ -426,6 +484,42 @@ def build_import_id_allocation_plan(
     return ImportIdAllocationPlan(
         status=ImportIdAllocationStatus.VALID,
         allocations=tuple(allocations),
+        blockers=(),
+    )
+
+
+def build_targetname_namespace_plan(
+    source_document: SemanticDocument,
+    candidate_document: SemanticDocument,
+    *,
+    prefix: str,
+) -> TargetNameNamespacePlan:
+    """Plan candidate targetname namespacing for currently typed references.
+
+    This uses the CST-backed semantic graph: direct `targetname` definitions,
+    direct `parentname` references, and output targets. Full FGD-backed keyvalue
+    rewriting remains a later gate.
+    """
+    blockers = list(_namespace_prefix_blockers(prefix))
+    source_names = {
+        definition.name.casefold() for definition in source_document.target_graph.definitions
+    }
+    blockers.extend(_namespace_collision_blockers(candidate_document, source_names, prefix))
+    blockers.extend(_namespace_reference_blockers(candidate_document))
+    if blockers:
+        return TargetNameNamespacePlan(
+            status=TargetNameNamespaceStatus.BLOCKED,
+            prefix=prefix,
+            edits=(),
+            blockers=tuple(blockers),
+        )
+    return TargetNameNamespacePlan(
+        status=TargetNameNamespaceStatus.VALID,
+        prefix=prefix,
+        edits=(
+            *_namespace_definition_edits(candidate_document, prefix),
+            *_namespace_reference_edits(candidate_document, prefix),
+        ),
         blockers=(),
     )
 
@@ -797,6 +891,107 @@ def _parse_id(raw_id: str | None) -> int | None:
     if parsed <= 0:
         return None
     return parsed
+
+
+def _namespace_prefix_blockers(prefix: str) -> tuple[TargetNameNamespaceBlocker, ...]:
+    if prefix:
+        return ()
+    return (
+        TargetNameNamespaceBlocker(
+            code=TargetNameNamespaceBlockerCode.EMPTY_PREFIX,
+            message="Candidate targetname namespace prefix must not be empty.",
+        ),
+    )
+
+
+def _namespace_collision_blockers(
+    candidate_document: SemanticDocument,
+    source_names: set[str],
+    prefix: str,
+) -> tuple[TargetNameNamespaceBlocker, ...]:
+    return tuple(
+        TargetNameNamespaceBlocker(
+            code=TargetNameNamespaceBlockerCode.NAMESPACED_NAME_COLLISION,
+            message="Namespaced candidate targetname collides with a source targetname.",
+            entity_index=definition.entity_index,
+            name=f"{prefix}{definition.name}",
+        )
+        for definition in candidate_document.target_graph.definitions
+        if f"{prefix}{definition.name}".casefold() in source_names
+    )
+
+
+def _namespace_reference_blockers(
+    candidate_document: SemanticDocument,
+) -> tuple[TargetNameNamespaceBlocker, ...]:
+    blockers: list[TargetNameNamespaceBlocker] = []
+    blockers.extend(
+        TargetNameNamespaceBlocker(
+            code=TargetNameNamespaceBlockerCode.UNRESOLVED_REFERENCE,
+            message="Candidate targetname reference does not resolve uniquely.",
+            entity_index=reference.entity_index,
+            name=reference.name,
+        )
+        for reference in candidate_document.target_graph.unresolved_references
+    )
+    blockers.extend(
+        TargetNameNamespaceBlocker(
+            code=TargetNameNamespaceBlockerCode.AMBIGUOUS_REFERENCE,
+            message="Candidate targetname reference is ambiguous.",
+            entity_index=reference.entity_index,
+            name=reference.name,
+        )
+        for reference in candidate_document.target_graph.ambiguous_references
+    )
+    for reference in candidate_document.target_graph.references:
+        if reference.kind is ReferenceKind.SPECIAL:
+            blockers.append(
+                TargetNameNamespaceBlocker(
+                    code=TargetNameNamespaceBlockerCode.SPECIAL_REFERENCE_UNSUPPORTED,
+                    message="Special targetname reference requires a later typed rewrite gate.",
+                    entity_index=reference.entity_index,
+                    name=reference.name,
+                )
+            )
+        if reference.kind is ReferenceKind.WILDCARD:
+            blockers.append(
+                TargetNameNamespaceBlocker(
+                    code=TargetNameNamespaceBlockerCode.WILDCARD_REFERENCE_UNSUPPORTED,
+                    message="Wildcard targetname reference requires a later typed rewrite gate.",
+                    entity_index=reference.entity_index,
+                    name=reference.name,
+                )
+            )
+    return tuple(blockers)
+
+
+def _namespace_definition_edits(
+    candidate_document: SemanticDocument, prefix: str
+) -> tuple[TargetNameNamespaceEdit, ...]:
+    return tuple(
+        TargetNameNamespaceEdit(
+            kind=TargetNameNamespaceEditKind.DEFINITION,
+            entity_index=definition.entity_index,
+            original_value=definition.name,
+            namespaced_value=f"{prefix}{definition.name}",
+        )
+        for definition in candidate_document.target_graph.definitions
+    )
+
+
+def _namespace_reference_edits(
+    candidate_document: SemanticDocument, prefix: str
+) -> tuple[TargetNameNamespaceEdit, ...]:
+    return tuple(
+        TargetNameNamespaceEdit(
+            kind=TargetNameNamespaceEditKind.REFERENCE,
+            entity_index=reference.entity_index,
+            original_value=reference.name,
+            namespaced_value=f"{prefix}{reference.name}",
+            reference_kind=reference.kind,
+        )
+        for reference in candidate_document.target_graph.resolved_references
+    )
 
 
 def _edges_to_map(graph: TransitionGraph, normalized_map_name: str) -> tuple[TransitionEdge, ...]:
