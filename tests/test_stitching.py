@@ -13,6 +13,13 @@ from sourceweaver.geometry import (
     extract_brush_sources,
     reconstruct_convex_brush,
 )
+from sourceweaver.lifecycle import (
+    LifecycleControllerEntityPlan,
+    LifecycleControllerEntityStatus,
+    build_lifecycle_controller_entity_plan,
+    build_lifecycle_controller_plan,
+    build_lifecycle_policy_matrix,
+)
 from sourceweaver.semantics import SemanticDocument, build_semantic_document
 from sourceweaver.stitching import (
     AlignmentBlockerCode,
@@ -1894,6 +1901,82 @@ def test_materializes_synthetic_transition_fixture_as_reversible_generated_vmf()
     assert materialized.provenance[0].source_path == "tests/fixtures/stitching/transition_alpha.vmf"
 
 
+def test_materializes_lifecycle_controller_relays_with_generated_provenance() -> None:
+    fixture_dir = Path("tests/fixtures/stitching")
+    source_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_alpha.vmf").read_bytes(),
+        path=fixture_dir / "transition_alpha.vmf",
+    )
+    candidate_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_beta.vmf").read_bytes(),
+        path=fixture_dir / "transition_beta.vmf",
+    )
+    manifest = _synthetic_fixture_manifest(source_doc, candidate_doc)
+    controller_entities = _synthetic_controller_entity_plan()
+
+    materialized = materialize_stitch_from_manifest(
+        source_doc,
+        candidate_doc,
+        manifest,
+        controller_entities=controller_entities,
+    )
+
+    assert materialized.status is StitchMaterializationStatus.VALID
+    assert materialized.output_bytes is not None
+    assert b'"id" "200"' in materialized.output_bytes
+    assert b'"classname" "logic_relay"' in materialized.output_bytes
+    assert b'"targetname" "sourceweaver_transition_beta_preload"' in materialized.output_bytes
+    assert (
+        VmfDocument.from_bytes(materialized.output_bytes, path=Path("stitched.vmf")).render_bytes()
+        == materialized.output_bytes
+    )
+    assert [entry.kind for entry in materialized.provenance] == [
+        "source_preserved",
+        "candidate_entity_imported",
+        "candidate_entity_imported",
+        "lifecycle_controller_entity_generated",
+        "lifecycle_controller_entity_generated",
+        "lifecycle_controller_entity_generated",
+        "lifecycle_controller_entity_generated",
+        "lifecycle_controller_entity_generated",
+    ]
+    assert all(entry.source_span is None for entry in materialized.provenance[3:])
+
+
+def test_materialization_blocks_blocked_lifecycle_controller_entity_plan() -> None:
+    fixture_dir = Path("tests/fixtures/stitching")
+    source_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_alpha.vmf").read_bytes(),
+        path=fixture_dir / "transition_alpha.vmf",
+    )
+    candidate_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_beta.vmf").read_bytes(),
+        path=fixture_dir / "transition_beta.vmf",
+    )
+    manifest = _synthetic_fixture_manifest(source_doc, candidate_doc)
+    blocked_entities = build_lifecycle_controller_entity_plan(
+        build_lifecycle_controller_plan(
+            build_lifecycle_policy_matrix(_semantic('world\n{\n    "id" "1"\n}\n')),
+            region_name="",
+        ),
+        first_entity_id=0,
+    )
+
+    materialized = materialize_stitch_from_manifest(
+        source_doc,
+        candidate_doc,
+        manifest,
+        controller_entities=blocked_entities,
+    )
+
+    assert blocked_entities.status is LifecycleControllerEntityStatus.BLOCKED
+    assert materialized.status is StitchMaterializationStatus.BLOCKED
+    assert materialized.output_bytes is None
+    assert [blocker.code for blocker in materialized.blockers] == [
+        StitchMaterializationBlockerCode.CONTROLLER_ENTITY_PLAN_BLOCKED
+    ]
+
+
 def test_materialization_blocks_invalid_manifest() -> None:
     source_doc = _document('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
     candidate_doc = _document('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
@@ -2121,6 +2204,30 @@ def _ready_compiler_preflight() -> CompilerRunPreflight:
         status=CompilerRunStatus.READY,
         tools=(),
         blockers=(),
+    )
+
+
+def _synthetic_controller_entity_plan() -> LifecycleControllerEntityPlan:
+    semantic = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_auto"
+}
+"""
+    )
+    controller_plan = build_lifecycle_controller_plan(
+        build_lifecycle_policy_matrix(semantic),
+        region_name="transition_beta",
+    )
+    return build_lifecycle_controller_entity_plan(
+        controller_plan,
+        first_entity_id=200,
     )
 
 

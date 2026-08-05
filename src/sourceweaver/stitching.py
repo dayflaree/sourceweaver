@@ -24,6 +24,10 @@ from sourceweaver.geometry import (
     find_potential_brush_intersections,
     translate_convex_brush_for_analysis,
 )
+from sourceweaver.lifecycle import (
+    LifecycleControllerEntityPlan,
+    LifecycleControllerEntityStatus,
+)
 from sourceweaver.semantics import (
     EntityBlockKind,
     ReferenceKind,
@@ -239,6 +243,7 @@ class StitchMaterializationBlockerCode(StrEnum):
     """Deterministic blockers for generated VMF materialization."""
 
     MANIFEST_BLOCKED = "manifest_blocked"
+    CONTROLLER_ENTITY_PLAN_BLOCKED = "controller_entity_plan_blocked"
     OUTPUT_REPARSE_FAILED = "output_reparse_failed"
 
 
@@ -854,6 +859,8 @@ def materialize_stitch_from_manifest(
     source_document: VmfDocument,
     candidate_document: VmfDocument,
     manifest: StitchPlanManifest,
+    *,
+    controller_entities: LifecycleControllerEntityPlan | None = None,
 ) -> MaterializedStitch:
     """Generate a reversible VMF output for the current synthetic stitch envelope.
 
@@ -873,12 +880,32 @@ def materialize_stitch_from_manifest(
                 ),
             ),
         )
+    if (
+        controller_entities is not None
+        and controller_entities.status is not LifecycleControllerEntityStatus.READY
+    ):
+        return MaterializedStitch(
+            status=StitchMaterializationStatus.BLOCKED,
+            output_bytes=None,
+            provenance=(),
+            blockers=(
+                StitchMaterializationBlocker(
+                    code=StitchMaterializationBlockerCode.CONTROLLER_ENTITY_PLAN_BLOCKED,
+                    message="Lifecycle controller entity plan is blocked.",
+                ),
+            ),
+        )
     candidate_semantic = build_semantic_document(candidate_document)
-    snippets = _materialized_candidate_entity_snippets(
+    candidate_snippets = _materialized_candidate_entity_snippets(
         candidate_document,
         candidate_semantic,
         manifest,
     )
+    controller_snippets = _materialized_controller_entity_snippets(
+        controller_entities,
+        source_document.newline,
+    )
+    snippets = (*candidate_snippets, *controller_snippets)
     separator = "" if source_document.text.endswith(("\n", "\r")) else source_document.newline
     appended = source_document.newline.join(snippets)
     output_text = source_document.text + separator + appended
@@ -914,7 +941,12 @@ def materialize_stitch_from_manifest(
     return MaterializedStitch(
         status=StitchMaterializationStatus.VALID,
         output_bytes=output_bytes,
-        provenance=_materialization_provenance(source_document, candidate_semantic, snippets),
+        provenance=_materialization_provenance(
+            source_document,
+            candidate_semantic,
+            candidate_snippets,
+            controller_snippets,
+        ),
         blockers=(),
     )
 
@@ -1419,6 +1451,28 @@ def _edits_within_span(edits: tuple[TextEdit, ...], span: SourceSpan) -> tuple[T
     )
 
 
+def _materialized_controller_entity_snippets(
+    controller_entities: LifecycleControllerEntityPlan | None,
+    newline: str,
+) -> tuple[str, ...]:
+    if controller_entities is None:
+        return ()
+    return tuple(
+        newline.join(
+            (
+                "entity",
+                "{",
+                f"    {_quoted_value('id')} {_quoted_value(entity.entity_id)}",
+                f"    {_quoted_value('classname')} {_quoted_value(entity.classname)}",
+                f"    {_quoted_value('targetname')} {_quoted_value(entity.targetname)}",
+                f"    {_quoted_value('sourceweaver_phase')} {_quoted_value(entity.phase)}",
+                "}",
+            )
+        )
+        for entity in controller_entities.entities
+    )
+
+
 def _candidate_namespace_materialization_edits(
     candidate_document: SemanticDocument,
     manifest: StitchPlanManifest,
@@ -1492,7 +1546,8 @@ def _quoted_value(value: str) -> str:
 def _materialization_provenance(
     source_document: VmfDocument,
     candidate_document: SemanticDocument,
-    snippets: tuple[str, ...],
+    candidate_snippets: tuple[str, ...],
+    controller_snippets: tuple[str, ...],
 ) -> tuple[StitchProvenanceEntry, ...]:
     source_path = source_document.path.as_posix() if source_document.path is not None else None
     entries = [
@@ -1513,14 +1568,27 @@ def _materialization_provenance(
     candidate_entities = tuple(
         entity for entity in candidate_document.entities if entity.kind is EntityBlockKind.ENTITY
     )
-    if snippets and not source_document.text.endswith(("\n", "\r")):
+    if (candidate_snippets or controller_snippets) and not source_document.text.endswith(
+        ("\n", "\r")
+    ):
         output_cursor += len(source_document.newline)
-    for entity, snippet in zip(candidate_entities, snippets, strict=True):
+    for entity, snippet in zip(candidate_entities, candidate_snippets, strict=True):
         entries.append(
             StitchProvenanceEntry(
                 kind="candidate_entity_imported",
                 source_path=None,
                 source_span=entity.block_span,
+                output_start=output_cursor,
+                output_end=output_cursor + len(snippet),
+            )
+        )
+        output_cursor += len(snippet) + len(source_document.newline)
+    for snippet in controller_snippets:
+        entries.append(
+            StitchProvenanceEntry(
+                kind="lifecycle_controller_entity_generated",
+                source_path=None,
+                source_span=None,
                 output_start=output_cursor,
                 output_end=output_cursor + len(snippet),
             )
