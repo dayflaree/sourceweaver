@@ -1,4 +1,4 @@
-# Repository audit — July 26, 2026
+# Repository audit — August 5, 2026
 
 ## Scope
 
@@ -12,11 +12,13 @@ This audit covers every feature currently implemented in SourceWeaver 0.1.0:
 - non-destructive round-trip output;
 - GMod installation and compiler discovery;
 - compiler fingerprinting and executable-format classification;
+- read-only CST-backed semantic entity and targetname graph extraction;
+- read-only convex brush geometry reconstruction and blocker diagnostics;
 - project-skill installation;
 - CLI entry points;
 - packaging, dependency metadata, and CI.
 
-Map stitching, semantic FGD adaptation, geometry automation, compiler execution, runtime validation, and visibility optimization remain roadmap features. They are excluded from the functionality claim because no production implementation exists yet.
+Map stitching, FGD-backed semantic mutation, geometry transformations, compiler execution, runtime validation, and visibility optimization remain roadmap features. They are excluded from the functionality claim because no qualified implementation exists yet.
 
 ## Defects found and corrected
 
@@ -50,11 +52,11 @@ Map stitching, semantic FGD adaptation, geometry automation, compiler execution,
 
 ### Tests
 
-- 96 tests pass on Windows and Linux.
-- Branch-aware coverage is 89.0%, above the enforced 80% floor.
+- 110 tests pass locally on Linux.
+- Branch-aware coverage is 89.68%, above the enforced 80% floor.
 - Property-based VMF round-trip tests use Hypothesis.
-- Local Linux runs pass on Python 3.11, 3.12, 3.13, and 3.14.
-- GitHub Actions runs the same test suite on `ubuntu-latest` and `windows-latest` for Python 3.11–3.14; all thirteen quality, test, package, dependency, and documentation jobs passed in [run 30241981184](https://github.com/dayflaree/sourceweaver/actions/runs/30241981184).
+- The prior merged cross-platform baseline passed locally on Python 3.11, 3.12, 3.13, and 3.14.
+- GitHub Actions runs the test suite on `ubuntu-latest` and `windows-latest` for Python 3.11–3.14; all thirteen quality, test, package, dependency, and documentation jobs passed for the prior cross-platform baseline in [run 30241981184](https://github.com/dayflaree/sourceweaver/actions/runs/30241981184). Current PRs must pass that matrix before merge.
 
 ### Packaging and dependencies
 
