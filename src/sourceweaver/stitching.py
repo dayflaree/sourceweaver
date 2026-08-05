@@ -208,6 +208,20 @@ class StitchPreflightBlockerCode(StrEnum):
     CAPACITY_EXCEEDED = "capacity_exceeded"
 
 
+class StitchPlanManifestStatus(StrEnum):
+    """Final status for a read-only stitch plan manifest."""
+
+    VALID = "valid"
+    BLOCKED = "blocked"
+
+
+class StitchPlanManifestBlockerCode(StrEnum):
+    """Deterministic blockers for stitch plan manifest construction."""
+
+    PREFLIGHT_BLOCKED = "preflight_blocked"
+    ALIGNMENT_OFFSET_UNAVAILABLE = "alignment_offset_unavailable"
+
+
 @dataclass(frozen=True, slots=True)
 class TransitionBlocker:
     """A reason a transition edge cannot become stitching authority."""
@@ -483,6 +497,27 @@ class StitchPreflightReport:
 
 
 @dataclass(frozen=True, slots=True)
+class StitchPlanManifestBlocker:
+    """A reason a stitch plan manifest cannot be produced."""
+
+    code: StitchPlanManifestBlockerCode
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class StitchPlanManifest:
+    """Read-only stitch plan manifest assembled from validated evidence."""
+
+    status: StitchPlanManifestStatus
+    candidate_to_source_offset: Vec3 | None
+    candidate_removals: tuple[str, ...]
+    id_allocations: tuple[ImportIdAllocation, ...]
+    namespace_edits: tuple[TargetNameNamespaceEdit, ...]
+    blockers: tuple[StitchPlanManifestBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportIdRecord:
     kind: ImportIdKind
     raw_id: str | None
@@ -680,6 +715,50 @@ def build_stitch_preflight_report(
         imported_solid_count=imported_solid_count,
         imported_side_count=imported_side_count,
         blockers=blockers,
+    )
+
+
+def build_stitch_plan_manifest(
+    preflight: StitchPreflightReport,
+    alignment: TranslationAlignmentHypothesis,
+    deletion_evidence: SeamDeletionEvidence,
+    id_allocation: ImportIdAllocationPlan,
+    namespace_plan: TargetNameNamespacePlan,
+) -> StitchPlanManifest:
+    """Assemble a read-only stitch plan manifest from validated evidence."""
+    blockers: list[StitchPlanManifestBlocker] = []
+    if preflight.status is not StitchPreflightStatus.READY_FOR_PLAN:
+        blockers.append(
+            StitchPlanManifestBlocker(
+                code=StitchPlanManifestBlockerCode.PREFLIGHT_BLOCKED,
+                message="Stitch preflight is blocked.",
+            )
+        )
+    if alignment.offset is None:
+        blockers.append(
+            StitchPlanManifestBlocker(
+                code=StitchPlanManifestBlockerCode.ALIGNMENT_OFFSET_UNAVAILABLE,
+                message="Alignment offset is unavailable.",
+            )
+        )
+    if blockers:
+        return StitchPlanManifest(
+            status=StitchPlanManifestStatus.BLOCKED,
+            candidate_to_source_offset=None,
+            candidate_removals=(),
+            id_allocations=(),
+            namespace_edits=(),
+            blockers=tuple(blockers),
+        )
+    return StitchPlanManifest(
+        status=StitchPlanManifestStatus.VALID,
+        candidate_to_source_offset=alignment.offset,
+        candidate_removals=tuple(
+            item.candidate_key for item in deletion_evidence.items if item.remove_candidate
+        ),
+        id_allocations=id_allocation.allocations,
+        namespace_edits=namespace_plan.edits,
+        blockers=(),
     )
 
 

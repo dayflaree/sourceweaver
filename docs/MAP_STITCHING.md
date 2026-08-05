@@ -35,8 +35,9 @@ The current repository implementation provides a read-only transition graph slic
 - plans CST-backed targetname namespacing for direct candidate `targetname` definitions plus resolved `parentname` and output-target references; empty prefixes, source collisions, unresolved references, ambiguous references, special references, and wildcard references block the plan.
 - reports baseline world/singleton conflict evidence for selected worldspawn keys and known singleton controller classes, including candidate duplicate singletons.
 - aggregates alignment, seam confidence, ID allocation, namespace planning, singleton conflict evidence, and candidate import capacity limits into a read-only stitch preflight report.
+- assembles a read-only stitch plan manifest from ready preflight evidence, including candidate-to-source offset, candidate removal keys, ID allocations, and namespace edits.
 
-This slice is intentionally non-mutating. Alignment, seam overlap, deletion-class, seam-confidence, ID-allocation, namespace-plan, singleton-conflict, and preflight outputs are evidence only and always carry `mutation_authorized = false`. The implementation does not materialize entity-field transforms, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates. Full FGD-backed namespacing for keys outside the current semantic graph remains open.
+This slice is intentionally non-mutating. Alignment, seam overlap, deletion-class, seam-confidence, ID-allocation, namespace-plan, singleton-conflict, preflight, and manifest outputs are evidence only and always carry `mutation_authorized = false`. The implementation does not materialize entity-field transforms, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates. Full FGD-backed namespacing for keys outside the current semantic graph remains open.
 
 ## Pipeline
 

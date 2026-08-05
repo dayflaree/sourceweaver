@@ -26,6 +26,8 @@ from sourceweaver.stitching import (
     SeamEvidenceStatus,
     SingletonConflictCode,
     SingletonConflictStatus,
+    StitchPlanManifestBlockerCode,
+    StitchPlanManifestStatus,
     StitchPreflightBlockerCode,
     StitchPreflightStatus,
     TargetNameNamespaceBlockerCode,
@@ -38,6 +40,7 @@ from sourceweaver.stitching import (
     build_seam_deletion_evidence,
     build_seam_overlap_evidence,
     build_singleton_conflict_report,
+    build_stitch_plan_manifest,
     build_stitch_preflight_report,
     build_targetname_namespace_plan,
     build_transition_graph,
@@ -1612,4 +1615,136 @@ entity
         StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
         StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
         StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
+    ]
+
+
+def test_builds_read_only_stitch_plan_manifest_from_ready_preflight() -> None:
+    source_doc = _document(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "shared_landmark"
+}
+"""
+    )
+    candidate_doc = _document(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "shared_landmark"
+}
+"""
+    )
+    source = build_semantic_document(source_doc)
+    candidate = build_semantic_document(candidate_doc)
+    alignment = build_translation_alignment_hypothesis(
+        build_transition_graph(source),
+        build_transition_graph(candidate),
+        source_map_name="alpha",
+        candidate_map_name="beta",
+    )
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/solid",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/duplicate",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    deletion = build_seam_deletion_evidence(
+        build_seam_overlap_evidence(alignment, source_records, candidate_records)
+    )
+    seam_confidence = build_seam_confidence_report(deletion)
+    id_plan = build_import_id_allocation_plan(source, candidate, (), ())
+    namespace_plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+    singleton_report = build_singleton_conflict_report(source, candidate)
+    preflight = build_stitch_preflight_report(
+        alignment,
+        seam_confidence,
+        id_plan,
+        namespace_plan,
+        singleton_report,
+        candidate,
+        (),
+    )
+
+    manifest = build_stitch_plan_manifest(
+        preflight,
+        alignment,
+        deletion,
+        id_plan,
+        namespace_plan,
+    )
+
+    assert manifest.status is StitchPlanManifestStatus.VALID
+    assert manifest.mutation_authorized is False
+    assert manifest.blockers == ()
+    assert manifest.candidate_to_source_offset == Vec3(0.0, 0.0, 0.0)
+    assert manifest.candidate_removals == ("beta/duplicate",)
+    assert manifest.id_allocations == id_plan.allocations
+    assert manifest.namespace_edits == namespace_plan.edits
+
+
+def test_stitch_plan_manifest_blocks_when_preflight_is_blocked() -> None:
+    alignment = _valid_zero_offset_alignment()
+    deletion = build_seam_deletion_evidence(build_seam_overlap_evidence(alignment, (), ()))
+    source = _semantic('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+    candidate = _semantic('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+    id_plan = build_import_id_allocation_plan(source, candidate, (), ())
+    namespace_plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+    singleton_report = build_singleton_conflict_report(source, candidate)
+    preflight = build_stitch_preflight_report(
+        alignment,
+        build_seam_confidence_report(deletion),
+        id_plan,
+        namespace_plan,
+        singleton_report,
+        candidate,
+        (),
+    )
+
+    manifest = build_stitch_plan_manifest(
+        preflight,
+        alignment,
+        deletion,
+        id_plan,
+        namespace_plan,
+    )
+
+    assert manifest.status is StitchPlanManifestStatus.BLOCKED
+    assert manifest.candidate_to_source_offset is None
+    assert [blocker.code for blocker in manifest.blockers] == [
+        StitchPlanManifestBlockerCode.PREFLIGHT_BLOCKED
     ]
