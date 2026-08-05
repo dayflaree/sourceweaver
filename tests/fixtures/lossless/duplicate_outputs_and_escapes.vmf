@@ -1,0 +1,9 @@
+entity
+{
+    "id" "100"
+    "classname" "trigger_once"
+    "targetname" "synthetic_trigger"
+    "OnTrigger" "relay_a,Trigger,,0,-1" // duplicate output order must survive
+    "OnTrigger" "relay_b,Trigger,comma\,kept,0.25,1"
+    "message" "quote=\" backslash=\\ unknown=\q"
+}

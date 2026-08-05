@@ -41,6 +41,7 @@ dev = [
   "pytest-cov>=6,<7",
   "ruff>=0.9,<1",
   "twine>=6,<7",
+  "types-jsonschema>=4.25,<5",
   "virtualenv>=20.30,<21",
   "vulture>=2.14,<3",
 ]

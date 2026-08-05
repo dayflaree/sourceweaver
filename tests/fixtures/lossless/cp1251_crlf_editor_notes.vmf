@@ -1,0 +1,6 @@
+world
+{
+	"id" "1"
+	"classname" "worldspawn"
+	"message" "Привет, редактор"
+}

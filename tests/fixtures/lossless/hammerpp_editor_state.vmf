@@ -1,0 +1,71 @@
+versioninfo
+{
+    "editorversion" "400"
+    "editorbuild" "10000"
+    "mapversion" "2"
+    "formatversion" "100"
+    "prefab" "0"
+}
+// Synthetic Hammer++-style extension. Unknown fields must survive exactly.
+world
+{
+    "id" "1"
+    "mapversion" "2"
+    "classname" "worldspawn"
+    "skyname" "sky_day01_01"
+    solid
+    {
+        "id" "2"
+        side
+        {
+            "id" "3"
+            "plane" "(0 0 0) (0 128 0) (128 128 0)"
+            "material" "TOOLS/TOOLSNODRAW"
+            "uaxis" "[1 0 0 0] 0.25"
+            "vaxis" "[0 -1 0 0] 0.25"
+            vertices_plus
+            {
+                "v" "0 0 0 1.000000"
+                "v" "0 128 0 1.000000"
+                "v" "128 128 0 1.000000"
+            }
+        }
+    }
+}
+visgroups
+{
+    visgroup
+    {
+        "name" "Synthetic Gameplay"
+        "visgroupid" "7"
+        "color" "64 128 255"
+    }
+}
+hidden
+{
+    entity
+    {
+        "id" "8"
+        "classname" "logic_relay"
+        "targetname" "hidden relay"
+    }
+}
+cameras
+{
+    "activecamera" "-1"
+    camera
+    {
+        "position" "[0 0 64]"
+        "look" "[128 0 64]"
+    }
+}
+cordons
+{
+    "active" "1"
+    cordon
+    {
+        "mins" "(-64 -64 -64)"
+        "maxs" "(64 64 64)"
+        "active" "1"
+    }
+}

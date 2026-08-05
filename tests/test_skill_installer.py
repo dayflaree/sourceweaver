@@ -1,6 +1,5 @@
 import importlib.util
 from pathlib import Path
-from types import ModuleType
 from typing import Protocol, cast
 
 import pytest
@@ -21,7 +20,7 @@ def _load_installer() -> _InstallerModule:
         raise RuntimeError(f"Unable to load installer module: {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return cast(_InstallerModule, cast(ModuleType, module))
+    return cast(_InstallerModule, module)
 
 
 INSTALLER = _load_installer()
