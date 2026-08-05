@@ -15,6 +15,7 @@ from enum import StrEnum
 from sourceweaver.geometry import (
     BoundsRelation,
     BrushRelation,
+    BrushSource,
     BrushSpatialRecord,
     GeometryTransformStatus,
     Vec3,
@@ -22,7 +23,12 @@ from sourceweaver.geometry import (
     find_potential_brush_intersections,
     translate_convex_brush_for_analysis,
 )
-from sourceweaver.semantics import SemanticDocument, SemanticEntity, SemanticPair
+from sourceweaver.semantics import (
+    EntityBlockKind,
+    SemanticDocument,
+    SemanticEntity,
+    SemanticPair,
+)
 
 _AMBIGUOUS_LANDMARK_MESSAGE = (
     "More than one info_landmark matches the trigger_changelevel landmark name."
@@ -104,6 +110,29 @@ class SeamConfidenceBlockerCode(StrEnum):
     EMPTY_SEAM_EVIDENCE = "empty_seam_evidence"
     UNSAFE_OVERLAP = "unsafe_overlap"
     SOURCE_REMOVAL_UNSUPPORTED = "source_removal_unsupported"
+
+
+class ImportIdKind(StrEnum):
+    """VMF object ID classes planned for imported candidate data."""
+
+    ENTITY = "entity"
+    SOLID = "solid"
+    SIDE = "side"
+
+
+class ImportIdAllocationStatus(StrEnum):
+    """Final status for an imported ID allocation plan."""
+
+    VALID = "valid"
+    BLOCKED = "blocked"
+
+
+class ImportIdAllocationBlockerCode(StrEnum):
+    """Deterministic blockers for imported ID allocation."""
+
+    MISSING_CANDIDATE_ID = "missing_candidate_id"
+    NON_NUMERIC_ID = "non_numeric_id"
+    DUPLICATE_CANDIDATE_ID = "duplicate_candidate_id"
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +304,41 @@ class SeamConfidenceReport:
     mutation_authorized: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class ImportIdAllocation:
+    """One planned candidate ID replacement."""
+
+    kind: ImportIdKind
+    original_id: str
+    allocated_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ImportIdAllocationBlocker:
+    """A reason imported ID allocation cannot proceed safely."""
+
+    code: ImportIdAllocationBlockerCode
+    message: str
+    kind: ImportIdKind
+    raw_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ImportIdAllocationPlan:
+    """Plan-only fresh ID allocation for imported candidate objects."""
+
+    status: ImportIdAllocationStatus
+    allocations: tuple[ImportIdAllocation, ...]
+    blockers: tuple[ImportIdAllocationBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _ImportIdRecord:
+    kind: ImportIdKind
+    raw_id: str | None
+
+
 def normalize_map_name(raw: str) -> str:
     """Normalize a destination map string for matching only."""
     normalized = raw.strip().casefold()
@@ -308,6 +372,61 @@ def build_transition_graph(document: SemanticDocument) -> TransitionGraph:
             _edge_from_changelevel(changelevel, landmarks, transition_volumes)
             for changelevel in changelevels
         ),
+    )
+
+
+def build_import_id_allocation_plan(
+    source_document: SemanticDocument,
+    candidate_document: SemanticDocument,
+    source_brushes: Iterable[BrushSource],
+    candidate_brushes: Iterable[BrushSource],
+) -> ImportIdAllocationPlan:
+    """Plan fresh IDs for imported candidate entities, solids, and sides.
+
+    Candidate worldspawn IDs are not allocated here because world/singleton
+    reconciliation is handled by a later stitch planning gate. Candidate world
+    solids and sides are allocated because they may be imported into the source
+    world geometry container.
+    """
+    source_records = tuple(_id_records_from_document(source_document, source_brushes))
+    candidate_records = tuple(_import_candidate_id_records(candidate_document, candidate_brushes))
+    blockers = (*_source_id_blockers(source_records), *_candidate_id_blockers(candidate_records))
+    parsed_ids = tuple(_parse_id(record.raw_id) for record in (*source_records, *candidate_records))
+    if blockers:
+        return ImportIdAllocationPlan(
+            status=ImportIdAllocationStatus.BLOCKED,
+            allocations=(),
+            blockers=blockers,
+        )
+
+    max_id = max((parsed_id for parsed_id in parsed_ids if parsed_id is not None), default=0)
+    allocations: list[ImportIdAllocation] = []
+    next_id = max_id + 1
+    for record in candidate_records:
+        if record.raw_id is None:
+            return ImportIdAllocationPlan(
+                status=ImportIdAllocationStatus.BLOCKED,
+                allocations=(),
+                blockers=(
+                    ImportIdAllocationBlocker(
+                        code=ImportIdAllocationBlockerCode.MISSING_CANDIDATE_ID,
+                        message="Candidate import record is missing an ID.",
+                        kind=record.kind,
+                    ),
+                ),
+            )
+        allocations.append(
+            ImportIdAllocation(
+                kind=record.kind,
+                original_id=record.raw_id,
+                allocated_id=str(next_id),
+            )
+        )
+        next_id += 1
+    return ImportIdAllocationPlan(
+        status=ImportIdAllocationStatus.VALID,
+        allocations=tuple(allocations),
+        blockers=(),
     )
 
 
@@ -584,6 +703,100 @@ def build_seam_confidence_report(
 
 def _classname_is(entity: SemanticEntity, classname: str) -> bool:
     return entity.classname is not None and entity.classname.casefold() == classname
+
+
+def _id_records_from_document(
+    document: SemanticDocument, brush_sources: Iterable[BrushSource]
+) -> tuple[_ImportIdRecord, ...]:
+    records: list[_ImportIdRecord] = [
+        _ImportIdRecord(ImportIdKind.ENTITY, entity.hammer_id)
+        for entity in document.entities
+        if entity.hammer_id is not None
+    ]
+    records.extend(_brush_id_records(brush_sources))
+    return tuple(records)
+
+
+def _import_candidate_id_records(
+    document: SemanticDocument, brush_sources: Iterable[BrushSource]
+) -> tuple[_ImportIdRecord, ...]:
+    records = list(_brush_id_records(brush_sources))
+    records.extend(
+        _ImportIdRecord(ImportIdKind.ENTITY, entity.hammer_id)
+        for entity in document.entities
+        if entity.kind is EntityBlockKind.ENTITY
+    )
+    return tuple(records)
+
+
+def _brush_id_records(brush_sources: Iterable[BrushSource]) -> tuple[_ImportIdRecord, ...]:
+    records: list[_ImportIdRecord] = []
+    for brush in brush_sources:
+        records.append(_ImportIdRecord(ImportIdKind.SOLID, brush.solid_id))
+        records.extend(_ImportIdRecord(ImportIdKind.SIDE, side.side_id) for side in brush.sides)
+    return tuple(records)
+
+
+def _source_id_blockers(
+    records: tuple[_ImportIdRecord, ...],
+) -> tuple[ImportIdAllocationBlocker, ...]:
+    return tuple(
+        ImportIdAllocationBlocker(
+            code=ImportIdAllocationBlockerCode.NON_NUMERIC_ID,
+            message="Source VMF object ID is not a positive decimal integer.",
+            kind=record.kind,
+            raw_id=record.raw_id,
+        )
+        for record in records
+        if record.raw_id is not None and _parse_id(record.raw_id) is None
+    )
+
+
+def _candidate_id_blockers(
+    records: tuple[_ImportIdRecord, ...],
+) -> tuple[ImportIdAllocationBlocker, ...]:
+    blockers: list[ImportIdAllocationBlocker] = []
+    seen: set[str] = set()
+    for record in records:
+        if record.raw_id is None:
+            blockers.append(
+                ImportIdAllocationBlocker(
+                    code=ImportIdAllocationBlockerCode.MISSING_CANDIDATE_ID,
+                    message="Candidate import record is missing an ID.",
+                    kind=record.kind,
+                )
+            )
+            continue
+        if _parse_id(record.raw_id) is None:
+            blockers.append(
+                ImportIdAllocationBlocker(
+                    code=ImportIdAllocationBlockerCode.NON_NUMERIC_ID,
+                    message="Candidate VMF object ID is not a positive decimal integer.",
+                    kind=record.kind,
+                    raw_id=record.raw_id,
+                )
+            )
+            continue
+        if record.raw_id in seen:
+            blockers.append(
+                ImportIdAllocationBlocker(
+                    code=ImportIdAllocationBlockerCode.DUPLICATE_CANDIDATE_ID,
+                    message="Candidate import ID appears more than once.",
+                    kind=record.kind,
+                    raw_id=record.raw_id,
+                )
+            )
+        seen.add(record.raw_id)
+    return tuple(blockers)
+
+
+def _parse_id(raw_id: str | None) -> int | None:
+    if raw_id is None or not raw_id.isdecimal():
+        return None
+    parsed = int(raw_id)
+    if parsed <= 0:
+        return None
+    return parsed
 
 
 def _edges_to_map(graph: TransitionGraph, normalized_map_name: str) -> tuple[TransitionEdge, ...]:
