@@ -72,7 +72,7 @@ Transition scaffolding already handled by stitching (`info_landmark`, `trigger_c
 
 Current code also builds a deterministic lifecycle controller plan from a clear matrix. The plan expands each entity policy into ordered `preload`, `activate`, `deactivate`, `reset`, and `remove` steps for one named region. Empty region names and blocked policy matrices stop planning.
 
-Lifecycle controller entity specs are available as phase relays. They allocate one `logic_relay` specification per lifecycle phase and assign each planned lifecycle step to its phase relay. Invalid first entity IDs and blocked controller plans stop entity-spec creation. Ready relay specs can be appended to the generated VMF with generated-span provenance. Output wiring and runtime behavior proof remain blocked until compiler/runtime validation is available.
+Lifecycle controller entity specs are available as phase relays. They allocate one `logic_relay` specification per lifecycle phase and assign each planned lifecycle step to its phase relay. Invalid first entity IDs and blocked controller plans stop entity-spec creation. Ready relay specs can be appended to the generated VMF with generated-span provenance. Output wiring is generated only for lifecycle-controlled entities with a unique targetname; nameless controlled entities block output wiring. Runtime behavior proof remains blocked until compiler/runtime validation is available.
 
 ## Synthesized controller
 

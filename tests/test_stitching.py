@@ -17,6 +17,7 @@ from sourceweaver.lifecycle import (
     LifecycleControllerEntityPlan,
     LifecycleControllerEntityStatus,
     build_lifecycle_controller_entity_plan,
+    build_lifecycle_controller_output_plan,
     build_lifecycle_controller_plan,
     build_lifecycle_policy_matrix,
 )
@@ -1977,6 +1978,67 @@ def test_materialization_blocks_blocked_lifecycle_controller_entity_plan() -> No
     ]
 
 
+def test_materializes_lifecycle_controller_outputs_on_generated_relays() -> None:
+    fixture_dir = Path("tests/fixtures/stitching")
+    source_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_alpha.vmf").read_bytes(),
+        path=fixture_dir / "transition_alpha.vmf",
+    )
+    candidate_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_beta.vmf").read_bytes(),
+        path=fixture_dir / "transition_beta.vmf",
+    )
+    manifest = _synthetic_fixture_manifest(source_doc, candidate_doc)
+    controller_entities = _targetnamed_controller_entity_plan()
+    controller_outputs = build_lifecycle_controller_output_plan(controller_entities)
+
+    materialized = materialize_stitch_from_manifest(
+        source_doc,
+        candidate_doc,
+        manifest,
+        controller_entities=controller_entities,
+        controller_outputs=controller_outputs,
+    )
+
+    assert materialized.status is StitchMaterializationStatus.VALID
+    assert materialized.output_bytes is not None
+    assert b'"OnTrigger" "auto_controller,FireUser1,' in materialized.output_bytes
+    assert b'"OnTrigger" "entry_trigger,FireUser1,' in materialized.output_bytes
+    assert (
+        VmfDocument.from_bytes(materialized.output_bytes, path=Path("stitched.vmf")).render_bytes()
+        == materialized.output_bytes
+    )
+
+
+def test_materialization_blocks_blocked_lifecycle_controller_output_plan() -> None:
+    fixture_dir = Path("tests/fixtures/stitching")
+    source_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_alpha.vmf").read_bytes(),
+        path=fixture_dir / "transition_alpha.vmf",
+    )
+    candidate_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_beta.vmf").read_bytes(),
+        path=fixture_dir / "transition_beta.vmf",
+    )
+    manifest = _synthetic_fixture_manifest(source_doc, candidate_doc)
+    controller_entities = _synthetic_controller_entity_plan()
+    controller_outputs = build_lifecycle_controller_output_plan(controller_entities)
+
+    materialized = materialize_stitch_from_manifest(
+        source_doc,
+        candidate_doc,
+        manifest,
+        controller_entities=controller_entities,
+        controller_outputs=controller_outputs,
+    )
+
+    assert materialized.status is StitchMaterializationStatus.BLOCKED
+    assert materialized.output_bytes is None
+    assert [blocker.code for blocker in materialized.blockers] == [
+        StitchMaterializationBlockerCode.CONTROLLER_OUTPUT_PLAN_BLOCKED
+    ]
+
+
 def test_materialization_blocks_invalid_manifest() -> None:
     source_doc = _document('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
     candidate_doc = _document('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
@@ -2218,6 +2280,37 @@ entity
 {
     "id" "2"
     "classname" "logic_auto"
+}
+"""
+    )
+    controller_plan = build_lifecycle_controller_plan(
+        build_lifecycle_policy_matrix(semantic),
+        region_name="transition_beta",
+    )
+    return build_lifecycle_controller_entity_plan(
+        controller_plan,
+        first_entity_id=200,
+    )
+
+
+def _targetnamed_controller_entity_plan() -> LifecycleControllerEntityPlan:
+    semantic = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_auto"
+    "targetname" "auto_controller"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_once"
+    "targetname" "entry_trigger"
 }
 """
     )
