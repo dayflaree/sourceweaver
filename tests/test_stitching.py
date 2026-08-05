@@ -24,12 +24,16 @@ from sourceweaver.stitching import (
     SeamDeletionEvidenceStatus,
     SeamEvidenceBlockerCode,
     SeamEvidenceStatus,
+    TargetNameNamespaceBlockerCode,
+    TargetNameNamespaceEditKind,
+    TargetNameNamespaceStatus,
     TransitionBlockerCode,
     TranslationAlignmentHypothesis,
     build_import_id_allocation_plan,
     build_seam_confidence_report,
     build_seam_deletion_evidence,
     build_seam_overlap_evidence,
+    build_targetname_namespace_plan,
     build_transition_graph,
     build_translation_alignment_hypothesis,
     normalize_map_name,
@@ -1162,3 +1166,144 @@ entity
         (ImportIdAllocationBlockerCode.NON_NUMERIC_ID, ImportIdKind.SIDE, "abc"),
         (ImportIdAllocationBlockerCode.MISSING_CANDIDATE_ID, ImportIdKind.ENTITY, None),
     ]
+
+
+def test_builds_targetname_namespace_plan_for_supported_semantic_references() -> None:
+    source = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_relay"
+    "targetname" "alpha_relay"
+}
+"""
+    )
+    candidate = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_relay"
+    "targetname" "relay"
+}
+entity
+{
+    "id" "3"
+    "classname" "logic_relay"
+    "targetname" "child"
+    "parentname" "relay"
+    "OnTrigger" "relay,Trigger,,0,-1"
+}
+"""
+    )
+
+    plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+
+    assert plan.status is TargetNameNamespaceStatus.VALID
+    assert plan.mutation_authorized is False
+    assert plan.blockers == ()
+    assert [
+        (edit.kind, edit.entity_index, edit.original_value, edit.namespaced_value)
+        for edit in plan.edits
+    ] == [
+        (TargetNameNamespaceEditKind.DEFINITION, 1, "relay", "beta__relay"),
+        (TargetNameNamespaceEditKind.DEFINITION, 2, "child", "beta__child"),
+        (TargetNameNamespaceEditKind.REFERENCE, 2, "relay", "beta__relay"),
+        (TargetNameNamespaceEditKind.REFERENCE, 2, "relay", "beta__relay"),
+    ]
+
+
+def test_namespace_plan_blocks_unresolved_and_ambiguous_references() -> None:
+    source = _semantic('world\n{\n    "id" "1"\n}\n')
+    candidate = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_relay"
+    "targetname" "dup"
+}
+entity
+{
+    "id" "3"
+    "classname" "logic_relay"
+    "targetname" "dup"
+}
+entity
+{
+    "id" "4"
+    "classname" "logic_relay"
+    "parentname" "dup"
+    "OnTrigger" "missing,Trigger,,0,-1"
+}
+"""
+    )
+
+    plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+
+    assert plan.status is TargetNameNamespaceStatus.BLOCKED
+    assert plan.edits == ()
+    assert [(blocker.code, blocker.entity_index, blocker.name) for blocker in plan.blockers] == [
+        (TargetNameNamespaceBlockerCode.UNRESOLVED_REFERENCE, 3, "missing"),
+        (TargetNameNamespaceBlockerCode.AMBIGUOUS_REFERENCE, 3, "dup"),
+    ]
+
+
+def test_namespace_plan_blocks_special_wildcard_empty_prefix_and_source_collisions() -> None:
+    source = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_relay"
+    "targetname" "beta__relay"
+}
+"""
+    )
+    candidate = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_relay"
+    "targetname" "relay"
+    "parentname" "relay*"
+    "OnTrigger" "!self,Trigger,,0,-1"
+}
+"""
+    )
+
+    plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+
+    assert plan.status is TargetNameNamespaceStatus.BLOCKED
+    assert [(blocker.code, blocker.entity_index, blocker.name) for blocker in plan.blockers] == [
+        (TargetNameNamespaceBlockerCode.NAMESPACED_NAME_COLLISION, 1, "beta__relay"),
+        (TargetNameNamespaceBlockerCode.WILDCARD_REFERENCE_UNSUPPORTED, 1, "relay*"),
+        (TargetNameNamespaceBlockerCode.SPECIAL_REFERENCE_UNSUPPORTED, 1, "!self"),
+    ]
+
+    empty_prefix = build_targetname_namespace_plan(source, candidate, prefix="")
+
+    assert empty_prefix.status is TargetNameNamespaceStatus.BLOCKED
+    assert empty_prefix.blockers[0].code is TargetNameNamespaceBlockerCode.EMPTY_PREFIX
