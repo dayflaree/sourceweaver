@@ -190,6 +190,24 @@ class SingletonConflictCode(StrEnum):
     CANDIDATE_DUPLICATE_SINGLETON = "candidate_duplicate_singleton"
 
 
+class StitchPreflightStatus(StrEnum):
+    """Final status for aggregate stitch preflight."""
+
+    READY_FOR_PLAN = "ready_for_plan"
+    BLOCKED = "blocked"
+
+
+class StitchPreflightBlockerCode(StrEnum):
+    """Deterministic blockers for aggregate stitch preflight."""
+
+    ALIGNMENT_BLOCKED = "alignment_blocked"
+    SEAM_CONFIDENCE_BLOCKED = "seam_confidence_blocked"
+    ID_ALLOCATION_BLOCKED = "id_allocation_blocked"
+    NAMESPACE_BLOCKED = "namespace_blocked"
+    SINGLETON_CONFLICT = "singleton_conflict"
+    CAPACITY_EXCEEDED = "capacity_exceeded"
+
+
 @dataclass(frozen=True, slots=True)
 class TransitionBlocker:
     """A reason a transition edge cannot become stitching authority."""
@@ -444,6 +462,27 @@ class SingletonConflictReport:
 
 
 @dataclass(frozen=True, slots=True)
+class StitchPreflightBlocker:
+    """A reason a stitch cannot advance to materialization planning."""
+
+    code: StitchPreflightBlockerCode
+    message: str
+    detail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StitchPreflightReport:
+    """Aggregate read-only readiness report for stitch planning."""
+
+    status: StitchPreflightStatus
+    imported_entity_count: int
+    imported_solid_count: int
+    imported_side_count: int
+    blockers: tuple[StitchPreflightBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportIdRecord:
     kind: ImportIdKind
     raw_id: str | None
@@ -593,6 +632,54 @@ def build_singleton_conflict_report(
     return SingletonConflictReport(
         status=SingletonConflictStatus.BLOCKED if conflicts else SingletonConflictStatus.CLEAR,
         conflicts=conflicts,
+    )
+
+
+def build_stitch_preflight_report(
+    alignment: TranslationAlignmentHypothesis,
+    seam_confidence: SeamConfidenceReport,
+    id_allocation: ImportIdAllocationPlan,
+    namespace_plan: TargetNameNamespacePlan,
+    singleton_conflicts: SingletonConflictReport,
+    candidate_document: SemanticDocument,
+    candidate_brushes: Iterable[BrushSource],
+    *,
+    max_imported_entities: int = 8192,
+    max_imported_solids: int = 65535,
+    max_imported_sides: int = 262144,
+) -> StitchPreflightReport:
+    """Aggregate evidence gates and capacity limits before stitch planning.
+
+    This is a read-only preflight. It reports whether evidence is complete enough
+    to build a stitch plan manifest, but it does not materialize VMF changes.
+    """
+    brushes = tuple(candidate_brushes)
+    imported_entity_count = _imported_entity_count(candidate_document)
+    imported_solid_count = len(brushes)
+    imported_side_count = sum(len(brush.sides) for brush in brushes)
+    blockers = (
+        *_evidence_gate_blockers(
+            alignment,
+            seam_confidence,
+            id_allocation,
+            namespace_plan,
+            singleton_conflicts,
+        ),
+        *_capacity_blockers(
+            imported_entity_count=imported_entity_count,
+            imported_solid_count=imported_solid_count,
+            imported_side_count=imported_side_count,
+            max_imported_entities=max_imported_entities,
+            max_imported_solids=max_imported_solids,
+            max_imported_sides=max_imported_sides,
+        ),
+    )
+    return StitchPreflightReport(
+        status=StitchPreflightStatus.BLOCKED if blockers else StitchPreflightStatus.READY_FOR_PLAN,
+        imported_entity_count=imported_entity_count,
+        imported_solid_count=imported_solid_count,
+        imported_side_count=imported_side_count,
+        blockers=blockers,
     )
 
 
@@ -1062,6 +1149,93 @@ def _singleton_entities_by_class(
             continue
         indexes_by_class.setdefault(classname, []).append(entity.index)
     return {classname: tuple(indexes) for classname, indexes in sorted(indexes_by_class.items())}
+
+
+def _imported_entity_count(candidate_document: SemanticDocument) -> int:
+    return sum(1 for entity in candidate_document.entities if entity.kind is EntityBlockKind.ENTITY)
+
+
+def _evidence_gate_blockers(
+    alignment: TranslationAlignmentHypothesis,
+    seam_confidence: SeamConfidenceReport,
+    id_allocation: ImportIdAllocationPlan,
+    namespace_plan: TargetNameNamespacePlan,
+    singleton_conflicts: SingletonConflictReport,
+) -> tuple[StitchPreflightBlocker, ...]:
+    blockers: list[StitchPreflightBlocker] = []
+    if alignment.status is not AlignmentStatus.VALID:
+        blockers.append(
+            StitchPreflightBlocker(
+                code=StitchPreflightBlockerCode.ALIGNMENT_BLOCKED,
+                message="Translation alignment hypothesis is blocked.",
+            )
+        )
+    if seam_confidence.status is not SeamConfidenceStatus.READY_FOR_REVIEW:
+        blockers.append(
+            StitchPreflightBlocker(
+                code=StitchPreflightBlockerCode.SEAM_CONFIDENCE_BLOCKED,
+                message="Seam confidence evidence is blocked.",
+            )
+        )
+    if id_allocation.status is not ImportIdAllocationStatus.VALID:
+        blockers.append(
+            StitchPreflightBlocker(
+                code=StitchPreflightBlockerCode.ID_ALLOCATION_BLOCKED,
+                message="Imported ID allocation plan is blocked.",
+            )
+        )
+    if namespace_plan.status is not TargetNameNamespaceStatus.VALID:
+        blockers.append(
+            StitchPreflightBlocker(
+                code=StitchPreflightBlockerCode.NAMESPACE_BLOCKED,
+                message="Targetname namespace plan is blocked.",
+            )
+        )
+    if singleton_conflicts.status is not SingletonConflictStatus.CLEAR:
+        blockers.append(
+            StitchPreflightBlocker(
+                code=StitchPreflightBlockerCode.SINGLETON_CONFLICT,
+                message="World/singleton conflict evidence is blocked.",
+            )
+        )
+    return tuple(blockers)
+
+
+def _capacity_blockers(
+    *,
+    imported_entity_count: int,
+    imported_solid_count: int,
+    imported_side_count: int,
+    max_imported_entities: int,
+    max_imported_solids: int,
+    max_imported_sides: int,
+) -> tuple[StitchPreflightBlocker, ...]:
+    blockers: list[StitchPreflightBlocker] = []
+    if imported_entity_count > max_imported_entities:
+        blockers.append(
+            StitchPreflightBlocker(
+                code=StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
+                message="Candidate entity import count exceeds the configured limit.",
+                detail=f"entities={imported_entity_count} limit={max_imported_entities}",
+            )
+        )
+    if imported_solid_count > max_imported_solids:
+        blockers.append(
+            StitchPreflightBlocker(
+                code=StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
+                message="Candidate solid import count exceeds the configured limit.",
+                detail=f"solids={imported_solid_count} limit={max_imported_solids}",
+            )
+        )
+    if imported_side_count > max_imported_sides:
+        blockers.append(
+            StitchPreflightBlocker(
+                code=StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
+                message="Candidate side import count exceeds the configured limit.",
+                detail=f"sides={imported_side_count} limit={max_imported_sides}",
+            )
+        )
+    return tuple(blockers)
 
 
 def _namespace_prefix_blockers(prefix: str) -> tuple[TargetNameNamespaceBlocker, ...]:
