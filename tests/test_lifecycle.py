@@ -5,9 +5,12 @@ from sourceweaver.lifecycle import (
     LifecycleControllerBlockerCode,
     LifecycleControllerEntityBlockerCode,
     LifecycleControllerEntityStatus,
+    LifecycleControllerOutputBlockerCode,
+    LifecycleControllerOutputStatus,
     LifecycleControllerStatus,
     LifecyclePolicyStatus,
     build_lifecycle_controller_entity_plan,
+    build_lifecycle_controller_output_plan,
     build_lifecycle_controller_plan,
     build_lifecycle_policy_matrix,
 )
@@ -295,4 +298,77 @@ def test_lifecycle_controller_entity_plan_blocks_invalid_input() -> None:
     assert [blocker.code for blocker in entity_plan.blockers] == [
         LifecycleControllerEntityBlockerCode.CONTROLLER_PLAN_BLOCKED,
         LifecycleControllerEntityBlockerCode.INVALID_FIRST_ENTITY_ID,
+    ]
+
+
+def test_lifecycle_controller_output_plan_wires_targetnamed_steps() -> None:
+    semantic = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_auto"
+    "targetname" "auto_controller"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_once"
+    "targetname" "entry_trigger"
+}
+"""
+    )
+    controller_plan = build_lifecycle_controller_plan(
+        build_lifecycle_policy_matrix(semantic), region_name="transition_beta"
+    )
+    entity_plan = build_lifecycle_controller_entity_plan(controller_plan, first_entity_id=100)
+
+    output_plan = build_lifecycle_controller_output_plan(entity_plan)
+
+    assert output_plan.status is LifecycleControllerOutputStatus.READY
+    assert output_plan.blockers == ()
+    assert output_plan.mutation_authorized is False
+    assert [
+        (output.controller_targetname, output.output_key, output.target, output.input_name)
+        for output in output_plan.outputs[:2]
+    ] == [
+        ("sourceweaver_transition_beta_preload", "OnTrigger", "auto_controller", "FireUser1"),
+        ("sourceweaver_transition_beta_preload", "OnTrigger", "entry_trigger", "FireUser1"),
+    ]
+    assert output_plan.outputs[0].output_value.startswith("auto_controller,FireUser1,")
+
+
+def test_lifecycle_controller_output_plan_blocks_nameless_controlled_entity() -> None:
+    semantic = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_auto"
+}
+"""
+    )
+    controller_plan = build_lifecycle_controller_plan(
+        build_lifecycle_policy_matrix(semantic), region_name="transition_beta"
+    )
+    entity_plan = build_lifecycle_controller_entity_plan(controller_plan, first_entity_id=100)
+
+    output_plan = build_lifecycle_controller_output_plan(entity_plan)
+
+    assert output_plan.status is LifecycleControllerOutputStatus.BLOCKED
+    assert output_plan.outputs == ()
+    assert [(blocker.code, blocker.step_order) for blocker in output_plan.blockers] == [
+        (LifecycleControllerOutputBlockerCode.STEP_TARGETNAME_MISSING, 0),
+        (LifecycleControllerOutputBlockerCode.STEP_TARGETNAME_MISSING, 1),
+        (LifecycleControllerOutputBlockerCode.STEP_TARGETNAME_MISSING, 2),
+        (LifecycleControllerOutputBlockerCode.STEP_TARGETNAME_MISSING, 3),
+        (LifecycleControllerOutputBlockerCode.STEP_TARGETNAME_MISSING, 4),
     ]

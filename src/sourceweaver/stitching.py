@@ -27,6 +27,9 @@ from sourceweaver.geometry import (
 from sourceweaver.lifecycle import (
     LifecycleControllerEntityPlan,
     LifecycleControllerEntityStatus,
+    LifecycleControllerOutputPlan,
+    LifecycleControllerOutputSpec,
+    LifecycleControllerOutputStatus,
 )
 from sourceweaver.semantics import (
     EntityBlockKind,
@@ -244,6 +247,7 @@ class StitchMaterializationBlockerCode(StrEnum):
 
     MANIFEST_BLOCKED = "manifest_blocked"
     CONTROLLER_ENTITY_PLAN_BLOCKED = "controller_entity_plan_blocked"
+    CONTROLLER_OUTPUT_PLAN_BLOCKED = "controller_output_plan_blocked"
     OUTPUT_REPARSE_FAILED = "output_reparse_failed"
 
 
@@ -861,6 +865,7 @@ def materialize_stitch_from_manifest(
     manifest: StitchPlanManifest,
     *,
     controller_entities: LifecycleControllerEntityPlan | None = None,
+    controller_outputs: LifecycleControllerOutputPlan | None = None,
 ) -> MaterializedStitch:
     """Generate a reversible VMF output for the current synthetic stitch envelope.
 
@@ -895,6 +900,21 @@ def materialize_stitch_from_manifest(
                 ),
             ),
         )
+    if (
+        controller_outputs is not None
+        and controller_outputs.status is not LifecycleControllerOutputStatus.READY
+    ):
+        return MaterializedStitch(
+            status=StitchMaterializationStatus.BLOCKED,
+            output_bytes=None,
+            provenance=(),
+            blockers=(
+                StitchMaterializationBlocker(
+                    code=StitchMaterializationBlockerCode.CONTROLLER_OUTPUT_PLAN_BLOCKED,
+                    message="Lifecycle controller output plan is blocked.",
+                ),
+            ),
+        )
     candidate_semantic = build_semantic_document(candidate_document)
     candidate_snippets = _materialized_candidate_entity_snippets(
         candidate_document,
@@ -903,6 +923,7 @@ def materialize_stitch_from_manifest(
     )
     controller_snippets = _materialized_controller_entity_snippets(
         controller_entities,
+        controller_outputs,
         source_document.newline,
     )
     snippets = (*candidate_snippets, *controller_snippets)
@@ -1453,10 +1474,12 @@ def _edits_within_span(edits: tuple[TextEdit, ...], span: SourceSpan) -> tuple[T
 
 def _materialized_controller_entity_snippets(
     controller_entities: LifecycleControllerEntityPlan | None,
+    controller_outputs: LifecycleControllerOutputPlan | None,
     newline: str,
 ) -> tuple[str, ...]:
     if controller_entities is None:
         return ()
+    outputs_by_targetname = _controller_outputs_by_targetname(controller_outputs)
     return tuple(
         newline.join(
             (
@@ -1466,11 +1489,29 @@ def _materialized_controller_entity_snippets(
                 f"    {_quoted_value('classname')} {_quoted_value(entity.classname)}",
                 f"    {_quoted_value('targetname')} {_quoted_value(entity.targetname)}",
                 f"    {_quoted_value('sourceweaver_phase')} {_quoted_value(entity.phase)}",
+                *(
+                    f"    {_quoted_value(output.output_key)} {_quoted_value(output.output_value)}"
+                    for output in outputs_by_targetname.get(entity.targetname, ())
+                ),
                 "}",
             )
         )
         for entity in controller_entities.entities
     )
+
+
+def _controller_outputs_by_targetname(
+    controller_outputs: LifecycleControllerOutputPlan | None,
+) -> dict[str, tuple[LifecycleControllerOutputSpec, ...]]:
+    if controller_outputs is None:
+        return {}
+    output_lists: dict[str, list[LifecycleControllerOutputSpec]] = {}
+    for output in controller_outputs.outputs:
+        output_lists.setdefault(output.controller_targetname, []).append(output)
+    return {
+        controller_targetname: tuple(outputs)
+        for controller_targetname, outputs in output_lists.items()
+    }
 
 
 def _candidate_namespace_materialization_edits(

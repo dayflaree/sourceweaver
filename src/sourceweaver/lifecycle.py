@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from sourceweaver.semantics import EntityBlockKind, SemanticDocument
+from sourceweaver.semantics import EntityBlockKind, SemanticDocument, SemanticEntity
 
 
 class LifecyclePolicyStatus(StrEnum):
@@ -54,6 +54,20 @@ class LifecycleControllerEntityBlockerCode(StrEnum):
     INVALID_FIRST_ENTITY_ID = "invalid_first_entity_id"
 
 
+class LifecycleControllerOutputStatus(StrEnum):
+    """Final status for lifecycle controller output wiring."""
+
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class LifecycleControllerOutputBlockerCode(StrEnum):
+    """Deterministic blockers for lifecycle controller output wiring."""
+
+    CONTROLLER_ENTITY_PLAN_BLOCKED = "controller_entity_plan_blocked"
+    STEP_TARGETNAME_MISSING = "step_targetname_missing"
+
+
 @dataclass(frozen=True, slots=True)
 class LifecyclePolicy:
     """Lifecycle actions for one known class or class family."""
@@ -73,6 +87,7 @@ class LifecyclePolicyEntry:
     entity_index: int
     classname: str
     policy: LifecyclePolicy
+    targetname: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +119,7 @@ class LifecycleControllerStep:
     entity_index: int
     classname: str
     action: str
+    targetname: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +176,39 @@ class LifecycleControllerEntityPlan:
     entities: tuple[LifecycleControllerEntitySpec, ...]
     step_records: tuple[LifecycleControllerStepRecord, ...]
     blockers: tuple[LifecycleControllerEntityBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerOutputSpec:
+    """One output planned for a lifecycle phase relay."""
+
+    controller_targetname: str
+    step_order: int
+    phase: str
+    output_key: str
+    output_value: str
+    target: str
+    input_name: str
+    parameter: str
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerOutputBlocker:
+    """A reason lifecycle controller outputs cannot be wired safely."""
+
+    code: LifecycleControllerOutputBlockerCode
+    message: str
+    step_order: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerOutputPlan:
+    """Read-only output wiring for lifecycle controller phase relays."""
+
+    status: LifecycleControllerOutputStatus
+    outputs: tuple[LifecycleControllerOutputSpec, ...]
+    blockers: tuple[LifecycleControllerOutputBlocker, ...]
     mutation_authorized: bool = False
 
 
@@ -283,6 +332,7 @@ def build_lifecycle_policy_matrix(document: SemanticDocument) -> LifecyclePolicy
                 entity_index=entity.index,
                 classname=entity.classname,
                 policy=policy,
+                targetname=_unique_targetname(entity),
             )
         )
     if blockers:
@@ -391,6 +441,40 @@ def build_lifecycle_controller_entity_plan(
     )
 
 
+def build_lifecycle_controller_output_plan(
+    entity_plan: LifecycleControllerEntityPlan,
+) -> LifecycleControllerOutputPlan:
+    """Build deterministic read-only output wiring for lifecycle phase relays."""
+    blockers: list[LifecycleControllerOutputBlocker] = []
+    if entity_plan.status is not LifecycleControllerEntityStatus.READY:
+        blockers.append(
+            LifecycleControllerOutputBlocker(
+                code=LifecycleControllerOutputBlockerCode.CONTROLLER_ENTITY_PLAN_BLOCKED,
+                message="Lifecycle controller entity plan is blocked.",
+            )
+        )
+    for record in entity_plan.step_records:
+        if record.step.targetname is None:
+            blockers.append(
+                LifecycleControllerOutputBlocker(
+                    code=LifecycleControllerOutputBlockerCode.STEP_TARGETNAME_MISSING,
+                    message="Lifecycle-controlled entity lacks a unique targetname.",
+                    step_order=record.step.order,
+                )
+            )
+    if blockers:
+        return LifecycleControllerOutputPlan(
+            status=LifecycleControllerOutputStatus.BLOCKED,
+            outputs=(),
+            blockers=tuple(blockers),
+        )
+    return LifecycleControllerOutputPlan(
+        status=LifecycleControllerOutputStatus.READY,
+        outputs=tuple(_output_spec_from_record(record) for record in entity_plan.step_records),
+        blockers=(),
+    )
+
+
 def _policy_for_classname(classname: str) -> LifecyclePolicy | None:
     if classname in _POLICIES:
         return _POLICIES[classname]
@@ -398,6 +482,13 @@ def _policy_for_classname(classname: str) -> LifecyclePolicy | None:
         if classname.startswith(prefix):
             return policy
     return None
+
+
+def _unique_targetname(entity: SemanticEntity) -> str | None:
+    if len(entity.targetnames) != 1:
+        return None
+    targetname = entity.targetnames[0].value
+    return targetname or None
 
 
 def _controller_steps(
@@ -421,7 +512,33 @@ def _controller_steps(
                     entity_index=entry.entity_index,
                     classname=entry.classname,
                     action=getattr(entry.policy, field_name),
+                    targetname=entry.targetname,
                 )
             )
             order += 1
     return tuple(steps)
+
+
+def _output_spec_from_record(
+    record: LifecycleControllerStepRecord,
+) -> LifecycleControllerOutputSpec:
+    targetname = record.step.targetname
+    if targetname is None:
+        raise ValueError("Lifecycle step targetname must be validated before output wiring.")
+    input_name = "FireUser1"
+    parameter = _escape_output_field(record.step.action)
+    output_value = f"{targetname},{input_name},{parameter},0,-1"
+    return LifecycleControllerOutputSpec(
+        controller_targetname=record.controller_targetname,
+        step_order=record.step.order,
+        phase=record.phase,
+        output_key="OnTrigger",
+        output_value=output_value,
+        target=targetname,
+        input_name=input_name,
+        parameter=record.step.action,
+    )
+
+
+def _escape_output_field(value: str) -> str:
+    return value.replace("\\", "\\\\").replace(",", "\\,")
