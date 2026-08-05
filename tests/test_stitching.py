@@ -26,6 +26,8 @@ from sourceweaver.stitching import (
     SeamEvidenceStatus,
     SingletonConflictCode,
     SingletonConflictStatus,
+    StitchPreflightBlockerCode,
+    StitchPreflightStatus,
     TargetNameNamespaceBlockerCode,
     TargetNameNamespaceEditKind,
     TargetNameNamespaceStatus,
@@ -36,6 +38,7 @@ from sourceweaver.stitching import (
     build_seam_deletion_evidence,
     build_seam_overlap_evidence,
     build_singleton_conflict_report,
+    build_stitch_preflight_report,
     build_targetname_namespace_plan,
     build_transition_graph,
     build_translation_alignment_hypothesis,
@@ -1424,3 +1427,189 @@ entity
         (SingletonConflictCode.CANDIDATE_DUPLICATE_SINGLETON, "logic_auto")
     ]
     assert report.conflicts[0].candidate_entity_indexes == (1, 2)
+
+
+def test_stitch_preflight_passes_when_all_evidence_gates_are_clear() -> None:
+    source_doc = _document(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+    "skyname" "sky_day01_01"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "shared_landmark"
+}
+"""
+    )
+    candidate_doc = _document(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+    "skyname" "sky_day01_01"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "shared_landmark"
+}
+"""
+    )
+    source = build_semantic_document(source_doc)
+    candidate = build_semantic_document(candidate_doc)
+    alignment = build_translation_alignment_hypothesis(
+        build_transition_graph(source),
+        build_transition_graph(candidate),
+        source_map_name="alpha",
+        candidate_map_name="beta",
+    )
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/solid",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/solid",
+            _cube_brush(Vec3(128.0, 0.0, 0.0), Vec3(256.0, 128.0, 128.0)),
+        ),
+    )
+    seam_confidence = build_seam_confidence_report(
+        build_seam_deletion_evidence(
+            build_seam_overlap_evidence(alignment, source_records, candidate_records)
+        )
+    )
+    id_plan = build_import_id_allocation_plan(source, candidate, (), ())
+    namespace_plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+    singleton_report = build_singleton_conflict_report(source, candidate)
+
+    preflight = build_stitch_preflight_report(
+        alignment,
+        seam_confidence,
+        id_plan,
+        namespace_plan,
+        singleton_report,
+        candidate,
+        (),
+    )
+
+    assert preflight.status is StitchPreflightStatus.READY_FOR_PLAN
+    assert preflight.mutation_authorized is False
+    assert preflight.blockers == ()
+    assert preflight.imported_entity_count == 2
+    assert preflight.imported_solid_count == 0
+    assert preflight.imported_side_count == 0
+
+
+def test_stitch_preflight_blocks_failed_evidence_gates() -> None:
+    source = _semantic('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+    candidate = _semantic('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+    alignment = build_translation_alignment_hypothesis(
+        build_transition_graph(source),
+        build_transition_graph(candidate),
+        source_map_name="alpha",
+        candidate_map_name="beta",
+    )
+    seam_confidence = build_seam_confidence_report(
+        build_seam_deletion_evidence(build_seam_overlap_evidence(alignment, (), ()))
+    )
+    id_plan = build_import_id_allocation_plan(source, candidate, (), ())
+    namespace_plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+    singleton_report = build_singleton_conflict_report(source, candidate)
+
+    preflight = build_stitch_preflight_report(
+        alignment,
+        seam_confidence,
+        id_plan,
+        namespace_plan,
+        singleton_report,
+        candidate,
+        (),
+    )
+
+    assert preflight.status is StitchPreflightStatus.BLOCKED
+    assert [blocker.code for blocker in preflight.blockers] == [
+        StitchPreflightBlockerCode.ALIGNMENT_BLOCKED,
+        StitchPreflightBlockerCode.SEAM_CONFIDENCE_BLOCKED,
+    ]
+
+
+def test_stitch_preflight_blocks_capacity_overages() -> None:
+    source = _semantic('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+    candidate = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_target"
+}
+"""
+    )
+    candidate_brushes = (
+        extract_brush_sources(
+            _document(
+                """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+    solid
+    {
+        "id" "2"
+        side { "id" "3" "plane" "(0 0 0) (0 1 0) (1 1 0)" }
+    }
+}
+"""
+            ).syntax
+        )[0],
+    )
+
+    preflight = build_stitch_preflight_report(
+        _valid_zero_offset_alignment(),
+        build_seam_confidence_report(
+            build_seam_deletion_evidence(
+                build_seam_overlap_evidence(_valid_zero_offset_alignment(), (), ())
+            )
+        ),
+        build_import_id_allocation_plan(source, candidate, (), ()),
+        build_targetname_namespace_plan(source, candidate, prefix="beta__"),
+        build_singleton_conflict_report(source, candidate),
+        candidate,
+        candidate_brushes,
+        max_imported_entities=0,
+        max_imported_solids=0,
+        max_imported_sides=0,
+    )
+
+    assert preflight.status is StitchPreflightStatus.BLOCKED
+    assert [blocker.code for blocker in preflight.blockers] == [
+        StitchPreflightBlockerCode.SEAM_CONFIDENCE_BLOCKED,
+        StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
+        StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
+        StitchPreflightBlockerCode.CAPACITY_EXCEEDED,
+    ]
