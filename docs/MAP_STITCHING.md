@@ -44,8 +44,9 @@ The current repository implementation provides a read-only transition graph slic
 - builds read-only lifecycle controller entity specs by assigning each lifecycle phase to a generated `logic_relay` specification.
 - appends ready lifecycle controller relay specs to generated VMFs with generated-span provenance.
 - wires generated lifecycle phase relays through `OnTrigger` outputs only for lifecycle-controlled entities with unique targetnames; nameless controlled entities block wiring.
+- builds read-only runtime acceptance manifests for compiled baseline/candidate BSP artifacts and mandatory stitching scenarios.
 
-This slice never mutates source inputs. Generated output is a new VMF byte stream and source bytes remain preserved as an exact prefix. Alignment, seam overlap, deletion-class, seam-confidence, ID-allocation, namespace-plan, singleton-conflict, preflight, manifest, materialization, and lifecycle-controller records do not authorize overwriting originals. The implementation does not materialize brush geometry transforms, remove duplicate transition geometry from source files, or run compiler/runtime acceptance gates. FGD-backed namespacing is intentionally limited to the documented built-in conservative keyvalue schema until exact game FGDs are wired in.
+This slice never mutates source inputs. Generated output is a new VMF byte stream and source bytes remain preserved as an exact prefix. Alignment, seam overlap, deletion-class, seam-confidence, ID-allocation, namespace-plan, singleton-conflict, preflight, manifest, materialization, lifecycle-controller, and runtime-manifest records do not authorize overwriting originals. The implementation does not materialize brush geometry transforms, remove duplicate transition geometry from source files, or run compiler/runtime acceptance gates. FGD-backed namespacing is intentionally limited to the documented built-in conservative keyvalue schema until exact game FGDs are wired in.
 
 ## Pipeline
 
