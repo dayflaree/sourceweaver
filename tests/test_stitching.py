@@ -3,6 +3,7 @@ from pathlib import Path
 from sourceweaver.geometry import (
     BoundsRelation,
     BrushRelation,
+    BrushSource,
     BrushSpatialRecord,
     ConvexBrush,
     Plane,
@@ -1748,3 +1749,77 @@ def test_stitch_plan_manifest_blocks_when_preflight_is_blocked() -> None:
     assert [blocker.code for blocker in manifest.blockers] == [
         StitchPlanManifestBlockerCode.PREFLIGHT_BLOCKED
     ]
+
+
+def test_synthetic_transition_fixture_pair_produces_ready_stitch_manifest() -> None:
+    fixture_dir = Path("tests/fixtures/stitching")
+    source_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_alpha.vmf").read_bytes(),
+        path=fixture_dir / "transition_alpha.vmf",
+    )
+    candidate_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_beta.vmf").read_bytes(),
+        path=fixture_dir / "transition_beta.vmf",
+    )
+    source = build_semantic_document(source_doc)
+    candidate = build_semantic_document(candidate_doc)
+    source_brushes = extract_brush_sources(source_doc.syntax)
+    candidate_brushes = extract_brush_sources(candidate_doc.syntax)
+    source_records = _brush_records_from_sources("transition_alpha", source_brushes)
+    candidate_records = _brush_records_from_sources("transition_beta", candidate_brushes)
+    alignment = build_translation_alignment_hypothesis(
+        build_transition_graph(source),
+        build_transition_graph(candidate),
+        source_map_name="transition_alpha",
+        candidate_map_name="transition_beta",
+    )
+    deletion = build_seam_deletion_evidence(
+        build_seam_overlap_evidence(alignment, source_records, candidate_records)
+    )
+    seam_confidence = build_seam_confidence_report(deletion)
+    id_plan = build_import_id_allocation_plan(source, candidate, source_brushes, candidate_brushes)
+    namespace_plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+    singleton_report = build_singleton_conflict_report(source, candidate)
+    preflight = build_stitch_preflight_report(
+        alignment,
+        seam_confidence,
+        id_plan,
+        namespace_plan,
+        singleton_report,
+        candidate,
+        candidate_brushes,
+    )
+
+    manifest = build_stitch_plan_manifest(
+        preflight,
+        alignment,
+        deletion,
+        id_plan,
+        namespace_plan,
+    )
+
+    assert alignment.status is AlignmentStatus.VALID
+    assert seam_confidence.status is SeamConfidenceStatus.READY_FOR_REVIEW
+    assert preflight.status is StitchPreflightStatus.READY_FOR_PLAN
+    assert manifest.status is StitchPlanManifestStatus.VALID
+    assert manifest.candidate_to_source_offset == Vec3(0.0, 0.0, 0.0)
+    assert manifest.candidate_removals == ("transition_beta/world/1/solid/10",)
+    assert len(manifest.id_allocations) == 9
+    assert len(manifest.namespace_edits) == 2
+
+
+def _brush_records_from_sources(
+    map_name: str, brush_sources: tuple[BrushSource, ...]
+) -> tuple[BrushSpatialRecord, ...]:
+    records: list[BrushSpatialRecord] = []
+    for brush_source in brush_sources:
+        reconstruction = brush_source.reconstruct()
+        assert reconstruction.status is ReconstructionStatus.VALID
+        assert reconstruction.brush is not None
+        records.append(
+            BrushSpatialRecord(
+                f"{map_name}/{brush_source.owner_kind}/{brush_source.owner_id}/solid/{brush_source.solid_id}",
+                reconstruction.brush,
+            )
+        )
+    return tuple(records)
