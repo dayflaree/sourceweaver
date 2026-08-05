@@ -27,6 +27,9 @@ from sourceweaver.stitching import (
     SeamEvidenceStatus,
     SingletonConflictCode,
     SingletonConflictStatus,
+    StitchMaterializationBlockerCode,
+    StitchMaterializationStatus,
+    StitchPlanManifest,
     StitchPlanManifestBlockerCode,
     StitchPlanManifestStatus,
     StitchPreflightBlockerCode,
@@ -46,6 +49,7 @@ from sourceweaver.stitching import (
     build_targetname_namespace_plan,
     build_transition_graph,
     build_translation_alignment_hypothesis,
+    materialize_stitch_from_manifest,
     normalize_map_name,
 )
 from sourceweaver.vmf import VmfDocument
@@ -1806,6 +1810,129 @@ def test_synthetic_transition_fixture_pair_produces_ready_stitch_manifest() -> N
     assert manifest.candidate_removals == ("transition_beta/world/1/solid/10",)
     assert len(manifest.id_allocations) == 9
     assert len(manifest.namespace_edits) == 2
+
+
+def test_materializes_synthetic_transition_fixture_as_reversible_generated_vmf() -> None:
+    fixture_dir = Path("tests/fixtures/stitching")
+    source_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_alpha.vmf").read_bytes(),
+        path=fixture_dir / "transition_alpha.vmf",
+    )
+    candidate_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_beta.vmf").read_bytes(),
+        path=fixture_dir / "transition_beta.vmf",
+    )
+    manifest = _synthetic_fixture_manifest(source_doc, candidate_doc)
+
+    materialized = materialize_stitch_from_manifest(source_doc, candidate_doc, manifest)
+
+    assert materialized.status is StitchMaterializationStatus.VALID
+    assert materialized.source_mutation_authorized is False
+    assert materialized.blockers == ()
+    assert materialized.output_bytes is not None
+    assert materialized.output_bytes.startswith(source_doc.raw_bytes)
+    assert b'"id" "29"' in materialized.output_bytes
+    assert b'"targetname" "beta__shared_landmark"' in materialized.output_bytes
+    assert b'"targetname" "beta__to_alpha"' in materialized.output_bytes
+    assert b'"id" "10"' not in materialized.output_bytes.removeprefix(source_doc.raw_bytes)
+    reparsed = VmfDocument.from_bytes(materialized.output_bytes, path=Path("stitched.vmf"))
+    assert reparsed.render_bytes() == materialized.output_bytes
+    assert [entry.kind for entry in materialized.provenance] == [
+        "source_preserved",
+        "candidate_entity_imported",
+        "candidate_entity_imported",
+    ]
+    assert materialized.provenance[0].source_path == "tests/fixtures/stitching/transition_alpha.vmf"
+
+
+def test_materialization_blocks_invalid_manifest() -> None:
+    source_doc = _document('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+    candidate_doc = _document('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+    alignment = build_translation_alignment_hypothesis(
+        build_transition_graph(build_semantic_document(source_doc)),
+        build_transition_graph(build_semantic_document(candidate_doc)),
+        source_map_name="alpha",
+        candidate_map_name="beta",
+    )
+    deletion = build_seam_deletion_evidence(build_seam_overlap_evidence(alignment, (), ()))
+    manifest = build_stitch_plan_manifest(
+        build_stitch_preflight_report(
+            alignment,
+            build_seam_confidence_report(deletion),
+            build_import_id_allocation_plan(
+                build_semantic_document(source_doc), build_semantic_document(candidate_doc), (), ()
+            ),
+            build_targetname_namespace_plan(
+                build_semantic_document(source_doc),
+                build_semantic_document(candidate_doc),
+                prefix="beta__",
+            ),
+            build_singleton_conflict_report(
+                build_semantic_document(source_doc), build_semantic_document(candidate_doc)
+            ),
+            build_semantic_document(candidate_doc),
+            (),
+        ),
+        alignment,
+        deletion,
+        build_import_id_allocation_plan(
+            build_semantic_document(source_doc), build_semantic_document(candidate_doc), (), ()
+        ),
+        build_targetname_namespace_plan(
+            build_semantic_document(source_doc),
+            build_semantic_document(candidate_doc),
+            prefix="beta__",
+        ),
+    )
+
+    materialized = materialize_stitch_from_manifest(source_doc, candidate_doc, manifest)
+
+    assert materialized.status is StitchMaterializationStatus.BLOCKED
+    assert materialized.output_bytes is None
+    assert [blocker.code for blocker in materialized.blockers] == [
+        StitchMaterializationBlockerCode.MANIFEST_BLOCKED
+    ]
+
+
+def _synthetic_fixture_manifest(
+    source_doc: VmfDocument, candidate_doc: VmfDocument
+) -> StitchPlanManifest:
+    source = build_semantic_document(source_doc)
+    candidate = build_semantic_document(candidate_doc)
+    source_brushes = extract_brush_sources(source_doc.syntax)
+    candidate_brushes = extract_brush_sources(candidate_doc.syntax)
+    alignment = build_translation_alignment_hypothesis(
+        build_transition_graph(source),
+        build_transition_graph(candidate),
+        source_map_name="transition_alpha",
+        candidate_map_name="transition_beta",
+    )
+    deletion = build_seam_deletion_evidence(
+        build_seam_overlap_evidence(
+            alignment,
+            _brush_records_from_sources("transition_alpha", source_brushes),
+            _brush_records_from_sources("transition_beta", candidate_brushes),
+        )
+    )
+    seam_confidence = build_seam_confidence_report(deletion)
+    id_plan = build_import_id_allocation_plan(source, candidate, source_brushes, candidate_brushes)
+    namespace_plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+    preflight = build_stitch_preflight_report(
+        alignment,
+        seam_confidence,
+        id_plan,
+        namespace_plan,
+        build_singleton_conflict_report(source, candidate),
+        candidate,
+        candidate_brushes,
+    )
+    return build_stitch_plan_manifest(
+        preflight,
+        alignment,
+        deletion,
+        id_plan,
+        namespace_plan,
+    )
 
 
 def _brush_records_from_sources(
