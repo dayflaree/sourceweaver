@@ -28,8 +28,9 @@ The current repository implementation provides a read-only transition graph slic
 - surfaces transition blockers through `sourceweaver inspect` as `STITCH001` diagnostics.
 - builds a read-only translation hypothesis between two transition graphs when there is exactly one A→B edge, exactly one B→A edge, matching landmark names, and validated landmark origins on both sides;
 - computes the candidate-to-source offset as `source_landmark_origin - candidate_landmark_origin` and blocks nonfinite results.
+- builds read-only seam overlap evidence by translating candidate brush records in memory, selecting AABB candidate pairs, and attaching exact convex brush relation classifications.
 
-This slice is intentionally non-mutating. Alignment hypotheses are evidence only and always carry `mutation_authorized = false`. The implementation does not score seam evidence, transform entity fields, namespace references, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates.
+This slice is intentionally non-mutating. Alignment and seam overlap outputs are evidence only and always carry `mutation_authorized = false`. The implementation does not decide deletion classes, score seam confidence, transform entity fields, namespace references, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates.
 
 ## Pipeline
 
