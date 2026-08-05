@@ -76,6 +76,18 @@ VVIS++’s same-result claim is verified through controlled differential BSP/PVS
 - preserve partial artifacts for diagnosis;
 - never overwrite a known-good BSP.
 
+## Implemented support envelope
+
+Current code supports compiler discovery, executable fingerprinting, executable-format detection, host compatibility classification, and compiler-run preflight for required compile stages (`vbsp`, `vvis`, `vrad`). The preflight reports:
+
+- missing required compiler executables;
+- native executable readiness;
+- Windows PE compilers on Linux requiring a compatibility runner;
+- compatibility-runner discovery through `wine64`/`wine`;
+- unsupported executable formats and unknown hosts.
+
+This preflight does not invoke compilers, parse logs, inspect BSP/PRT artifacts, qualify hashes, or produce acceptance verdicts. A discovered compiler set can still be blocked if the host lacks a required runner.
+
 ## Log parser
 
 Messages are classified by exact compiler fingerprint and normalized code:

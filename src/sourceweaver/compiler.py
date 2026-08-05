@@ -13,6 +13,7 @@ import re
 import shutil
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
@@ -30,6 +31,24 @@ _VDF_PATH_RE: Final[re.Pattern[str]] = re.compile(
 _VDF_LEGACY_LIBRARY_RE: Final[re.Pattern[str]] = re.compile(
     r'^\s*"\d+"\s*"(?P<path>(?:\\.|[^"\\])*)"\s*$', re.MULTILINE
 )
+_REQUIRED_COMPILE_ROLES: Final[tuple[str, ...]] = ("vbsp", "vvis", "vrad")
+_COMPATIBILITY_RUNNERS: Final[tuple[str, ...]] = ("wine64", "wine")
+
+
+class CompilerRunStatus(StrEnum):
+    """Final status for compiler invocation readiness."""
+
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class CompilerRunBlockerCode(StrEnum):
+    """Deterministic blockers for compiler invocation readiness."""
+
+    MISSING_COMPILER = "missing_compiler"
+    COMPATIBILITY_LAYER_REQUIRED = "compatibility_layer_required"
+    UNSUPPORTED_FORMAT = "unsupported_format"
+    UNKNOWN_HOST = "unknown_host"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +77,36 @@ class CompilerSet:
             name: ArtifactFingerprint.from_path(path) if path else None
             for name, path in self.items()
         }
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerRunTool:
+    """One compiler executable enrolled for an invocation plan."""
+
+    role: str
+    path: Path
+    executable_format: str
+    compatibility: str
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerRunBlocker:
+    """A reason the selected compiler set cannot be invoked."""
+
+    code: CompilerRunBlockerCode
+    message: str
+    role: str
+    path: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerRunPreflight:
+    """Read-only compiler invocation readiness report."""
+
+    status: CompilerRunStatus
+    tools: tuple[CompilerRunTool, ...]
+    blockers: tuple[CompilerRunBlocker, ...]
+    runner_command: str | None = None
 
 
 def _decode_vdf_string(value: str) -> str:
@@ -266,3 +315,84 @@ def host_compatibility(executable_kind: str, *, host: str | None = None) -> str:
     if system == "darwin":
         return "native" if executable_kind == "macos-mach-o" else "unsupported-format"
     return "unknown-host"
+
+
+def build_compiler_run_preflight(
+    compilers: CompilerSet,
+    *,
+    host: str | None = None,
+    required_roles: Iterable[str] = _REQUIRED_COMPILE_ROLES,
+    compatibility_runners: Iterable[str] = _COMPATIBILITY_RUNNERS,
+) -> CompilerRunPreflight:
+    """Report whether the selected compiler set can be invoked on this host."""
+    role_to_path = dict(compilers.items())
+    tools: list[CompilerRunTool] = []
+    blockers: list[CompilerRunBlocker] = []
+    needs_runner = False
+    for role in required_roles:
+        path = role_to_path.get(role)
+        if path is None:
+            blockers.append(
+                CompilerRunBlocker(
+                    code=CompilerRunBlockerCode.MISSING_COMPILER,
+                    message="Required compiler executable was not discovered.",
+                    role=role,
+                )
+            )
+            continue
+        executable_kind = executable_format(path)
+        compatibility = host_compatibility(executable_kind, host=host)
+        tools.append(
+            CompilerRunTool(
+                role=role,
+                path=path,
+                executable_format=executable_kind,
+                compatibility=compatibility,
+            )
+        )
+        if compatibility == "native":
+            continue
+        if compatibility == "compatibility-layer-required":
+            needs_runner = True
+            continue
+        message = f"Compiler executable format is not runnable on this host: {compatibility}."
+        blockers.append(
+            CompilerRunBlocker(
+                code=_compatibility_blocker_code(compatibility),
+                message=message,
+                role=role,
+                path=path,
+            )
+        )
+
+    runner = _first_available_runner(compatibility_runners) if needs_runner else None
+    if needs_runner and runner is None:
+        blockers.extend(
+            CompilerRunBlocker(
+                code=CompilerRunBlockerCode.COMPATIBILITY_LAYER_REQUIRED,
+                message="Compiler requires a compatibility layer, but none was found.",
+                role=tool.role,
+                path=tool.path,
+            )
+            for tool in tools
+            if tool.compatibility == "compatibility-layer-required"
+        )
+    return CompilerRunPreflight(
+        status=CompilerRunStatus.BLOCKED if blockers else CompilerRunStatus.READY,
+        tools=tuple(tools),
+        blockers=tuple(blockers),
+        runner_command=runner,
+    )
+
+
+def _first_available_runner(runners: Iterable[str]) -> str | None:
+    for runner in runners:
+        if shutil.which(runner):
+            return runner
+    return None
+
+
+def _compatibility_blocker_code(compatibility: str) -> CompilerRunBlockerCode:
+    if compatibility == "unknown-host":
+        return CompilerRunBlockerCode.UNKNOWN_HOST
+    return CompilerRunBlockerCode.UNSUPPORTED_FORMAT

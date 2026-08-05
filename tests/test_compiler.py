@@ -3,6 +3,10 @@ from pathlib import Path
 import pytest
 
 from sourceweaver.compiler import (
+    CompilerRunBlockerCode,
+    CompilerRunStatus,
+    CompilerSet,
+    build_compiler_run_preflight,
     discover_compilers,
     discover_gmod_root,
     executable_format,
@@ -173,3 +177,85 @@ def test_executable_format(tmp_path: Path, magic: bytes, expected: str) -> None:
 )
 def test_host_compatibility(kind: str, host: str, expected: str) -> None:
     assert host_compatibility(kind, host=host) == expected
+
+
+def test_compiler_run_preflight_accepts_native_pipeline(tmp_path: Path) -> None:
+    vbsp = tmp_path / "vbsp"
+    vvis = tmp_path / "vvis"
+    vrad = tmp_path / "vrad"
+    for executable in (vbsp, vvis, vrad):
+        executable.write_bytes(b"\x7fELFpayload")
+
+    result = build_compiler_run_preflight(
+        CompilerSet(vbsp=vbsp, vvis=vvis, vrad=vrad, bspzip=None), host="Linux"
+    )
+
+    assert result.status is CompilerRunStatus.READY
+    assert result.runner_command is None
+    assert result.blockers == ()
+    assert [tool.role for tool in result.tools] == ["vbsp", "vvis", "vrad"]
+    assert [tool.executable_format for tool in result.tools] == [
+        "linux-elf",
+        "linux-elf",
+        "linux-elf",
+    ]
+
+
+def test_compiler_run_preflight_blocks_missing_required_tool(tmp_path: Path) -> None:
+    vbsp = tmp_path / "vbsp"
+    vbsp.write_bytes(b"\x7fELFpayload")
+
+    result = build_compiler_run_preflight(
+        CompilerSet(vbsp=vbsp, vvis=None, vrad=None, bspzip=None), host="Linux"
+    )
+
+    assert result.status is CompilerRunStatus.BLOCKED
+    assert [(blocker.code, blocker.role) for blocker in result.blockers] == [
+        (CompilerRunBlockerCode.MISSING_COMPILER, "vvis"),
+        (CompilerRunBlockerCode.MISSING_COMPILER, "vrad"),
+    ]
+
+
+def test_compiler_run_preflight_blocks_windows_tools_without_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vbsp = tmp_path / "vbsp.exe"
+    vvis = tmp_path / "vvis.exe"
+    vrad = tmp_path / "vrad.exe"
+    for executable in (vbsp, vvis, vrad):
+        executable.write_bytes(b"MZpayload")
+    monkeypatch.setattr("sourceweaver.compiler.shutil.which", lambda _name: None)
+
+    result = build_compiler_run_preflight(
+        CompilerSet(vbsp=vbsp, vvis=vvis, vrad=vrad, bspzip=None), host="Linux"
+    )
+
+    assert result.status is CompilerRunStatus.BLOCKED
+    assert result.runner_command is None
+    assert [(blocker.code, blocker.role) for blocker in result.blockers] == [
+        (CompilerRunBlockerCode.COMPATIBILITY_LAYER_REQUIRED, "vbsp"),
+        (CompilerRunBlockerCode.COMPATIBILITY_LAYER_REQUIRED, "vvis"),
+        (CompilerRunBlockerCode.COMPATIBILITY_LAYER_REQUIRED, "vrad"),
+    ]
+
+
+def test_compiler_run_preflight_accepts_windows_tools_with_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vbsp = tmp_path / "vbsp.exe"
+    vvis = tmp_path / "vvis.exe"
+    vrad = tmp_path / "vrad.exe"
+    for executable in (vbsp, vvis, vrad):
+        executable.write_bytes(b"MZpayload")
+    monkeypatch.setattr(
+        "sourceweaver.compiler.shutil.which",
+        lambda name: "/usr/bin/wine64" if name == "wine64" else None,
+    )
+
+    result = build_compiler_run_preflight(
+        CompilerSet(vbsp=vbsp, vvis=vvis, vrad=vrad, bspzip=None), host="Linux"
+    )
+
+    assert result.status is CompilerRunStatus.READY
+    assert result.runner_command == "wine64"
+    assert result.blockers == ()
