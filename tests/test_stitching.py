@@ -14,12 +14,15 @@ from sourceweaver.semantics import SemanticDocument, build_semantic_document
 from sourceweaver.stitching import (
     AlignmentBlockerCode,
     AlignmentStatus,
+    SeamConfidenceBlockerCode,
+    SeamConfidenceStatus,
     SeamDeletionClass,
     SeamDeletionEvidenceStatus,
     SeamEvidenceBlockerCode,
     SeamEvidenceStatus,
     TransitionBlockerCode,
     TranslationAlignmentHypothesis,
+    build_seam_confidence_report,
     build_seam_deletion_evidence,
     build_seam_overlap_evidence,
     build_transition_graph,
@@ -913,3 +916,116 @@ def test_deletion_evidence_blocks_when_seam_evidence_is_blocked() -> None:
     assert deletion.status is SeamDeletionEvidenceStatus.BLOCKED
     assert deletion.items == ()
     assert deletion.blockers == overlap.blockers
+
+
+def test_seam_confidence_accepts_touching_and_candidate_removal_evidence() -> None:
+    alignment = _valid_zero_offset_alignment()
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/source",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/duplicate",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+        BrushSpatialRecord(
+            "beta/touching",
+            _cube_brush(Vec3(128.0, 0.0, 0.0), Vec3(256.0, 128.0, 128.0)),
+        ),
+    )
+    overlap = build_seam_overlap_evidence(alignment, source_records, candidate_records)
+    deletion = build_seam_deletion_evidence(overlap)
+
+    report = build_seam_confidence_report(deletion)
+
+    assert report.status is SeamConfidenceStatus.READY_FOR_REVIEW
+    assert report.mutation_authorized is False
+    assert report.blockers == ()
+    assert report.pair_count == 2
+    assert report.candidate_removal_count == 1
+    assert report.touching_pair_count == 1
+    assert report.unsafe_overlap_count == 0
+    assert report.source_removal_count == 0
+
+
+def test_seam_confidence_blocks_unsafe_overlap() -> None:
+    alignment = _valid_zero_offset_alignment()
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/source",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/overlap",
+            _cube_brush(Vec3(64.0, 0.0, 0.0), Vec3(192.0, 128.0, 128.0)),
+        ),
+    )
+    deletion = build_seam_deletion_evidence(
+        build_seam_overlap_evidence(alignment, source_records, candidate_records)
+    )
+
+    report = build_seam_confidence_report(deletion)
+
+    assert report.status is SeamConfidenceStatus.BLOCKED
+    assert [(blocker.code, blocker.item_index) for blocker in report.blockers] == [
+        (SeamConfidenceBlockerCode.UNSAFE_OVERLAP, 0)
+    ]
+    assert report.unsafe_overlap_count == 1
+
+
+def test_seam_confidence_blocks_source_removal_candidates() -> None:
+    alignment = _valid_zero_offset_alignment()
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/inner",
+            _cube_brush(Vec3(32.0, 32.0, 32.0), Vec3(96.0, 96.0, 96.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/outer",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    deletion = build_seam_deletion_evidence(
+        build_seam_overlap_evidence(alignment, source_records, candidate_records)
+    )
+
+    report = build_seam_confidence_report(deletion)
+
+    assert report.status is SeamConfidenceStatus.BLOCKED
+    assert [(blocker.code, blocker.item_index) for blocker in report.blockers] == [
+        (SeamConfidenceBlockerCode.SOURCE_REMOVAL_UNSUPPORTED, 0)
+    ]
+    assert report.source_removal_count == 1
+
+
+def test_seam_confidence_blocks_empty_or_blocked_deletion_evidence() -> None:
+    alignment = _valid_zero_offset_alignment()
+    empty = build_seam_deletion_evidence(build_seam_overlap_evidence(alignment, (), ()))
+
+    empty_report = build_seam_confidence_report(empty)
+
+    assert empty_report.status is SeamConfidenceStatus.BLOCKED
+    assert [blocker.code for blocker in empty_report.blockers] == [
+        SeamConfidenceBlockerCode.EMPTY_SEAM_EVIDENCE
+    ]
+
+    source = build_transition_graph(_semantic('world\n{\n    "id" "1"\n}\n'))
+    candidate = build_transition_graph(_semantic('world\n{\n    "id" "1"\n}\n'))
+    blocked_alignment = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+    blocked = build_seam_deletion_evidence(build_seam_overlap_evidence(blocked_alignment, (), ()))
+
+    blocked_report = build_seam_confidence_report(blocked)
+
+    assert blocked_report.status is SeamConfidenceStatus.BLOCKED
+    assert [blocker.code for blocker in blocked_report.blockers] == [
+        SeamConfidenceBlockerCode.DELETION_EVIDENCE_BLOCKED
+    ]
