@@ -72,6 +72,24 @@ class SeamEvidenceBlockerCode(StrEnum):
     CANDIDATE_TRANSFORM_BLOCKED = "candidate_transform_blocked"
 
 
+class SeamDeletionEvidenceStatus(StrEnum):
+    """Final status for review-only seam deletion evidence."""
+
+    VALID = "valid"
+    BLOCKED = "blocked"
+
+
+class SeamDeletionClass(StrEnum):
+    """Review-only deletion classes derived from exact brush relations."""
+
+    CANDIDATE_EQUAL_VOLUME_DUPLICATE = "candidate_equal_volume_duplicate"
+    CANDIDATE_CONTAINED_IN_SOURCE = "candidate_contained_in_source"
+    SOURCE_CONTAINED_IN_CANDIDATE = "source_contained_in_candidate"
+    PRESERVE_TOUCHING_SEAM = "preserve_touching_seam"
+    PRESERVE_UNSAFE_OVERLAP = "preserve_unsafe_overlap"
+    PRESERVE_DISJOINT_OR_UNCLASSIFIED = "preserve_disjoint_or_unclassified"
+
+
 @dataclass(frozen=True, slots=True)
 class TransitionBlocker:
     """A reason a transition edge cannot become stitching authority."""
@@ -192,6 +210,28 @@ class SeamOverlapEvidence:
     status: SeamEvidenceStatus
     translated_candidate_records: tuple[BrushSpatialRecord, ...]
     brush_pairs: tuple[SeamBrushPairEvidence, ...]
+    blockers: tuple[SeamEvidenceBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SeamDeletionItemEvidence:
+    """One review-only deletion class for a seam brush pair."""
+
+    source_key: str
+    candidate_key: str
+    brush_relation: BrushRelation
+    deletion_class: SeamDeletionClass
+    remove_source: bool
+    remove_candidate: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SeamDeletionEvidence:
+    """Review-only seam deletion evidence with no mutation authority."""
+
+    status: SeamDeletionEvidenceStatus
+    items: tuple[SeamDeletionItemEvidence, ...]
     blockers: tuple[SeamEvidenceBlocker, ...]
     mutation_authorized: bool = False
 
@@ -436,6 +476,27 @@ def build_seam_overlap_evidence(
     )
 
 
+def build_seam_deletion_evidence(
+    seam_evidence: SeamOverlapEvidence,
+) -> SeamDeletionEvidence:
+    """Classify seam brush pairs as review-only deletion evidence.
+
+    These classes identify pairs that later phases may evaluate. They do not
+    authorize VMF deletion or output changes.
+    """
+    if seam_evidence.status is not SeamEvidenceStatus.VALID:
+        return SeamDeletionEvidence(
+            status=SeamDeletionEvidenceStatus.BLOCKED,
+            items=(),
+            blockers=seam_evidence.blockers,
+        )
+    return SeamDeletionEvidence(
+        status=SeamDeletionEvidenceStatus.VALID,
+        items=tuple(_deletion_item_from_pair(pair) for pair in seam_evidence.brush_pairs),
+        blockers=(),
+    )
+
+
 def _classname_is(entity: SemanticEntity, classname: str) -> bool:
     return entity.classname is not None and entity.classname.casefold() == classname
 
@@ -471,6 +532,32 @@ def _blocked_alignment(
 
 def _is_finite_vec(point: Vec3) -> bool:
     return all(math.isfinite(value) for value in point.as_tuple())
+
+
+def _deletion_item_from_pair(pair: SeamBrushPairEvidence) -> SeamDeletionItemEvidence:
+    deletion_class, remove_source, remove_candidate = _classify_deletion(pair.brush_relation)
+    return SeamDeletionItemEvidence(
+        source_key=pair.source_key,
+        candidate_key=pair.candidate_key,
+        brush_relation=pair.brush_relation,
+        deletion_class=deletion_class,
+        remove_source=remove_source,
+        remove_candidate=remove_candidate,
+    )
+
+
+def _classify_deletion(relation: BrushRelation) -> tuple[SeamDeletionClass, bool, bool]:
+    if relation is BrushRelation.EQUAL_VOLUME:
+        return SeamDeletionClass.CANDIDATE_EQUAL_VOLUME_DUPLICATE, False, True
+    if relation is BrushRelation.A_CONTAINS_B:
+        return SeamDeletionClass.CANDIDATE_CONTAINED_IN_SOURCE, False, True
+    if relation is BrushRelation.B_CONTAINS_A:
+        return SeamDeletionClass.SOURCE_CONTAINED_IN_CANDIDATE, True, False
+    if relation is BrushRelation.TOUCHING:
+        return SeamDeletionClass.PRESERVE_TOUCHING_SEAM, False, False
+    if relation is BrushRelation.OVERLAPPING:
+        return SeamDeletionClass.PRESERVE_UNSAFE_OVERLAP, False, False
+    return SeamDeletionClass.PRESERVE_DISJOINT_OR_UNCLASSIFIED, False, False
 
 
 def _first_pair(entity: SemanticEntity, key: str) -> SemanticPair | None:
