@@ -7,6 +7,8 @@ from pathlib import Path
 
 from sourceweaver.geometry import ReconstructionStatus, extract_brush_sources
 from sourceweaver.model import AnalysisReport, ArtifactFingerprint, Diagnostic, Severity
+from sourceweaver.semantics import build_semantic_document
+from sourceweaver.stitching import build_transition_graph
 from sourceweaver.vmf.document import VmfDocument
 from sourceweaver.vmf.parser import PairNode
 
@@ -113,6 +115,28 @@ def analyze_vmf(path: str | Path) -> AnalysisReport:
             )
         )
 
+    semantic = build_semantic_document(document)
+    transition_graph = build_transition_graph(semantic)
+    transition_blocker_count = 0
+    for edge in transition_graph.edges:
+        if not edge.blockers:
+            continue
+        transition_blocker_count += len(edge.blockers)
+        changelevel_ref = edge.changelevel_hammer_id or str(edge.changelevel_entity_index)
+        diagnostics.append(
+            Diagnostic(
+                code="STITCH001",
+                severity=Severity.BLOCKER,
+                message="Transition edge cannot be used as stitching authority.",
+                evidence=[f"{blocker.code}: {blocker.message}" for blocker in edge.blockers],
+                remediation=(
+                    "Repair or disambiguate trigger_changelevel and info_landmark "
+                    "data before stitching."
+                ),
+                object_refs=[f"entity:{changelevel_ref}"],
+            )
+        )
+
     root_pairs = [entry for entry in document.syntax.entries if isinstance(entry, PairNode)]
     if root_pairs:
         diagnostics.append(
@@ -138,5 +162,7 @@ def analyze_vmf(path: str | Path) -> AnalysisReport:
             "brush_source_count": len(brush_sources),
             "valid_brush_count": valid_brushes,
             "geometry_blocker_count": geometry_blockers,
+            "transition_edge_count": len(transition_graph.edges),
+            "transition_blocker_count": transition_blocker_count,
         },
     )

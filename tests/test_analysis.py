@@ -114,3 +114,35 @@ def test_analysis_blocks_invalid_brush_geometry(tmp_path: Path) -> None:
     assert report.metadata["geometry_blocker_count"] >= 1
     assert len(geometry_diagnostics) == 1
     assert any("BRUSH_UNBOUNDED_OR_OPEN" in item for item in geometry_diagnostics[0].evidence)
+
+
+def test_analysis_reports_transition_graph_blockers(tmp_path: Path) -> None:
+    path = tmp_path / "bad-transition.vmf"
+    path.write_text(
+        """versioninfo {}
+world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "trigger_changelevel"
+    "map" "next_map"
+    "landmark" "missing_landmark"
+}
+""",
+        encoding="utf-8",
+    )
+
+    report = analyze_vmf(path)
+
+    assert report.metadata["transition_edge_count"] == 1
+    assert report.metadata["transition_blocker_count"] == 1
+    diagnostics = [
+        diagnostic for diagnostic in report.diagnostics if diagnostic.code == "STITCH001"
+    ]
+    assert len(diagnostics) == 1
+    assert diagnostics[0].object_refs == ["entity:2"]
+    assert any("landmark_not_found" in item for item in diagnostics[0].evidence)
