@@ -45,6 +45,7 @@ The current repository implementation provides the first read-only geometry slic
 - vertex deduplication, face polygon sorting, area checks, minimum-edge checks, volume checks, and world-bound checks;
 - conservative convex brush relation classification for equal volume, containment, touching, overlapping, and disjoint brushes;
 - analysis-only translation of validated convex brushes for seam/relation evidence, with explicit nonfinite and world-bound blockers and no mutation authority;
+- deterministic axis-aligned bounds classification and broad-phase candidate-pair selection before exact brush relation checks;
 - deterministic invalid-result blockers surfaced through `sourceweaver inspect` as `GEO001` diagnostics.
 
 This slice is intentionally non-mutating. Translation output is derived geometry for evidence only and always carries `mutation_authorized = false`. The implementation does not emit generated solids, validate texture axes, compare compiler BSP topology, reconcile Hammer++ `vertices_plus`, or authorize duplicate removal. Relation classification is evidence for reports and later seam planning only; automatic removal remains disabled until semantic/material/compiler/runtime gates exist.
@@ -113,6 +114,8 @@ A rotation additionally affects:
 Initial stitching supports translation-only alignment to reduce this surface.
 
 ## Duplicate geometry classes
+
+The current broad-phase classifier uses expanded axis-aligned bounds only to choose candidate brush pairs for later exact checks. It sorts candidates deterministically and treats touching bounds as candidates. A broad-phase hit is never duplicate evidence by itself.
 
 - **Byte-equivalent after transform:** same semantic planes/materials/side data.
 - **Plane-equivalent:** same convex volume, different IDs/order/formatting.
