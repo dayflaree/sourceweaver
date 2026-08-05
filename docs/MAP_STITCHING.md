@@ -33,8 +33,9 @@ The current repository implementation provides a read-only transition graph slic
 - summarizes bounded seam confidence as review-ready only when deletion evidence is valid, seam evidence is non-empty, unsafe overlaps are absent, and source-map brush removal is not required.
 - plans imported candidate IDs for entity, solid, and side objects by allocating fresh positive decimal IDs above all observed source and candidate IDs; duplicate, missing, and non-numeric candidate IDs block the plan.
 - plans CST-backed targetname namespacing for direct candidate `targetname` definitions plus resolved `parentname` and output-target references; empty prefixes, source collisions, unresolved references, ambiguous references, special references, and wildcard references block the plan.
+- reports baseline world/singleton conflict evidence for selected worldspawn keys and known singleton controller classes, including candidate duplicate singletons.
 
-This slice is intentionally non-mutating. Alignment, seam overlap, deletion-class, seam-confidence, ID-allocation, and namespace-plan outputs are evidence only and always carry `mutation_authorized = false`. The implementation does not materialize entity-field transforms, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates. Full FGD-backed namespacing for keys outside the current semantic graph remains open.
+This slice is intentionally non-mutating. Alignment, seam overlap, deletion-class, seam-confidence, ID-allocation, namespace-plan, and singleton-conflict outputs are evidence only and always carry `mutation_authorized = false`. The implementation does not materialize entity-field transforms, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates. Full FGD-backed namespacing for keys outside the current semantic graph remains open.
 
 ## Pipeline
 
