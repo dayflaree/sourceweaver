@@ -1328,6 +1328,50 @@ entity
     assert empty_prefix.blockers[0].code is TargetNameNamespaceBlockerCode.EMPTY_PREFIX
 
 
+def test_namespace_plan_includes_conservative_fgd_keyvalue_references() -> None:
+    source = _semantic('world\n{\n    "id" "1"\n}\n')
+    candidate = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_relay"
+    "targetname" "relay"
+}
+entity
+{
+    "id" "3"
+    "classname" "point_template"
+    "targetname" "template"
+    "Template01" "relay"
+}
+entity
+{
+    "id" "4"
+    "classname" "env_entity_maker"
+    "EntityTemplate" "template"
+}
+"""
+    )
+
+    plan = build_targetname_namespace_plan(source, candidate, prefix="beta__")
+
+    assert plan.status is TargetNameNamespaceStatus.VALID
+    assert [
+        (edit.kind, edit.entity_index, edit.original_value, edit.namespaced_value)
+        for edit in plan.edits
+    ] == [
+        (TargetNameNamespaceEditKind.DEFINITION, 1, "relay", "beta__relay"),
+        (TargetNameNamespaceEditKind.DEFINITION, 2, "template", "beta__template"),
+        (TargetNameNamespaceEditKind.REFERENCE, 2, "relay", "beta__relay"),
+        (TargetNameNamespaceEditKind.REFERENCE, 3, "template", "beta__template"),
+    ]
+
+
 def test_singleton_conflict_report_passes_when_world_keys_and_singletons_are_compatible() -> None:
     source = _semantic(
         """world

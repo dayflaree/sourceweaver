@@ -25,8 +25,26 @@ class ReferenceKind(StrEnum):
 
     PARENT = "parentname"
     OUTPUT = "output"
+    FGD_KEYVALUE = "fgd_keyvalue"
     SPECIAL = "special"
     WILDCARD = "wildcard"
+
+
+_FGD_TARGETNAME_REFERENCE_KEYS_BY_CLASS: dict[str, tuple[str, ...]] = {
+    "env_entity_maker": ("entitytemplate",),
+    "filter_activator_name": ("filtername",),
+    "func_button": ("target",),
+    "func_door": ("filtername",),
+    "func_door_rotating": ("filtername",),
+    "func_tracktrain": ("target",),
+    "logic_branch_listener": tuple(f"branch{index:02d}" for index in range(1, 17)),
+    "math_counter": ("outvalue",),
+    "momentary_rot_button": ("target",),
+    "path_track": ("target", "altpath"),
+    "point_template": tuple(f"template{index:02d}" for index in range(1, 17)),
+    "trigger_multiple": ("filtername",),
+    "trigger_once": ("filtername",),
+}
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -252,6 +270,7 @@ def _build_target_graph(entities: tuple[SemanticEntity, ...]) -> TargetNameGraph
                         pair=pair,
                     )
                 )
+        references.extend(_fgd_keyvalue_references(entity))
         for output in entity.outputs:
             if output.target:
                 references.append(
@@ -290,12 +309,32 @@ def _build_target_graph(entities: tuple[SemanticEntity, ...]) -> TargetNameGraph
     )
 
 
+def _fgd_keyvalue_references(entity: SemanticEntity) -> tuple[TargetNameReference, ...]:
+    if entity.classname is None:
+        return ()
+    typed_keys = _FGD_TARGETNAME_REFERENCE_KEYS_BY_CLASS.get(entity.classname.casefold())
+    if typed_keys is None:
+        return ()
+    typed_key_set = set(typed_keys)
+    return tuple(
+        TargetNameReference(
+            entity_index=entity.index,
+            name=pair.value,
+            kind=_reference_kind(pair.value, ReferenceKind.FGD_KEYVALUE),
+            pair=pair,
+        )
+        for pair in entity.keyvalues
+        if pair.value and pair.key.casefold() in typed_key_set
+    )
+
+
 def build_semantic_document(document: VmfDocument) -> SemanticDocument:
     """Build a read-only semantic view backed by the document CST.
 
-    This function does not parse or rewrite FGD-typed data. It is the first
-    supportable slice: entity blocks, direct keyvalues, targetname definitions,
-    parentname references, and output-target references with exact source spans.
+    The initial FGD-backed coverage is intentionally conservative: entity
+    blocks, direct keyvalues, targetname definitions, parentname references,
+    output-target references, and a built-in set of typed targetname keyvalues
+    with exact source spans.
     """
     entity_blocks = [
         block
