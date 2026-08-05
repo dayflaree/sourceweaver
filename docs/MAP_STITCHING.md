@@ -15,6 +15,20 @@ The first production stitcher targets **two directly connected original VMFs** f
 
 Inputs outside this envelope remain analyzable and receive blocker diagnostics.
 
+## Implemented support envelope
+
+The current repository implementation provides a read-only transition graph slice:
+
+- extracts `trigger_changelevel` entities and their direct `map` and `landmark` keyvalues;
+- normalizes destination map names case-insensitively and strips a trailing `.bsp` only for matching;
+- extracts `info_landmark` entities by direct `targetname` and parses direct `origin` vectors;
+- extracts `trigger_transition` entities and indexes direct `targetname` and `landmark` values as possible transition-volume names;
+- links changelevel edges to uniquely matching landmarks and same-named transition volumes;
+- reports deterministic blockers for missing map keys, missing landmark keys, missing landmarks, duplicate landmarks, and invalid landmark origins;
+- surfaces transition blockers through `sourceweaver inspect` as `STITCH001` diagnostics.
+
+This slice is intentionally non-mutating. It does not align two VMFs, score seam evidence, transform entity fields, namespace references, remove duplicate transition geometry, reconcile singleton systems, synthesize lifecycle logic, emit VMF output, or run compiler/runtime acceptance gates.
+
 ## Pipeline
 
 ### 1. Fingerprint and parse
