@@ -8,10 +8,20 @@ transition-volume deletion.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from sourceweaver.geometry import Vec3
+from sourceweaver.geometry import (
+    BoundsRelation,
+    BrushRelation,
+    BrushSpatialRecord,
+    GeometryTransformStatus,
+    Vec3,
+    classify_brush_relation,
+    find_potential_brush_intersections,
+    translate_convex_brush_for_analysis,
+)
 from sourceweaver.semantics import SemanticDocument, SemanticEntity, SemanticPair
 
 _AMBIGUOUS_LANDMARK_MESSAGE = (
@@ -46,6 +56,20 @@ class AlignmentBlockerCode(StrEnum):
     LANDMARK_NAME_MISMATCH = "landmark_name_mismatch"
     LANDMARK_ORIGIN_UNAVAILABLE = "landmark_origin_unavailable"
     TRANSLATION_NONFINITE = "translation_nonfinite"
+
+
+class SeamEvidenceStatus(StrEnum):
+    """Final status for read-only seam overlap evidence."""
+
+    VALID = "valid"
+    BLOCKED = "blocked"
+
+
+class SeamEvidenceBlockerCode(StrEnum):
+    """Deterministic blockers for seam overlap evidence."""
+
+    ALIGNMENT_BLOCKED = "alignment_blocked"
+    CANDIDATE_TRANSFORM_BLOCKED = "candidate_transform_blocked"
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +162,37 @@ class TranslationAlignmentHypothesis:
     source_edge: TransitionEdge | None
     candidate_edge: TransitionEdge | None
     blockers: tuple[AlignmentBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SeamEvidenceBlocker:
+    """A reason seam overlap evidence cannot be built safely."""
+
+    code: SeamEvidenceBlockerCode
+    message: str
+    record_key: str | None = None
+    geometry_blocker_codes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SeamBrushPairEvidence:
+    """One translated candidate/source brush relation near a seam."""
+
+    source_key: str
+    candidate_key: str
+    bounds_relation: BoundsRelation
+    brush_relation: BrushRelation
+
+
+@dataclass(frozen=True, slots=True)
+class SeamOverlapEvidence:
+    """Read-only seam overlap evidence after applying an alignment offset."""
+
+    status: SeamEvidenceStatus
+    translated_candidate_records: tuple[BrushSpatialRecord, ...]
+    brush_pairs: tuple[SeamBrushPairEvidence, ...]
+    blockers: tuple[SeamEvidenceBlocker, ...]
     mutation_authorized: bool = False
 
 
@@ -302,6 +357,81 @@ def build_translation_alignment_hypothesis(
         offset=offset,
         source_edge=source_edge,
         candidate_edge=candidate_edge,
+        blockers=(),
+    )
+
+
+def build_seam_overlap_evidence(
+    alignment: TranslationAlignmentHypothesis,
+    source_records: Iterable[BrushSpatialRecord],
+    candidate_records: Iterable[BrushSpatialRecord],
+    *,
+    expansion: float = 0.0,
+) -> SeamOverlapEvidence:
+    """Translate candidate brushes and classify source/candidate seam relations.
+
+    This is a read-only evidence builder. It transforms candidate brush records
+    in memory, runs deterministic AABB broad-phase filtering, then attaches exact
+    convex brush relation classifications for review and later seam planning.
+    """
+    if alignment.status is not AlignmentStatus.VALID or alignment.offset is None:
+        return SeamOverlapEvidence(
+            status=SeamEvidenceStatus.BLOCKED,
+            translated_candidate_records=(),
+            brush_pairs=(),
+            blockers=(
+                SeamEvidenceBlocker(
+                    code=SeamEvidenceBlockerCode.ALIGNMENT_BLOCKED,
+                    message="Alignment hypothesis is blocked or lacks an offset.",
+                ),
+            ),
+        )
+
+    transformed_records: list[BrushSpatialRecord] = []
+    blockers: list[SeamEvidenceBlocker] = []
+    for record in candidate_records:
+        transform = translate_convex_brush_for_analysis(record.brush, alignment.offset)
+        if transform.status is not GeometryTransformStatus.VALID or transform.brush is None:
+            blockers.append(
+                SeamEvidenceBlocker(
+                    code=SeamEvidenceBlockerCode.CANDIDATE_TRANSFORM_BLOCKED,
+                    message="Candidate brush could not be translated for seam evidence.",
+                    record_key=record.key,
+                    geometry_blocker_codes=tuple(blocker.code for blocker in transform.blockers),
+                )
+            )
+            continue
+        transformed_records.append(BrushSpatialRecord(record.key, transform.brush))
+
+    translated = tuple(transformed_records)
+    if blockers:
+        return SeamOverlapEvidence(
+            status=SeamEvidenceStatus.BLOCKED,
+            translated_candidate_records=translated,
+            brush_pairs=(),
+            blockers=tuple(blockers),
+        )
+
+    sources = tuple(source_records)
+    source_by_key = {record.key: record.brush for record in sources}
+    translated_by_key = {record.key: record.brush for record in translated}
+    brush_pairs = tuple(
+        SeamBrushPairEvidence(
+            source_key=candidate.a_key,
+            candidate_key=candidate.b_key,
+            bounds_relation=candidate.bounds_relation,
+            brush_relation=classify_brush_relation(
+                source_by_key[candidate.a_key], translated_by_key[candidate.b_key]
+            ),
+        )
+        for candidate in find_potential_brush_intersections(
+            sources, translated, expansion=expansion
+        )
+    )
+    return SeamOverlapEvidence(
+        status=SeamEvidenceStatus.VALID,
+        translated_candidate_records=translated,
+        brush_pairs=brush_pairs,
         blockers=(),
     )
 

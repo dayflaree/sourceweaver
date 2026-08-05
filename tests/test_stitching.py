@@ -1,11 +1,23 @@
 from pathlib import Path
 
-from sourceweaver.geometry import Vec3
+from sourceweaver.geometry import (
+    BoundsRelation,
+    BrushRelation,
+    BrushSpatialRecord,
+    ConvexBrush,
+    Plane,
+    ReconstructionStatus,
+    Vec3,
+    reconstruct_convex_brush,
+)
 from sourceweaver.semantics import SemanticDocument, build_semantic_document
 from sourceweaver.stitching import (
     AlignmentBlockerCode,
     AlignmentStatus,
+    SeamEvidenceBlockerCode,
+    SeamEvidenceStatus,
     TransitionBlockerCode,
+    build_seam_overlap_evidence,
     build_transition_graph,
     build_translation_alignment_hypothesis,
     normalize_map_name,
@@ -17,6 +29,32 @@ def _semantic(text: str) -> SemanticDocument:
     return build_semantic_document(
         VmfDocument.from_bytes(text.encode("utf-8"), path=Path("synthetic.vmf"))
     )
+
+
+def _point(point: Vec3) -> str:
+    return f"({point.x:g} {point.y:g} {point.z:g})"
+
+
+def _cube_plane_strings(minimum: Vec3, maximum: Vec3) -> tuple[str, ...]:
+    x0, y0, z0 = minimum.as_tuple()
+    x1, y1, z1 = maximum.as_tuple()
+    return (
+        f"{_point(Vec3(x0, y0, z0))} {_point(Vec3(x0, y1, z0))} {_point(Vec3(x1, y1, z0))}",
+        f"{_point(Vec3(x0, y0, z1))} {_point(Vec3(x1, y0, z1))} {_point(Vec3(x1, y1, z1))}",
+        f"{_point(Vec3(x0, y0, z0))} {_point(Vec3(x1, y0, z0))} {_point(Vec3(x1, y0, z1))}",
+        f"{_point(Vec3(x0, y1, z0))} {_point(Vec3(x0, y1, z1))} {_point(Vec3(x1, y1, z1))}",
+        f"{_point(Vec3(x0, y0, z0))} {_point(Vec3(x0, y0, z1))} {_point(Vec3(x0, y1, z1))}",
+        f"{_point(Vec3(x1, y0, z0))} {_point(Vec3(x1, y1, z0))} {_point(Vec3(x1, y1, z1))}",
+    )
+
+
+def _cube_brush(minimum: Vec3, maximum: Vec3) -> ConvexBrush:
+    result = reconstruct_convex_brush(
+        tuple(Plane.from_vmf(raw) for raw in _cube_plane_strings(minimum, maximum))
+    )
+    assert result.status is ReconstructionStatus.VALID
+    assert result.brush is not None
+    return result.brush
 
 
 def test_normalizes_map_names_for_matching_without_losing_raw_spelling() -> None:
@@ -491,3 +529,189 @@ entity
     assert [blocker.code for blocker in hypothesis.blockers] == [
         AlignmentBlockerCode.LANDMARK_NAME_MISMATCH
     ]
+
+
+def test_builds_seam_overlap_evidence_from_alignment_offset() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "128 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    alignment = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+    source_records = (
+        BrushSpatialRecord(
+            "alpha/world/solid/1",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/world/solid/1",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+
+    evidence = build_seam_overlap_evidence(alignment, source_records, candidate_records)
+
+    assert evidence.status is SeamEvidenceStatus.VALID
+    assert evidence.mutation_authorized is False
+    assert evidence.blockers == ()
+    assert len(evidence.translated_candidate_records) == 1
+    translated = evidence.translated_candidate_records[0]
+    assert translated.key == "beta/world/solid/1"
+    assert translated.brush.bounds_min == Vec3(128.0, 0.0, 0.0)
+    assert translated.brush.bounds_max == Vec3(256.0, 128.0, 128.0)
+    assert len(evidence.brush_pairs) == 1
+    pair = evidence.brush_pairs[0]
+    assert pair.source_key == "alpha/world/solid/1"
+    assert pair.candidate_key == "beta/world/solid/1"
+    assert pair.bounds_relation is BoundsRelation.TOUCHING
+    assert pair.brush_relation is BrushRelation.TOUCHING
+
+
+def test_seam_overlap_evidence_blocks_invalid_alignment() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+"""
+        )
+    )
+    alignment = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+
+    evidence = build_seam_overlap_evidence(alignment, (), ())
+
+    assert evidence.status is SeamEvidenceStatus.BLOCKED
+    assert evidence.brush_pairs == ()
+    assert [blocker.code for blocker in evidence.blockers] == [
+        SeamEvidenceBlockerCode.ALIGNMENT_BLOCKED
+    ]
+
+
+def test_seam_overlap_evidence_blocks_untranslatable_candidate_brush() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "70000 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    alignment = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+    candidate_records = (
+        BrushSpatialRecord(
+            "beta/world/solid/1",
+            _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+        ),
+    )
+
+    evidence = build_seam_overlap_evidence(alignment, (), candidate_records)
+
+    assert evidence.status is SeamEvidenceStatus.BLOCKED
+    assert evidence.translated_candidate_records == ()
+    assert [(blocker.code, blocker.record_key) for blocker in evidence.blockers] == [
+        (SeamEvidenceBlockerCode.CANDIDATE_TRANSFORM_BLOCKED, "beta/world/solid/1")
+    ]
+    assert evidence.blockers[0].geometry_blocker_codes == ("BRUSH_WORLD_BOUNDS_EXCEEDED",)
