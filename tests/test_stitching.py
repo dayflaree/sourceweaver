@@ -24,6 +24,8 @@ from sourceweaver.stitching import (
     SeamDeletionEvidenceStatus,
     SeamEvidenceBlockerCode,
     SeamEvidenceStatus,
+    SingletonConflictCode,
+    SingletonConflictStatus,
     TargetNameNamespaceBlockerCode,
     TargetNameNamespaceEditKind,
     TargetNameNamespaceStatus,
@@ -33,6 +35,7 @@ from sourceweaver.stitching import (
     build_seam_confidence_report,
     build_seam_deletion_evidence,
     build_seam_overlap_evidence,
+    build_singleton_conflict_report,
     build_targetname_namespace_plan,
     build_transition_graph,
     build_translation_alignment_hypothesis,
@@ -1307,3 +1310,117 @@ entity
 
     assert empty_prefix.status is TargetNameNamespaceStatus.BLOCKED
     assert empty_prefix.blockers[0].code is TargetNameNamespaceBlockerCode.EMPTY_PREFIX
+
+
+def test_singleton_conflict_report_passes_when_world_keys_and_singletons_are_compatible() -> None:
+    source = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+    "skyname" "sky_day01_01"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_target"
+}
+"""
+    )
+    candidate = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+    "skyname" "sky_day01_01"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_target"
+}
+"""
+    )
+
+    report = build_singleton_conflict_report(source, candidate)
+
+    assert report.status is SingletonConflictStatus.CLEAR
+    assert report.mutation_authorized is False
+    assert report.conflicts == ()
+
+
+def test_singleton_conflict_report_blocks_world_key_and_singleton_class_conflicts() -> None:
+    source = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+    "skyname" "sky_day01_01"
+}
+entity
+{
+    "id" "2"
+    "classname" "env_fog_controller"
+    "targetname" "fog_a"
+}
+"""
+    )
+    candidate = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+    "skyname" "sky_day01_02"
+}
+entity
+{
+    "id" "2"
+    "classname" "env_fog_controller"
+    "targetname" "fog_b"
+}
+"""
+    )
+
+    report = build_singleton_conflict_report(source, candidate)
+
+    assert report.status is SingletonConflictStatus.BLOCKED
+    assert [conflict.code for conflict in report.conflicts] == [
+        SingletonConflictCode.WORLD_KEY_CONFLICT,
+        SingletonConflictCode.SINGLETON_CLASS_CONFLICT,
+    ]
+    assert report.conflicts[0].key == "skyname"
+    assert report.conflicts[0].source_value == "sky_day01_01"
+    assert report.conflicts[0].candidate_value == "sky_day01_02"
+    assert report.conflicts[1].classname == "env_fog_controller"
+    assert report.conflicts[1].source_entity_indexes == (1,)
+    assert report.conflicts[1].candidate_entity_indexes == (1,)
+
+
+def test_singleton_conflict_report_detects_candidate_duplicate_singletons() -> None:
+    source = _semantic('world\n{\n    "id" "1"\n    "classname" "worldspawn"\n}\n')
+    candidate = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_auto"
+}
+entity
+{
+    "id" "3"
+    "classname" "logic_auto"
+}
+"""
+    )
+
+    report = build_singleton_conflict_report(source, candidate)
+
+    assert report.status is SingletonConflictStatus.BLOCKED
+    assert [(conflict.code, conflict.classname) for conflict in report.conflicts] == [
+        (SingletonConflictCode.CANDIDATE_DUPLICATE_SINGLETON, "logic_auto")
+    ]
+    assert report.conflicts[0].candidate_entity_indexes == (1, 2)

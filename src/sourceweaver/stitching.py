@@ -34,6 +34,20 @@ from sourceweaver.semantics import (
 _AMBIGUOUS_LANDMARK_MESSAGE = (
     "More than one info_landmark matches the trigger_changelevel landmark name."
 )
+_WORLD_CONFLICT_KEYS = (
+    "skyname",
+    "detailmaterial",
+    "detailvbsp",
+    "maxpropscreenwidth",
+)
+_SINGLETON_CLASSNAMES = (
+    "color_correction",
+    "color_correction_volume",
+    "env_fog_controller",
+    "env_tonemap_controller",
+    "logic_auto",
+    "sky_camera",
+)
 
 
 class TransitionBlockerCode(StrEnum):
@@ -159,6 +173,21 @@ class TargetNameNamespaceBlockerCode(StrEnum):
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
     SPECIAL_REFERENCE_UNSUPPORTED = "special_reference_unsupported"
     WILDCARD_REFERENCE_UNSUPPORTED = "wildcard_reference_unsupported"
+
+
+class SingletonConflictStatus(StrEnum):
+    """Final status for world/singleton conflict evidence."""
+
+    CLEAR = "clear"
+    BLOCKED = "blocked"
+
+
+class SingletonConflictCode(StrEnum):
+    """Deterministic conflict classes for world/singleton systems."""
+
+    WORLD_KEY_CONFLICT = "world_key_conflict"
+    SINGLETON_CLASS_CONFLICT = "singleton_class_conflict"
+    CANDIDATE_DUPLICATE_SINGLETON = "candidate_duplicate_singleton"
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,6 +421,29 @@ class TargetNameNamespacePlan:
 
 
 @dataclass(frozen=True, slots=True)
+class SingletonConflict:
+    """One world/singleton conflict requiring human or later policy review."""
+
+    code: SingletonConflictCode
+    message: str
+    key: str | None = None
+    classname: str | None = None
+    source_value: str | None = None
+    candidate_value: str | None = None
+    source_entity_indexes: tuple[int, ...] = ()
+    candidate_entity_indexes: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SingletonConflictReport:
+    """Read-only world/singleton conflict evidence with no mutation authority."""
+
+    status: SingletonConflictStatus
+    conflicts: tuple[SingletonConflict, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportIdRecord:
     kind: ImportIdKind
     raw_id: str | None
@@ -521,6 +573,26 @@ def build_targetname_namespace_plan(
             *_namespace_reference_edits(candidate_document, prefix),
         ),
         blockers=(),
+    )
+
+
+def build_singleton_conflict_report(
+    source_document: SemanticDocument,
+    candidate_document: SemanticDocument,
+) -> SingletonConflictReport:
+    """Report baseline worldspawn and singleton-controller conflicts.
+
+    The report is evidence for later stitch planning. It does not select a
+    reconciliation policy and carries no mutation authority.
+    """
+    conflicts = (
+        *_world_key_conflicts(source_document, candidate_document),
+        *_singleton_class_conflicts(source_document, candidate_document),
+        *_candidate_duplicate_singleton_conflicts(candidate_document),
+    )
+    return SingletonConflictReport(
+        status=SingletonConflictStatus.BLOCKED if conflicts else SingletonConflictStatus.CLEAR,
+        conflicts=conflicts,
     )
 
 
@@ -891,6 +963,105 @@ def _parse_id(raw_id: str | None) -> int | None:
     if parsed <= 0:
         return None
     return parsed
+
+
+def _world_key_conflicts(
+    source_document: SemanticDocument,
+    candidate_document: SemanticDocument,
+) -> tuple[SingletonConflict, ...]:
+    source_world = _world_entity(source_document)
+    candidate_world = _world_entity(candidate_document)
+    if source_world is None or candidate_world is None:
+        return ()
+    conflicts: list[SingletonConflict] = []
+    for key in _WORLD_CONFLICT_KEYS:
+        source_value = _first_entity_value(source_world, key)
+        candidate_value = _first_entity_value(candidate_world, key)
+        if source_value is None or candidate_value is None or source_value == candidate_value:
+            continue
+        conflicts.append(
+            SingletonConflict(
+                code=SingletonConflictCode.WORLD_KEY_CONFLICT,
+                message="Source and candidate worldspawn values differ.",
+                key=key,
+                source_value=source_value,
+                candidate_value=candidate_value,
+                source_entity_indexes=(source_world.index,),
+                candidate_entity_indexes=(candidate_world.index,),
+            )
+        )
+    return tuple(conflicts)
+
+
+def _singleton_class_conflicts(
+    source_document: SemanticDocument,
+    candidate_document: SemanticDocument,
+) -> tuple[SingletonConflict, ...]:
+    source_by_class = _singleton_entities_by_class(source_document)
+    candidate_by_class = _singleton_entities_by_class(candidate_document)
+    conflicts: list[SingletonConflict] = []
+    for classname in _SINGLETON_CLASSNAMES:
+        source_indexes = source_by_class.get(classname, ())
+        candidate_indexes = candidate_by_class.get(classname, ())
+        if not source_indexes or not candidate_indexes:
+            continue
+        conflicts.append(
+            SingletonConflict(
+                code=SingletonConflictCode.SINGLETON_CLASS_CONFLICT,
+                message="Source and candidate both define a known singleton class.",
+                classname=classname,
+                source_entity_indexes=source_indexes,
+                candidate_entity_indexes=candidate_indexes,
+            )
+        )
+    return tuple(conflicts)
+
+
+def _candidate_duplicate_singleton_conflicts(
+    candidate_document: SemanticDocument,
+) -> tuple[SingletonConflict, ...]:
+    candidate_by_class = _singleton_entities_by_class(candidate_document)
+    conflicts: list[SingletonConflict] = []
+    for classname in _SINGLETON_CLASSNAMES:
+        candidate_indexes = candidate_by_class.get(classname, ())
+        if len(candidate_indexes) <= 1:
+            continue
+        conflicts.append(
+            SingletonConflict(
+                code=SingletonConflictCode.CANDIDATE_DUPLICATE_SINGLETON,
+                message="Candidate map defines more than one known singleton class instance.",
+                classname=classname,
+                candidate_entity_indexes=candidate_indexes,
+            )
+        )
+    return tuple(conflicts)
+
+
+def _world_entity(document: SemanticDocument) -> SemanticEntity | None:
+    for entity in document.entities:
+        if entity.kind is EntityBlockKind.WORLD:
+            return entity
+    return None
+
+
+def _first_entity_value(entity: SemanticEntity, key: str) -> str | None:
+    pair = _first_pair(entity, key)
+    return pair.value if pair is not None else None
+
+
+def _singleton_entities_by_class(
+    document: SemanticDocument,
+) -> dict[str, tuple[int, ...]]:
+    indexes_by_class: dict[str, list[int]] = {}
+    singleton_names = set(_SINGLETON_CLASSNAMES)
+    for entity in document.entities:
+        if entity.kind is not EntityBlockKind.ENTITY or entity.classname is None:
+            continue
+        classname = entity.classname.casefold()
+        if classname not in singleton_names:
+            continue
+        indexes_by_class.setdefault(classname, []).append(entity.index)
+    return {classname: tuple(indexes) for classname, indexes in sorted(indexes_by_class.items())}
 
 
 def _namespace_prefix_blockers(prefix: str) -> tuple[TargetNameNamespaceBlocker, ...]:
