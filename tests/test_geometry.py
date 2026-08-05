@@ -3,7 +3,9 @@ import math
 import pytest
 
 from sourceweaver.geometry import (
+    BoundsRelation,
     BrushRelation,
+    BrushSpatialRecord,
     ConvexBrush,
     GeometryTolerances,
     GeometryTransformStatus,
@@ -11,8 +13,10 @@ from sourceweaver.geometry import (
     PlaneParseError,
     ReconstructionStatus,
     Vec3,
+    classify_bounds_relation,
     classify_brush_relation,
     extract_brush_sources,
+    find_potential_brush_intersections,
     reconstruct_convex_brush,
     translate_convex_brush_for_analysis,
 )
@@ -231,3 +235,67 @@ def test_translated_brush_can_feed_relation_classification() -> None:
     assert transformed.status is GeometryTransformStatus.VALID
     assert transformed.brush is not None
     assert classify_brush_relation(source, transformed.brush) is BrushRelation.TOUCHING
+
+
+@pytest.mark.parametrize(
+    ("other_min", "other_max", "expected"),
+    [
+        (Vec3(128.0, 0.0, 0.0), Vec3(256.0, 128.0, 128.0), BoundsRelation.TOUCHING),
+        (Vec3(64.0, 0.0, 0.0), Vec3(192.0, 128.0, 128.0), BoundsRelation.OVERLAPPING),
+        (Vec3(256.0, 0.0, 0.0), Vec3(384.0, 128.0, 128.0), BoundsRelation.DISJOINT),
+    ],
+)
+def test_classifies_axis_aligned_bounds_relation(
+    other_min: Vec3, other_max: Vec3, expected: BoundsRelation
+) -> None:
+    base = _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))
+    other = _cube_brush(other_min, other_max)
+
+    assert classify_bounds_relation(base, other) is expected
+
+
+def test_bounds_relation_supports_expansion_for_seam_neighborhoods() -> None:
+    base = _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))
+    nearby = _cube_brush(Vec3(144.0, 0.0, 0.0), Vec3(272.0, 128.0, 128.0))
+
+    assert classify_bounds_relation(base, nearby) is BoundsRelation.DISJOINT
+    assert classify_bounds_relation(base, nearby, expansion=8.0) is BoundsRelation.TOUCHING
+
+
+def test_find_potential_brush_intersections_returns_deterministic_candidate_pairs() -> None:
+    a_records = (
+        BrushSpatialRecord(
+            "a/second", _cube_brush(Vec3(256.0, 0.0, 0.0), Vec3(384.0, 128.0, 128.0))
+        ),
+        BrushSpatialRecord("a/first", _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))),
+    )
+    b_records = (
+        BrushSpatialRecord(
+            "b/touching", _cube_brush(Vec3(128.0, 0.0, 0.0), Vec3(256.0, 128.0, 128.0))
+        ),
+        BrushSpatialRecord("b/far", _cube_brush(Vec3(512.0, 0.0, 0.0), Vec3(640.0, 128.0, 128.0))),
+    )
+
+    candidates = find_potential_brush_intersections(a_records, b_records)
+
+    assert [
+        (candidate.a_key, candidate.b_key, candidate.bounds_relation) for candidate in candidates
+    ] == [
+        ("a/first", "b/touching", BoundsRelation.TOUCHING),
+        ("a/second", "b/touching", BoundsRelation.TOUCHING),
+    ]
+
+
+def test_potential_intersection_expansion_includes_nearby_pairs() -> None:
+    a_records = (
+        BrushSpatialRecord("a", _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0))),
+    )
+    b_records = (
+        BrushSpatialRecord("b", _cube_brush(Vec3(144.0, 0.0, 0.0), Vec3(272.0, 128.0, 128.0))),
+    )
+
+    assert find_potential_brush_intersections(a_records, b_records) == ()
+    assert (
+        find_potential_brush_intersections(a_records, b_records, expansion=8.0)[0].bounds_relation
+        is BoundsRelation.TOUCHING
+    )

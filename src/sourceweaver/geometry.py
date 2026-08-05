@@ -57,6 +57,14 @@ class BrushRelation(StrEnum):
     DISJOINT = "disjoint"
 
 
+class BoundsRelation(StrEnum):
+    """Conservative relation between two axis-aligned brush bounds."""
+
+    TOUCHING = "touching"
+    OVERLAPPING = "overlapping"
+    DISJOINT = "disjoint"
+
+
 class GeometryTransformStatus(StrEnum):
     """Final status for an analysis-only geometry transform."""
 
@@ -238,6 +246,23 @@ class ConvexBrush:
     volume: float
     bounds_min: Vec3
     bounds_max: Vec3
+
+
+@dataclass(frozen=True, slots=True)
+class BrushSpatialRecord:
+    """One brush enrolled in deterministic broad-phase geometry checks."""
+
+    key: str
+    brush: ConvexBrush
+
+
+@dataclass(frozen=True, slots=True)
+class BrushIntersectionCandidate:
+    """One AABB-filtered brush pair requiring exact relation checks."""
+
+    a_key: str
+    b_key: str
+    bounds_relation: BoundsRelation
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,6 +586,64 @@ def classify_brush_relation(
     return BrushRelation.OVERLAPPING
 
 
+def classify_bounds_relation(
+    brush_a: ConvexBrush,
+    brush_b: ConvexBrush,
+    *,
+    expansion: float = 0.0,
+    tolerances: GeometryTolerances | None = None,
+) -> BoundsRelation:
+    """Classify expanded axis-aligned bounds for deterministic broad phase."""
+    active_tolerances = tolerances or GeometryTolerances()
+    _validate_expansion(expansion)
+    a_min, a_max = _expanded_bounds(brush_a, expansion)
+    b_min, b_max = _expanded_bounds(brush_b, expansion)
+    axis_overlaps = (
+        min(a_max.x, b_max.x) - max(a_min.x, b_min.x),
+        min(a_max.y, b_max.y) - max(a_min.y, b_min.y),
+        min(a_max.z, b_max.z) - max(a_min.z, b_min.z),
+    )
+    if any(overlap < -active_tolerances.plane_distance for overlap in axis_overlaps):
+        return BoundsRelation.DISJOINT
+    if any(abs(overlap) <= active_tolerances.plane_distance for overlap in axis_overlaps):
+        return BoundsRelation.TOUCHING
+    return BoundsRelation.OVERLAPPING
+
+
+def find_potential_brush_intersections(
+    records_a: Iterable[BrushSpatialRecord],
+    records_b: Iterable[BrushSpatialRecord],
+    *,
+    expansion: float = 0.0,
+    tolerances: GeometryTolerances | None = None,
+) -> tuple[BrushIntersectionCandidate, ...]:
+    """Return deterministic AABB candidate pairs for later exact checks.
+
+    This is a conservative broad phase. Returned candidates are evidence that an
+    exact brush relation check is needed; they are not duplicate-removal or seam
+    mutation authority.
+    """
+    candidates: list[BrushIntersectionCandidate] = []
+    for record_a in records_a:
+        for record_b in records_b:
+            relation = classify_bounds_relation(
+                record_a.brush,
+                record_b.brush,
+                expansion=expansion,
+                tolerances=tolerances,
+            )
+            if relation is BoundsRelation.DISJOINT:
+                continue
+            candidates.append(
+                BrushIntersectionCandidate(
+                    a_key=record_a.key,
+                    b_key=record_b.key,
+                    bounds_relation=relation,
+                )
+            )
+    return tuple(sorted(candidates, key=lambda candidate: (candidate.a_key, candidate.b_key)))
+
+
 def translate_convex_brush_for_analysis(
     brush: ConvexBrush,
     offset: Vec3,
@@ -632,6 +715,28 @@ def translate_convex_brush_for_analysis(
         blockers=(),
         tolerances=active_tolerances,
         operation="translation",
+    )
+
+
+def _validate_expansion(expansion: float) -> None:
+    if not math.isfinite(expansion):
+        raise ValueError("Bounds expansion must be finite.")
+    if expansion < 0.0:
+        raise ValueError("Bounds expansion must not be negative.")
+
+
+def _expanded_bounds(brush: ConvexBrush, expansion: float) -> tuple[Vec3, Vec3]:
+    return (
+        Vec3(
+            brush.bounds_min.x - expansion,
+            brush.bounds_min.y - expansion,
+            brush.bounds_min.z - expansion,
+        ),
+        Vec3(
+            brush.bounds_max.x + expansion,
+            brush.bounds_max.y + expansion,
+            brush.bounds_max.z + expansion,
+        ),
     )
 
 
