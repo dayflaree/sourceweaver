@@ -56,6 +56,20 @@ Examples:
 
 Unknown classes affecting activation are blockers.
 
+## Implemented support envelope
+
+Current code provides an evidence-only lifecycle policy matrix. It classifies these registry entries:
+
+- `logic_auto` as startup logic;
+- `ambient_generic` as ambient sound;
+- `env_fog_controller` and `env_tonemap_controller` as environment controllers;
+- `trigger_once` as trigger lifecycle;
+- `prop_door_rotating` as door lifecycle;
+- `npc_*` as NPC lifecycle;
+- `weapon_*` and `item_*` as pickup lifecycle.
+
+Transition scaffolding already handled by stitching (`info_landmark`, `trigger_changelevel`, `trigger_transition`) is ignored by the lifecycle matrix. Unknown activation-affecting classes block synthesis until a class policy is added. The matrix is evidence-only and does not generate controllers, rewrite entities, or authorize source mutation.
+
 ## Synthesized controller
 
 The stitcher generates a deterministic region controller using supported Source/GMod entities or an optional companion Lua runtime. The implementation is profile-specific.
