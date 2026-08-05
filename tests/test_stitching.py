@@ -3,8 +3,11 @@ from pathlib import Path
 from sourceweaver.geometry import Vec3
 from sourceweaver.semantics import SemanticDocument, build_semantic_document
 from sourceweaver.stitching import (
+    AlignmentBlockerCode,
+    AlignmentStatus,
     TransitionBlockerCode,
     build_transition_graph,
+    build_translation_alignment_hypothesis,
     normalize_map_name,
 )
 from sourceweaver.vmf import VmfDocument
@@ -186,4 +189,305 @@ entity
     assert [blocker.code for blocker in graph.edges[0].blockers] == [
         TransitionBlockerCode.CHANGELEVEL_MISSING_MAP,
         TransitionBlockerCode.CHANGELEVEL_MISSING_LANDMARK,
+    ]
+
+
+def test_builds_unique_translation_alignment_hypothesis() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "100 200 300"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "maps/BETA.BSP"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "10 20 30"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+
+    hypothesis = build_translation_alignment_hypothesis(
+        source,
+        candidate,
+        source_map_name="ALPHA.bsp",
+        candidate_map_name="maps/beta.bsp",
+    )
+
+    assert hypothesis.status is AlignmentStatus.VALID
+    assert hypothesis.offset == Vec3(90.0, 180.0, 270.0)
+    assert hypothesis.source_map_normalized == "alpha"
+    assert hypothesis.candidate_map_normalized == "maps/beta"
+    assert hypothesis.source_edge is source.edges[0]
+    assert hypothesis.candidate_edge is candidate.edges[0]
+    assert hypothesis.blockers == ()
+    assert hypothesis.mutation_authorized is False
+
+
+def test_alignment_blocks_multiple_source_edges_to_candidate() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "shared_landmark"
+}
+entity
+{
+    "id" "4"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+
+    hypothesis = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+
+    assert hypothesis.status is AlignmentStatus.BLOCKED
+    assert hypothesis.offset is None
+    assert [blocker.code for blocker in hypothesis.blockers] == [
+        AlignmentBlockerCode.SOURCE_EDGE_COUNT_UNSUPPORTED
+    ]
+
+
+def test_alignment_blocks_missing_reverse_edge() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "shared_landmark"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "shared_landmark"
+    "origin" "0 0 0"
+}
+"""
+        )
+    )
+
+    hypothesis = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+
+    assert hypothesis.status is AlignmentStatus.BLOCKED
+    assert [blocker.code for blocker in hypothesis.blockers] == [
+        AlignmentBlockerCode.CANDIDATE_EDGE_COUNT_UNSUPPORTED
+    ]
+
+
+def test_alignment_propagates_transition_edge_blockers() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "missing_landmark"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "missing_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "missing_landmark"
+}
+"""
+        )
+    )
+
+    hypothesis = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+
+    assert hypothesis.status is AlignmentStatus.BLOCKED
+    assert [blocker.code for blocker in hypothesis.blockers] == [
+        AlignmentBlockerCode.SOURCE_EDGE_BLOCKED
+    ]
+
+
+def test_alignment_blocks_mismatched_landmark_names() -> None:
+    source = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "source_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "beta"
+    "landmark" "source_landmark"
+}
+"""
+        )
+    )
+    candidate = build_transition_graph(
+        _semantic(
+            """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "info_landmark"
+    "targetname" "candidate_landmark"
+    "origin" "0 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_changelevel"
+    "map" "alpha"
+    "landmark" "candidate_landmark"
+}
+"""
+        )
+    )
+
+    hypothesis = build_translation_alignment_hypothesis(
+        source, candidate, source_map_name="alpha", candidate_map_name="beta"
+    )
+
+    assert hypothesis.status is AlignmentStatus.BLOCKED
+    assert [blocker.code for blocker in hypothesis.blockers] == [
+        AlignmentBlockerCode.LANDMARK_NAME_MISMATCH
     ]

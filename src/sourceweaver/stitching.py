@@ -29,6 +29,25 @@ class TransitionBlockerCode(StrEnum):
     LANDMARK_INVALID_ORIGIN = "landmark_invalid_origin"
 
 
+class AlignmentStatus(StrEnum):
+    """Final status for a read-only alignment hypothesis."""
+
+    VALID = "valid"
+    BLOCKED = "blocked"
+
+
+class AlignmentBlockerCode(StrEnum):
+    """Deterministic blockers for translation-only alignment authority."""
+
+    SOURCE_EDGE_COUNT_UNSUPPORTED = "source_edge_count_unsupported"
+    CANDIDATE_EDGE_COUNT_UNSUPPORTED = "candidate_edge_count_unsupported"
+    SOURCE_EDGE_BLOCKED = "source_edge_blocked"
+    CANDIDATE_EDGE_BLOCKED = "candidate_edge_blocked"
+    LANDMARK_NAME_MISMATCH = "landmark_name_mismatch"
+    LANDMARK_ORIGIN_UNAVAILABLE = "landmark_origin_unavailable"
+    TRANSLATION_NONFINITE = "translation_nonfinite"
+
+
 @dataclass(frozen=True, slots=True)
 class TransitionBlocker:
     """A reason a transition edge cannot become stitching authority."""
@@ -98,6 +117,30 @@ class TransitionGraph:
     edges: tuple[TransitionEdge, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class AlignmentBlocker:
+    """A reason a pair of transition graphs cannot be aligned safely."""
+
+    code: AlignmentBlockerCode
+    message: str
+    source_entity_index: int | None = None
+    candidate_entity_index: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TranslationAlignmentHypothesis:
+    """Read-only translation hypothesis between two directly connected maps."""
+
+    status: AlignmentStatus
+    source_map_normalized: str
+    candidate_map_normalized: str
+    offset: Vec3 | None
+    source_edge: TransitionEdge | None
+    candidate_edge: TransitionEdge | None
+    blockers: tuple[AlignmentBlocker, ...]
+    mutation_authorized: bool = False
+
+
 def normalize_map_name(raw: str) -> str:
     """Normalize a destination map string for matching only."""
     normalized = raw.strip().casefold()
@@ -134,8 +177,170 @@ def build_transition_graph(document: SemanticDocument) -> TransitionGraph:
     )
 
 
+def build_translation_alignment_hypothesis(
+    source_graph: TransitionGraph,
+    candidate_graph: TransitionGraph,
+    *,
+    source_map_name: str,
+    candidate_map_name: str,
+) -> TranslationAlignmentHypothesis:
+    """Build the initial one-edge, translation-only alignment hypothesis.
+
+    The offset moves candidate-map geometry into source-map coordinates using
+    ``source_landmark_origin - candidate_landmark_origin``. The result is
+    evidence for later seam planning and carries no VMF mutation authority.
+    """
+    source_map_normalized = normalize_map_name(source_map_name)
+    candidate_map_normalized = normalize_map_name(candidate_map_name)
+    source_edges = _edges_to_map(source_graph, candidate_map_normalized)
+    candidate_edges = _edges_to_map(candidate_graph, source_map_normalized)
+    blockers: list[AlignmentBlocker] = []
+
+    if len(source_edges) != 1:
+        blockers.append(
+            AlignmentBlocker(
+                code=AlignmentBlockerCode.SOURCE_EDGE_COUNT_UNSUPPORTED,
+                message=(
+                    "Expected exactly one source trigger_changelevel edge to the candidate map."
+                ),
+            )
+        )
+    if len(candidate_edges) != 1:
+        blockers.append(
+            AlignmentBlocker(
+                code=AlignmentBlockerCode.CANDIDATE_EDGE_COUNT_UNSUPPORTED,
+                message=(
+                    "Expected exactly one candidate trigger_changelevel edge back "
+                    "to the source map."
+                ),
+            )
+        )
+    source_edge = _only_edge(source_edges)
+    candidate_edge = _only_edge(candidate_edges)
+    if blockers or source_edge is None or candidate_edge is None:
+        return _blocked_alignment(
+            source_map_normalized=source_map_normalized,
+            candidate_map_normalized=candidate_map_normalized,
+            source_edge=source_edge,
+            candidate_edge=candidate_edge,
+            blockers=tuple(blockers),
+        )
+
+    if source_edge.blockers:
+        blockers.append(
+            AlignmentBlocker(
+                code=AlignmentBlockerCode.SOURCE_EDGE_BLOCKED,
+                message="Source transition edge has transition blockers.",
+                source_entity_index=source_edge.changelevel_entity_index,
+            )
+        )
+    if candidate_edge.blockers:
+        blockers.append(
+            AlignmentBlocker(
+                code=AlignmentBlockerCode.CANDIDATE_EDGE_BLOCKED,
+                message="Candidate transition edge has transition blockers.",
+                candidate_entity_index=candidate_edge.changelevel_entity_index,
+            )
+        )
+    if source_edge.landmark_name.casefold() != candidate_edge.landmark_name.casefold():
+        blockers.append(
+            AlignmentBlocker(
+                code=AlignmentBlockerCode.LANDMARK_NAME_MISMATCH,
+                message="Source and candidate transition edges use different landmarks.",
+                source_entity_index=source_edge.changelevel_entity_index,
+                candidate_entity_index=candidate_edge.changelevel_entity_index,
+            )
+        )
+    if blockers:
+        return _blocked_alignment(
+            source_map_normalized=source_map_normalized,
+            candidate_map_normalized=candidate_map_normalized,
+            source_edge=source_edge,
+            candidate_edge=candidate_edge,
+            blockers=tuple(blockers),
+        )
+
+    source_origin = source_edge.landmark_origin
+    candidate_origin = candidate_edge.landmark_origin
+    if source_origin is None or candidate_origin is None:
+        blockers.append(
+            AlignmentBlocker(
+                code=AlignmentBlockerCode.LANDMARK_ORIGIN_UNAVAILABLE,
+                message="A matched transition edge lacks a validated landmark origin.",
+                source_entity_index=source_edge.changelevel_entity_index,
+                candidate_entity_index=candidate_edge.changelevel_entity_index,
+            )
+        )
+        return _blocked_alignment(
+            source_map_normalized=source_map_normalized,
+            candidate_map_normalized=candidate_map_normalized,
+            source_edge=source_edge,
+            candidate_edge=candidate_edge,
+            blockers=tuple(blockers),
+        )
+
+    offset = source_origin - candidate_origin
+    if not _is_finite_vec(offset):
+        return _blocked_alignment(
+            source_map_normalized=source_map_normalized,
+            candidate_map_normalized=candidate_map_normalized,
+            source_edge=source_edge,
+            candidate_edge=candidate_edge,
+            blockers=(
+                AlignmentBlocker(
+                    code=AlignmentBlockerCode.TRANSLATION_NONFINITE,
+                    message="Computed landmark translation has a non-finite coordinate.",
+                    source_entity_index=source_edge.changelevel_entity_index,
+                    candidate_entity_index=candidate_edge.changelevel_entity_index,
+                ),
+            ),
+        )
+    return TranslationAlignmentHypothesis(
+        status=AlignmentStatus.VALID,
+        source_map_normalized=source_map_normalized,
+        candidate_map_normalized=candidate_map_normalized,
+        offset=offset,
+        source_edge=source_edge,
+        candidate_edge=candidate_edge,
+        blockers=(),
+    )
+
+
 def _classname_is(entity: SemanticEntity, classname: str) -> bool:
     return entity.classname is not None and entity.classname.casefold() == classname
+
+
+def _edges_to_map(graph: TransitionGraph, normalized_map_name: str) -> tuple[TransitionEdge, ...]:
+    return tuple(edge for edge in graph.edges if edge.destination_normalized == normalized_map_name)
+
+
+def _only_edge(edges: tuple[TransitionEdge, ...]) -> TransitionEdge | None:
+    if len(edges) == 1:
+        return next(iter(edges))
+    return None
+
+
+def _blocked_alignment(
+    *,
+    source_map_normalized: str,
+    candidate_map_normalized: str,
+    source_edge: TransitionEdge | None,
+    candidate_edge: TransitionEdge | None,
+    blockers: tuple[AlignmentBlocker, ...],
+) -> TranslationAlignmentHypothesis:
+    return TranslationAlignmentHypothesis(
+        status=AlignmentStatus.BLOCKED,
+        source_map_normalized=source_map_normalized,
+        candidate_map_normalized=candidate_map_normalized,
+        offset=None,
+        source_edge=source_edge,
+        candidate_edge=candidate_edge,
+        blockers=blockers,
+    )
+
+
+def _is_finite_vec(point: Vec3) -> bool:
+    return all(math.isfinite(value) for value in point.as_tuple())
 
 
 def _first_pair(entity: SemanticEntity, key: str) -> SemanticPair | None:
