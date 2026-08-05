@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
+from sourceweaver.geometry import ReconstructionStatus, extract_brush_sources
 from sourceweaver.model import AnalysisReport, ArtifactFingerprint, Diagnostic, Severity
 from sourceweaver.vmf.document import VmfDocument
 from sourceweaver.vmf.parser import PairNode
@@ -82,6 +83,36 @@ def analyze_vmf(path: str | Path) -> AnalysisReport:
             )
         )
 
+    brush_sources = extract_brush_sources(document.syntax)
+    valid_brushes = 0
+    geometry_blockers = 0
+    for brush_source in brush_sources:
+        reconstruction = brush_source.reconstruct()
+        if reconstruction.status is ReconstructionStatus.VALID:
+            valid_brushes += 1
+            continue
+        geometry_blockers += len(reconstruction.blockers)
+        diagnostics.append(
+            Diagnostic(
+                code="GEO001",
+                severity=Severity.BLOCKER,
+                message=(
+                    f"Solid {brush_source.solid_id or '<unknown>'} is not valid convex geometry."
+                ),
+                evidence=[
+                    f"{blocker.code}: {blocker.message}" for blocker in reconstruction.blockers[:10]
+                ],
+                remediation=(
+                    "Do not transform this solid automatically; repair or exclude it first."
+                ),
+                object_refs=[
+                    f"solid:{brush_source.solid_id}"
+                    if brush_source.solid_id is not None
+                    else f"span:{brush_source.block_span.start}:{brush_source.block_span.end}"
+                ],
+            )
+        )
+
     root_pairs = [entry for entry in document.syntax.entries if isinstance(entry, PairNode)]
     if root_pairs:
         diagnostics.append(
@@ -104,5 +135,8 @@ def analyze_vmf(path: str | Path) -> AnalysisReport:
             "token_count": len(document.syntax.tokens) - 1,
             "top_level_entry_count": len(document.syntax.entries),
             "lossless_roundtrip": document.render_bytes() == document.raw_bytes,
+            "brush_source_count": len(brush_sources),
+            "valid_brush_count": valid_brushes,
+            "geometry_blocker_count": geometry_blockers,
         },
     )

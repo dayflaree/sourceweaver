@@ -33,6 +33,20 @@ Use adaptive voxels/octrees, navigation samples, or signed-distance fields for:
 
 Approximate data cannot directly emit a brush. It must fit against exact source planes and pass exact validation.
 
+## Implemented support envelope
+
+The current repository implementation provides the first read-only geometry slice:
+
+- VMF side-plane parsing from CST-backed `solid`/`side` spans;
+- exact source spelling retained for every parsed plane coordinate;
+- normalized outward plane equations using Source's `normal·point <= distance` brush-interior convention;
+- tolerance-aware point/plane classification and oriented coplanar checks;
+- convex-brush reconstruction by triple-plane half-space intersection;
+- vertex deduplication, face polygon sorting, area checks, minimum-edge checks, volume checks, and world-bound checks;
+- deterministic invalid-result blockers surfaced through `sourceweaver inspect` as `GEO001` diagnostics.
+
+This slice is intentionally non-mutating. It does not transform brushes, emit generated solids, validate texture axes, compare compiler BSP topology, reconcile Hammer++ `vertices_plus`, or authorize duplicate removal. Those remain #3 follow-up work and must stay disabled until compiler/runtime qualification exists.
+
 ## Brush reconstruction
 
 For each solid:

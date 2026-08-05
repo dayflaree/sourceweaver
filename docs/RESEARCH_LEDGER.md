@@ -5,6 +5,7 @@ The ledger separates verified facts, engineering conclusions, and experiments st
 | Claim | Evidence | Confidence | Design consequence |
 |---|---|---:|---|
 | VMF can contain repeated keys and arbitrary/unknown blocks | VMF/KeyValues behavior; entity output structures; lossless fixture tests | Proven | Preserve concrete syntax and duplicates |
+| VMF side planes can reconstruct simple convex brush geometry through half-space intersection | Synthetic cube/open/sliver geometry tests in `tests/test_geometry.py` and `tests/test_analysis.py` | Proven for the tested read-only slice | Surface invalid brush blockers; keep transformation and compiler authority disabled |
 | `srctools` is a broad Source semantic foundation | Project docs and source at `5a8ed66...` | Proven | Use it as semantic adapter |
 | `srctools.VMF.export()` reconstructs known structures | Direct source inspection | Proven | Do not use it as sole editor-safe round-trip writer |
 | Hammer++ stores additional precision information | Hammer++ official features; public `vertices_plus` examples | High | Preserve unknown side subblocks; add real Hammer++ fixture qualification |
