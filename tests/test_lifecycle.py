@@ -2,7 +2,10 @@ from pathlib import Path
 
 from sourceweaver.lifecycle import (
     LifecycleBlockerCode,
+    LifecycleControllerBlockerCode,
+    LifecycleControllerStatus,
     LifecyclePolicyStatus,
+    build_lifecycle_controller_plan,
     build_lifecycle_policy_matrix,
 )
 from sourceweaver.semantics import SemanticDocument, build_semantic_document
@@ -148,3 +151,77 @@ entity
     assert matrix.status is LifecyclePolicyStatus.CLEAR
     assert matrix.entries == ()
     assert matrix.blockers == ()
+
+
+def test_lifecycle_controller_plan_synthesizes_deterministic_steps() -> None:
+    semantic = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "logic_auto"
+}
+entity
+{
+    "id" "3"
+    "classname" "trigger_once"
+}
+"""
+    )
+    matrix = build_lifecycle_policy_matrix(semantic)
+
+    plan = build_lifecycle_controller_plan(matrix, region_name="transition_beta")
+
+    assert plan.status is LifecycleControllerStatus.READY
+    assert plan.region_name == "transition_beta"
+    assert plan.blockers == ()
+    assert plan.mutation_authorized is False
+    assert [
+        (step.phase, step.entity_index, step.classname, step.action) for step in plan.steps
+    ] == [
+        ("preload", 1, "logic_auto", "suppress automatic startup until region activation"),
+        ("preload", 2, "trigger_once", "disable before region activation"),
+        ("activate", 1, "logic_auto", "replay mapped startup outputs once per activation token"),
+        ("activate", 2, "trigger_once", "enable on region activation"),
+        ("deactivate", 1, "logic_auto", "preserve fired state unless reset policy is declared"),
+        ("deactivate", 2, "trigger_once", "preserve fired state for backtracking"),
+        ("reset", 1, "logic_auto", "requires explicit reset policy before replay"),
+        ("reset", 2, "trigger_once", "restore unfired state only under explicit reset policy"),
+        (
+            "remove",
+            1,
+            "logic_auto",
+            "remove only when region is retired and outputs are no longer referenced",
+        ),
+        ("remove", 2, "trigger_once", "remove only when region is retired"),
+    ]
+
+
+def test_lifecycle_controller_plan_blocks_invalid_region_and_blocked_matrix() -> None:
+    semantic = _semantic(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "2"
+    "classname" "custom_region_controller"
+}
+"""
+    )
+    matrix = build_lifecycle_policy_matrix(semantic)
+
+    plan = build_lifecycle_controller_plan(matrix, region_name="")
+
+    assert plan.status is LifecycleControllerStatus.BLOCKED
+    assert plan.steps == ()
+    assert [blocker.code for blocker in plan.blockers] == [
+        LifecycleControllerBlockerCode.EMPTY_REGION_NAME,
+        LifecycleControllerBlockerCode.POLICY_MATRIX_BLOCKED,
+    ]

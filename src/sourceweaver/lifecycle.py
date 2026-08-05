@@ -26,6 +26,20 @@ class LifecycleBlockerCode(StrEnum):
     UNKNOWN_LIFECYCLE_CLASS = "unknown_lifecycle_class"
 
 
+class LifecycleControllerStatus(StrEnum):
+    """Final status for lifecycle controller synthesis planning."""
+
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class LifecycleControllerBlockerCode(StrEnum):
+    """Deterministic blockers for lifecycle controller planning."""
+
+    EMPTY_REGION_NAME = "empty_region_name"
+    POLICY_MATRIX_BLOCKED = "policy_matrix_blocked"
+
+
 @dataclass(frozen=True, slots=True)
 class LifecyclePolicy:
     """Lifecycle actions for one known class or class family."""
@@ -64,6 +78,36 @@ class LifecyclePolicyMatrix:
     status: LifecyclePolicyStatus
     entries: tuple[LifecyclePolicyEntry, ...]
     blockers: tuple[LifecycleBlocker, ...]
+    mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerStep:
+    """One deterministic controller action planned for a lifecycle phase."""
+
+    order: int
+    phase: str
+    entity_index: int
+    classname: str
+    action: str
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerBlocker:
+    """A reason a lifecycle controller plan cannot be synthesized."""
+
+    code: LifecycleControllerBlockerCode
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleControllerPlan:
+    """Read-only lifecycle controller plan for one imported region."""
+
+    status: LifecycleControllerStatus
+    region_name: str
+    steps: tuple[LifecycleControllerStep, ...]
+    blockers: tuple[LifecycleControllerBlocker, ...]
     mutation_authorized: bool = False
 
 
@@ -202,6 +246,42 @@ def build_lifecycle_policy_matrix(document: SemanticDocument) -> LifecyclePolicy
     )
 
 
+def build_lifecycle_controller_plan(
+    matrix: LifecyclePolicyMatrix,
+    *,
+    region_name: str,
+) -> LifecycleControllerPlan:
+    """Build deterministic read-only lifecycle controller steps for a region."""
+    blockers: list[LifecycleControllerBlocker] = []
+    if not region_name:
+        blockers.append(
+            LifecycleControllerBlocker(
+                code=LifecycleControllerBlockerCode.EMPTY_REGION_NAME,
+                message="Lifecycle controller region name must not be empty.",
+            )
+        )
+    if matrix.status is not LifecyclePolicyStatus.CLEAR:
+        blockers.append(
+            LifecycleControllerBlocker(
+                code=LifecycleControllerBlockerCode.POLICY_MATRIX_BLOCKED,
+                message="Lifecycle policy matrix is blocked.",
+            )
+        )
+    if blockers:
+        return LifecycleControllerPlan(
+            status=LifecycleControllerStatus.BLOCKED,
+            region_name=region_name,
+            steps=(),
+            blockers=tuple(blockers),
+        )
+    return LifecycleControllerPlan(
+        status=LifecycleControllerStatus.READY,
+        region_name=region_name,
+        steps=_controller_steps(matrix.entries),
+        blockers=(),
+    )
+
+
 def _policy_for_classname(classname: str) -> LifecyclePolicy | None:
     if classname in _POLICIES:
         return _POLICIES[classname]
@@ -209,3 +289,30 @@ def _policy_for_classname(classname: str) -> LifecyclePolicy | None:
         if classname.startswith(prefix):
             return policy
     return None
+
+
+def _controller_steps(
+    entries: tuple[LifecyclePolicyEntry, ...],
+) -> tuple[LifecycleControllerStep, ...]:
+    phases = (
+        ("preload", "preload"),
+        ("activate", "activate"),
+        ("deactivate", "deactivate"),
+        ("reset", "reset"),
+        ("remove", "remove"),
+    )
+    steps: list[LifecycleControllerStep] = []
+    order = 0
+    for phase, field_name in phases:
+        for entry in entries:
+            steps.append(
+                LifecycleControllerStep(
+                    order=order,
+                    phase=phase,
+                    entity_index=entry.entity_index,
+                    classname=entry.classname,
+                    action=getattr(entry.policy, field_name),
+                )
+            )
+            order += 1
+    return tuple(steps)
