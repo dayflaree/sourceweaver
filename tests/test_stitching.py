@@ -8,12 +8,16 @@ from sourceweaver.geometry import (
     Plane,
     ReconstructionStatus,
     Vec3,
+    extract_brush_sources,
     reconstruct_convex_brush,
 )
 from sourceweaver.semantics import SemanticDocument, build_semantic_document
 from sourceweaver.stitching import (
     AlignmentBlockerCode,
     AlignmentStatus,
+    ImportIdAllocationBlockerCode,
+    ImportIdAllocationStatus,
+    ImportIdKind,
     SeamConfidenceBlockerCode,
     SeamConfidenceStatus,
     SeamDeletionClass,
@@ -22,6 +26,7 @@ from sourceweaver.stitching import (
     SeamEvidenceStatus,
     TransitionBlockerCode,
     TranslationAlignmentHypothesis,
+    build_import_id_allocation_plan,
     build_seam_confidence_report,
     build_seam_deletion_evidence,
     build_seam_overlap_evidence,
@@ -36,6 +41,10 @@ def _semantic(text: str) -> SemanticDocument:
     return build_semantic_document(
         VmfDocument.from_bytes(text.encode("utf-8"), path=Path("synthetic.vmf"))
     )
+
+
+def _document(text: str) -> VmfDocument:
+    return VmfDocument.from_bytes(text.encode("utf-8"), path=Path("synthetic.vmf"))
 
 
 def _point(point: Vec3) -> str:
@@ -1028,4 +1037,128 @@ def test_seam_confidence_blocks_empty_or_blocked_deletion_evidence() -> None:
     assert blocked_report.status is SeamConfidenceStatus.BLOCKED
     assert [blocker.code for blocker in blocked_report.blockers] == [
         SeamConfidenceBlockerCode.DELETION_EVIDENCE_BLOCKED
+    ]
+
+
+def test_builds_deterministic_import_id_allocation_plan() -> None:
+    source_doc = _document(
+        """world
+{
+    "id" "1"
+    "classname" "worldspawn"
+    solid
+    {
+        "id" "20"
+        side { "id" "21" "plane" "(0 0 0) (0 1 0) (1 1 0)" }
+    }
+}
+entity
+{
+    "id" "40"
+    "classname" "info_target"
+}
+"""
+    )
+    candidate_doc = _document(
+        """world
+{
+    "id" "2"
+    "classname" "worldspawn"
+    solid
+    {
+        "id" "3"
+        side { "id" "4" "plane" "(0 0 0) (0 1 0) (1 1 0)" }
+    }
+}
+entity
+{
+    "id" "40"
+    "classname" "info_target"
+}
+"""
+    )
+
+    plan = build_import_id_allocation_plan(
+        build_semantic_document(source_doc),
+        build_semantic_document(candidate_doc),
+        extract_brush_sources(source_doc.syntax),
+        extract_brush_sources(candidate_doc.syntax),
+    )
+
+    assert plan.status is ImportIdAllocationStatus.VALID
+    assert plan.blockers == ()
+    assert plan.mutation_authorized is False
+    assert [(item.kind, item.original_id, item.allocated_id) for item in plan.allocations] == [
+        (ImportIdKind.SOLID, "3", "41"),
+        (ImportIdKind.SIDE, "4", "42"),
+        (ImportIdKind.ENTITY, "40", "43"),
+    ]
+
+
+def test_import_id_allocation_blocks_duplicate_candidate_ids() -> None:
+    source_doc = _document('world\n{\n    "id" "1"\n}\n')
+    candidate_doc = _document(
+        """world
+{
+    "id" "2"
+    "classname" "worldspawn"
+}
+entity
+{
+    "id" "7"
+    "classname" "info_target"
+}
+entity
+{
+    "id" "7"
+    "classname" "info_target"
+}
+"""
+    )
+
+    plan = build_import_id_allocation_plan(
+        build_semantic_document(source_doc),
+        build_semantic_document(candidate_doc),
+        (),
+        (),
+    )
+
+    assert plan.status is ImportIdAllocationStatus.BLOCKED
+    assert plan.allocations == ()
+    assert [(blocker.code, blocker.kind, blocker.raw_id) for blocker in plan.blockers] == [
+        (ImportIdAllocationBlockerCode.DUPLICATE_CANDIDATE_ID, ImportIdKind.ENTITY, "7")
+    ]
+
+
+def test_import_id_allocation_blocks_missing_and_invalid_candidate_ids() -> None:
+    source_doc = _document('world\n{\n    "id" "1"\n}\n')
+    candidate_doc = _document(
+        """world
+{
+    "id" "2"
+    "classname" "worldspawn"
+    solid
+    {
+        side { "id" "abc" "plane" "(0 0 0) (0 1 0) (1 1 0)" }
+    }
+}
+entity
+{
+    "classname" "info_target"
+}
+"""
+    )
+
+    plan = build_import_id_allocation_plan(
+        build_semantic_document(source_doc),
+        build_semantic_document(candidate_doc),
+        (),
+        extract_brush_sources(candidate_doc.syntax),
+    )
+
+    assert plan.status is ImportIdAllocationStatus.BLOCKED
+    assert [(blocker.code, blocker.kind, blocker.raw_id) for blocker in plan.blockers] == [
+        (ImportIdAllocationBlockerCode.MISSING_CANDIDATE_ID, ImportIdKind.SOLID, None),
+        (ImportIdAllocationBlockerCode.NON_NUMERIC_ID, ImportIdKind.SIDE, "abc"),
+        (ImportIdAllocationBlockerCode.MISSING_CANDIDATE_ID, ImportIdKind.ENTITY, None),
     ]
