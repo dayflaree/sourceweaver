@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from sourceweaver.compiler import CompilerRunPreflight, CompilerRunStatus
 from sourceweaver.geometry import (
     BoundsRelation,
     BrushRelation,
@@ -22,6 +23,7 @@ from sourceweaver.stitching import (
     SeamConfidenceBlockerCode,
     SeamConfidenceStatus,
     SeamDeletionClass,
+    SeamDeletionEvidence,
     SeamDeletionEvidenceStatus,
     SeamEvidenceBlockerCode,
     SeamEvidenceStatus,
@@ -34,6 +36,8 @@ from sourceweaver.stitching import (
     StitchPlanManifestStatus,
     StitchPreflightBlockerCode,
     StitchPreflightStatus,
+    StitchRemovalAuthorityBlockerCode,
+    StitchRemovalAuthorityStatus,
     TargetNameNamespaceBlockerCode,
     TargetNameNamespaceEditKind,
     TargetNameNamespaceStatus,
@@ -46,6 +50,7 @@ from sourceweaver.stitching import (
     build_singleton_conflict_report,
     build_stitch_plan_manifest,
     build_stitch_preflight_report,
+    build_stitch_removal_authority_report,
     build_targetname_namespace_plan,
     build_transition_graph,
     build_translation_alignment_hypothesis,
@@ -1894,6 +1899,116 @@ def test_materialization_blocks_invalid_manifest() -> None:
     ]
 
 
+def test_authorizes_candidate_duplicate_removal_when_all_authority_gates_pass() -> None:
+    fixture_dir = Path("tests/fixtures/stitching")
+    source_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_alpha.vmf").read_bytes(),
+        path=fixture_dir / "transition_alpha.vmf",
+    )
+    candidate_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_beta.vmf").read_bytes(),
+        path=fixture_dir / "transition_beta.vmf",
+    )
+    manifest = _synthetic_fixture_manifest(source_doc, candidate_doc)
+    deletion = _synthetic_fixture_deletion_evidence(source_doc, candidate_doc)
+    seam_confidence = build_seam_confidence_report(deletion)
+
+    authority = build_stitch_removal_authority_report(
+        manifest,
+        deletion,
+        seam_confidence,
+        _ready_compiler_preflight(),
+        material_equivalent_candidate_keys=("transition_beta/world/1/solid/10",),
+        runtime_acceptance_passed=True,
+    )
+
+    assert authority.status is StitchRemovalAuthorityStatus.AUTHORIZED
+    assert authority.mutation_authorized is True
+    assert authority.candidate_removals == ("transition_beta/world/1/solid/10",)
+    assert authority.blockers == ()
+
+
+def test_removal_authority_blocks_without_material_compiler_and_runtime_gates() -> None:
+    fixture_dir = Path("tests/fixtures/stitching")
+    source_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_alpha.vmf").read_bytes(),
+        path=fixture_dir / "transition_alpha.vmf",
+    )
+    candidate_doc = VmfDocument.from_bytes(
+        (fixture_dir / "transition_beta.vmf").read_bytes(),
+        path=fixture_dir / "transition_beta.vmf",
+    )
+    manifest = _synthetic_fixture_manifest(source_doc, candidate_doc)
+    deletion = _synthetic_fixture_deletion_evidence(source_doc, candidate_doc)
+    seam_confidence = build_seam_confidence_report(deletion)
+
+    authority = build_stitch_removal_authority_report(
+        manifest,
+        deletion,
+        seam_confidence,
+        CompilerRunPreflight(
+            status=CompilerRunStatus.BLOCKED,
+            tools=(),
+            blockers=(),
+        ),
+        material_equivalent_candidate_keys=(),
+        runtime_acceptance_passed=False,
+    )
+
+    assert authority.status is StitchRemovalAuthorityStatus.BLOCKED
+    assert authority.mutation_authorized is False
+    assert authority.candidate_removals == ()
+    assert [blocker.code for blocker in authority.blockers] == [
+        StitchRemovalAuthorityBlockerCode.MATERIAL_EQUIVALENCE_MISSING,
+        StitchRemovalAuthorityBlockerCode.COMPILER_PREFLIGHT_BLOCKED,
+        StitchRemovalAuthorityBlockerCode.RUNTIME_ACCEPTANCE_MISSING,
+    ]
+
+
+def test_removal_authority_blocks_unsafe_deletion_classes_even_if_manifest_lists_key() -> None:
+    alignment = _valid_zero_offset_alignment()
+    deletion = build_seam_deletion_evidence(
+        build_seam_overlap_evidence(
+            alignment,
+            (
+                BrushSpatialRecord(
+                    "alpha/source",
+                    _cube_brush(Vec3(32.0, 32.0, 32.0), Vec3(96.0, 96.0, 96.0)),
+                ),
+            ),
+            (
+                BrushSpatialRecord(
+                    "beta/outer",
+                    _cube_brush(Vec3(0.0, 0.0, 0.0), Vec3(128.0, 128.0, 128.0)),
+                ),
+            ),
+        )
+    )
+    manifest = StitchPlanManifest(
+        status=StitchPlanManifestStatus.VALID,
+        candidate_to_source_offset=Vec3(0.0, 0.0, 0.0),
+        candidate_removals=("beta/outer",),
+        id_allocations=(),
+        namespace_edits=(),
+        blockers=(),
+    )
+
+    authority = build_stitch_removal_authority_report(
+        manifest,
+        deletion,
+        build_seam_confidence_report(deletion),
+        _ready_compiler_preflight(),
+        material_equivalent_candidate_keys=("beta/outer",),
+        runtime_acceptance_passed=True,
+    )
+
+    assert authority.status is StitchRemovalAuthorityStatus.BLOCKED
+    assert [blocker.code for blocker in authority.blockers] == [
+        StitchRemovalAuthorityBlockerCode.SEAM_CONFIDENCE_BLOCKED,
+        StitchRemovalAuthorityBlockerCode.UNSAFE_REMOVAL_CLASS,
+    ]
+
+
 def _synthetic_fixture_manifest(
     source_doc: VmfDocument, candidate_doc: VmfDocument
 ) -> StitchPlanManifest:
@@ -1932,6 +2047,36 @@ def _synthetic_fixture_manifest(
         deletion,
         id_plan,
         namespace_plan,
+    )
+
+
+def _synthetic_fixture_deletion_evidence(
+    source_doc: VmfDocument, candidate_doc: VmfDocument
+) -> SeamDeletionEvidence:
+    source = build_semantic_document(source_doc)
+    candidate = build_semantic_document(candidate_doc)
+    source_brushes = extract_brush_sources(source_doc.syntax)
+    candidate_brushes = extract_brush_sources(candidate_doc.syntax)
+    alignment = build_translation_alignment_hypothesis(
+        build_transition_graph(source),
+        build_transition_graph(candidate),
+        source_map_name="transition_alpha",
+        candidate_map_name="transition_beta",
+    )
+    return build_seam_deletion_evidence(
+        build_seam_overlap_evidence(
+            alignment,
+            _brush_records_from_sources("transition_alpha", source_brushes),
+            _brush_records_from_sources("transition_beta", candidate_brushes),
+        )
+    )
+
+
+def _ready_compiler_preflight() -> CompilerRunPreflight:
+    return CompilerRunPreflight(
+        status=CompilerRunStatus.READY,
+        tools=(),
+        blockers=(),
     )
 
 
