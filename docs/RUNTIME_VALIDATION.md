@@ -84,6 +84,12 @@ Scenario inputs are versioned and deterministic. Random gameplay systems receive
 
 An inconclusive mandatory scenario blocks automatic acceptance.
 
+## Implemented support envelope
+
+Current code builds a read-only runtime acceptance manifest when compiler preflight is ready and both baseline and candidate BSP artifacts exist. The manifest contains mandatory scenarios for map load/spawn, forward and reverse seam traversal, lifecycle relay cycling, save/reload, death/respawn cleanup, and repeated transition cycles.
+
+The manifest is a preflight artifact. It does not launch GMod, execute scenarios, collect telemetry, or issue pass/fail runtime verdicts. Missing compiled BSPs, blocked compiler preflight, and empty map names block the manifest.
+
 ## Safety
 
 - Run generated maps in an isolated test game directory/profile.
