@@ -29,7 +29,12 @@ from sourceweaver.semantics import (
     SemanticDocument,
     SemanticEntity,
     SemanticPair,
+    SourceSpan,
+    TargetNameReference,
+    build_semantic_document,
 )
+from sourceweaver.vmf.document import VmfDocument
+from sourceweaver.vmf.patch import TextEdit, apply_edits
 
 _AMBIGUOUS_LANDMARK_MESSAGE = (
     "More than one info_landmark matches the trigger_changelevel landmark name."
@@ -220,6 +225,20 @@ class StitchPlanManifestBlockerCode(StrEnum):
 
     PREFLIGHT_BLOCKED = "preflight_blocked"
     ALIGNMENT_OFFSET_UNAVAILABLE = "alignment_offset_unavailable"
+
+
+class StitchMaterializationStatus(StrEnum):
+    """Final status for generated VMF materialization."""
+
+    VALID = "valid"
+    BLOCKED = "blocked"
+
+
+class StitchMaterializationBlockerCode(StrEnum):
+    """Deterministic blockers for generated VMF materialization."""
+
+    MANIFEST_BLOCKED = "manifest_blocked"
+    OUTPUT_REPARSE_FAILED = "output_reparse_failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,6 +537,36 @@ class StitchPlanManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class StitchMaterializationBlocker:
+    """A reason a generated VMF could not be materialized."""
+
+    code: StitchMaterializationBlockerCode
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class StitchProvenanceEntry:
+    """Source-to-output provenance for generated VMF spans."""
+
+    kind: str
+    source_path: str | None
+    source_span: SourceSpan | None
+    output_start: int
+    output_end: int
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializedStitch:
+    """Generated VMF bytes plus provenance, without mutating source files."""
+
+    status: StitchMaterializationStatus
+    output_bytes: bytes | None
+    provenance: tuple[StitchProvenanceEntry, ...]
+    blockers: tuple[StitchMaterializationBlocker, ...]
+    source_mutation_authorized: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportIdRecord:
     kind: ImportIdKind
     raw_id: str | None
@@ -758,6 +807,75 @@ def build_stitch_plan_manifest(
         ),
         id_allocations=id_allocation.allocations,
         namespace_edits=namespace_plan.edits,
+        blockers=(),
+    )
+
+
+def materialize_stitch_from_manifest(
+    source_document: VmfDocument,
+    candidate_document: VmfDocument,
+    manifest: StitchPlanManifest,
+) -> MaterializedStitch:
+    """Generate a reversible VMF output for the current synthetic stitch envelope.
+
+    Materialization appends rewritten candidate `entity` blocks after the source
+    VMF. Source bytes remain an exact prefix of the output. Candidate world and
+    brush materialization remain blocked for later compiler/runtime authority.
+    """
+    if manifest.status is not StitchPlanManifestStatus.VALID:
+        return MaterializedStitch(
+            status=StitchMaterializationStatus.BLOCKED,
+            output_bytes=None,
+            provenance=(),
+            blockers=(
+                StitchMaterializationBlocker(
+                    code=StitchMaterializationBlockerCode.MANIFEST_BLOCKED,
+                    message="Stitch plan manifest is blocked.",
+                ),
+            ),
+        )
+    candidate_semantic = build_semantic_document(candidate_document)
+    snippets = _materialized_candidate_entity_snippets(
+        candidate_document,
+        candidate_semantic,
+        manifest,
+    )
+    separator = "" if source_document.text.endswith(("\n", "\r")) else source_document.newline
+    appended = source_document.newline.join(snippets)
+    output_text = source_document.text + separator + appended
+    if snippets:
+        output_text += source_document.newline
+    try:
+        output_bytes = output_text.encode(source_document.encoding)
+        reparsed = VmfDocument.from_bytes(output_bytes, path=None)
+    except Exception as exc:
+        return MaterializedStitch(
+            status=StitchMaterializationStatus.BLOCKED,
+            output_bytes=None,
+            provenance=(),
+            blockers=(
+                StitchMaterializationBlocker(
+                    code=StitchMaterializationBlockerCode.OUTPUT_REPARSE_FAILED,
+                    message=f"Generated VMF could not be encoded or reparsed: {exc}",
+                ),
+            ),
+        )
+    if reparsed.render_bytes() != output_bytes:
+        return MaterializedStitch(
+            status=StitchMaterializationStatus.BLOCKED,
+            output_bytes=None,
+            provenance=(),
+            blockers=(
+                StitchMaterializationBlocker(
+                    code=StitchMaterializationBlockerCode.OUTPUT_REPARSE_FAILED,
+                    message="Generated VMF failed lossless re-render validation.",
+                ),
+            ),
+        )
+    return MaterializedStitch(
+        status=StitchMaterializationStatus.VALID,
+        output_bytes=output_bytes,
+        provenance=_materialization_provenance(source_document, candidate_semantic, snippets),
         blockers=(),
     )
 
@@ -1129,6 +1247,175 @@ def _parse_id(raw_id: str | None) -> int | None:
     if parsed <= 0:
         return None
     return parsed
+
+
+def _candidate_materialization_edits(
+    candidate_document: SemanticDocument,
+    manifest: StitchPlanManifest,
+) -> tuple[TextEdit, ...]:
+    edits: list[TextEdit] = []
+    entity_allocations = {
+        allocation.original_id: allocation.allocated_id
+        for allocation in manifest.id_allocations
+        if allocation.kind is ImportIdKind.ENTITY
+    }
+    for entity in candidate_document.entities:
+        if entity.kind is not EntityBlockKind.ENTITY:
+            continue
+        id_pair = _first_pair(entity, "id")
+        if id_pair is not None and id_pair.value in entity_allocations:
+            edits.append(
+                TextEdit(
+                    id_pair.value_span.start,
+                    id_pair.value_span.end,
+                    _quoted_value(entity_allocations[id_pair.value]),
+                    reason="candidate entity id allocation",
+                )
+            )
+    edits.extend(_candidate_namespace_materialization_edits(candidate_document, manifest))
+    return tuple(edits)
+
+
+def _materialized_candidate_entity_snippets(
+    candidate_document: VmfDocument,
+    candidate_semantic: SemanticDocument,
+    manifest: StitchPlanManifest,
+) -> tuple[str, ...]:
+    edits = _candidate_materialization_edits(candidate_semantic, manifest)
+    snippets: list[str] = []
+    for entity in candidate_semantic.entities:
+        if entity.kind is not EntityBlockKind.ENTITY:
+            continue
+        snippets.append(
+            apply_edits(
+                candidate_document.text[entity.block_span.start : entity.block_span.end],
+                _edits_within_span(edits, entity.block_span),
+            )
+        )
+    return tuple(snippets)
+
+
+def _edits_within_span(edits: tuple[TextEdit, ...], span: SourceSpan) -> tuple[TextEdit, ...]:
+    return tuple(
+        TextEdit(
+            edit.start - span.start,
+            edit.end - span.start,
+            edit.replacement,
+            reason=edit.reason,
+        )
+        for edit in edits
+        if span.start <= edit.start and edit.end <= span.end
+    )
+
+
+def _candidate_namespace_materialization_edits(
+    candidate_document: SemanticDocument,
+    manifest: StitchPlanManifest,
+) -> tuple[TextEdit, ...]:
+    edits: list[TextEdit] = []
+    for namespace_edit in manifest.namespace_edits:
+        if namespace_edit.kind is TargetNameNamespaceEditKind.DEFINITION:
+            pair = _matching_targetname_pair(candidate_document, namespace_edit)
+            if pair is not None:
+                edits.append(_pair_value_edit(pair, namespace_edit.namespaced_value))
+            continue
+        reference = _matching_resolved_reference(candidate_document, namespace_edit)
+        if reference is None:
+            continue
+        replacement = namespace_edit.namespaced_value
+        if namespace_edit.reference_kind is ReferenceKind.OUTPUT:
+            replacement = _rewrite_output_target(reference.pair.value, replacement)
+        edits.append(_pair_value_edit(reference.pair, replacement))
+    return tuple(edits)
+
+
+def _matching_targetname_pair(
+    candidate_document: SemanticDocument,
+    namespace_edit: TargetNameNamespaceEdit,
+) -> SemanticPair | None:
+    for entity in candidate_document.entities:
+        if entity.index != namespace_edit.entity_index:
+            continue
+        for pair in entity.targetnames:
+            if pair.value == namespace_edit.original_value:
+                return pair
+    return None
+
+
+def _matching_resolved_reference(
+    candidate_document: SemanticDocument,
+    namespace_edit: TargetNameNamespaceEdit,
+) -> TargetNameReference | None:
+    for reference in candidate_document.target_graph.resolved_references:
+        if (
+            reference.entity_index == namespace_edit.entity_index
+            and reference.name == namespace_edit.original_value
+            and reference.kind is namespace_edit.reference_kind
+        ):
+            return reference
+    return None
+
+
+def _pair_value_edit(pair: SemanticPair, replacement_value: str) -> TextEdit:
+    return TextEdit(
+        pair.value_span.start,
+        pair.value_span.end,
+        _quoted_value(replacement_value),
+        reason="candidate namespace materialization",
+    )
+
+
+def _rewrite_output_target(raw_output: str, namespaced_target: str) -> str:
+    separator = "\x1b" if "\x1b" in raw_output else ","
+    parts = raw_output.split(separator)
+    if not parts:
+        return namespaced_target
+    parts[0] = namespaced_target
+    return separator.join(parts)
+
+
+def _quoted_value(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _materialization_provenance(
+    source_document: VmfDocument,
+    candidate_document: SemanticDocument,
+    snippets: tuple[str, ...],
+) -> tuple[StitchProvenanceEntry, ...]:
+    source_path = source_document.path.as_posix() if source_document.path is not None else None
+    entries = [
+        StitchProvenanceEntry(
+            kind="source_preserved",
+            source_path=source_path,
+            source_span=SourceSpan(
+                start=0,
+                end=len(source_document.text),
+                line=1,
+                column=1,
+            ),
+            output_start=0,
+            output_end=len(source_document.text),
+        )
+    ]
+    output_cursor = len(source_document.text)
+    candidate_entities = tuple(
+        entity for entity in candidate_document.entities if entity.kind is EntityBlockKind.ENTITY
+    )
+    if snippets and not source_document.text.endswith(("\n", "\r")):
+        output_cursor += len(source_document.newline)
+    for entity, snippet in zip(candidate_entities, snippets, strict=True):
+        entries.append(
+            StitchProvenanceEntry(
+                kind="candidate_entity_imported",
+                source_path=None,
+                source_span=entity.block_span,
+                output_start=output_cursor,
+                output_end=output_cursor + len(snippet),
+            )
+        )
+        output_cursor += len(snippet) + len(source_document.newline)
+    return tuple(entries)
 
 
 def _world_key_conflicts(
