@@ -43,9 +43,10 @@ The current repository implementation provides the first read-only geometry slic
 - tolerance-aware point/plane classification and oriented coplanar checks;
 - convex-brush reconstruction by triple-plane half-space intersection;
 - vertex deduplication, face polygon sorting, area checks, minimum-edge checks, volume checks, and world-bound checks;
+- conservative convex brush relation classification for equal volume, containment, touching, overlapping, and disjoint brushes;
 - deterministic invalid-result blockers surfaced through `sourceweaver inspect` as `GEO001` diagnostics.
 
-This slice is intentionally non-mutating. It does not transform brushes, emit generated solids, validate texture axes, compare compiler BSP topology, reconcile Hammer++ `vertices_plus`, or authorize duplicate removal. Those remain #3 follow-up work and must stay disabled until compiler/runtime qualification exists.
+This slice is intentionally non-mutating. It does not transform brushes, emit generated solids, validate texture axes, compare compiler BSP topology, reconcile Hammer++ `vertices_plus`, or authorize duplicate removal. Relation classification is evidence for reports and later seam planning only; automatic removal remains disabled until semantic/material/compiler/runtime gates exist.
 
 ## Brush reconstruction
 
