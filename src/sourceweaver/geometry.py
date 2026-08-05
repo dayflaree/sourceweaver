@@ -46,6 +46,17 @@ class PointPlaneRelation(StrEnum):
     OUTSIDE = "outside"
 
 
+class BrushRelation(StrEnum):
+    """Conservative relation between two validated convex brushes."""
+
+    EQUAL_VOLUME = "equal_volume"
+    A_CONTAINS_B = "a_contains_b"
+    B_CONTAINS_A = "b_contains_a"
+    TOUCHING = "touching"
+    OVERLAPPING = "overlapping"
+    DISJOINT = "disjoint"
+
+
 @dataclass(frozen=True, slots=True)
 class NumericValue:
     """A parsed numeric coordinate with exact source spelling retained."""
@@ -497,6 +508,40 @@ def reconstruct_convex_brush(
     )
 
 
+def classify_brush_relation(
+    brush_a: ConvexBrush,
+    brush_b: ConvexBrush,
+    *,
+    tolerances: GeometryTolerances | None = None,
+) -> BrushRelation:
+    """Classify two validated convex brushes without authorizing mutation.
+
+    The classifier uses half-space containment checks and a convex separating-axis
+    test. A result of ``EQUAL_VOLUME`` or ``TOUCHING`` is geometry evidence only;
+    automatic duplicate removal still requires semantic/material/compiler gates.
+    """
+    active_tolerances = tolerances or GeometryTolerances()
+    a_contains_b = _brush_contains_vertices(
+        brush_a, brush_b.vertices, tolerance=active_tolerances.plane_distance
+    )
+    b_contains_a = _brush_contains_vertices(
+        brush_b, brush_a.vertices, tolerance=active_tolerances.plane_distance
+    )
+    if a_contains_b and b_contains_a:
+        return BrushRelation.EQUAL_VOLUME
+    if a_contains_b:
+        return BrushRelation.A_CONTAINS_B
+    if b_contains_a:
+        return BrushRelation.B_CONTAINS_A
+
+    overlap = _sat_overlap_depth(brush_a, brush_b, active_tolerances)
+    if overlap is None:
+        return BrushRelation.DISJOINT
+    if overlap <= active_tolerances.plane_distance:
+        return BrushRelation.TOUCHING
+    return BrushRelation.OVERLAPPING
+
+
 def _candidate_vertices(
     planes: tuple[Plane, ...], tolerances: GeometryTolerances
 ) -> tuple[Vec3, ...]:
@@ -629,6 +674,72 @@ def _brush_volume(vertices: tuple[Vec3, ...], faces: list[FaceGeometry]) -> floa
         distance_to_face = max(face.plane.distance - face.plane.normal.dot(center), 0.0)
         volume += face.area * distance_to_face / 3.0
     return volume
+
+
+def _brush_contains_vertices(
+    brush: ConvexBrush, vertices: tuple[Vec3, ...], *, tolerance: float
+) -> bool:
+    return all(
+        face.plane.signed_distance(vertex) <= tolerance
+        for face in brush.faces
+        for vertex in vertices
+    )
+
+
+def _sat_overlap_depth(
+    brush_a: ConvexBrush, brush_b: ConvexBrush, tolerances: GeometryTolerances
+) -> float | None:
+    minimum_overlap: float | None = None
+    for axis in _separating_axes(brush_a, brush_b, tolerances):
+        a_min, a_max = _project_vertices(brush_a.vertices, axis)
+        b_min, b_max = _project_vertices(brush_b.vertices, axis)
+        if a_max < b_min - tolerances.plane_distance:
+            return None
+        if b_max < a_min - tolerances.plane_distance:
+            return None
+        overlap = max(0.0, min(a_max, b_max) - max(a_min, b_min))
+        minimum_overlap = overlap if minimum_overlap is None else min(minimum_overlap, overlap)
+    return minimum_overlap
+
+
+def _separating_axes(
+    brush_a: ConvexBrush, brush_b: ConvexBrush, tolerances: GeometryTolerances
+) -> tuple[Vec3, ...]:
+    axes: list[Vec3] = []
+    for face in (*brush_a.faces, *brush_b.faces):
+        _append_axis(axes, face.plane.normal, tolerances)
+
+    a_edges = _edge_directions(brush_a)
+    b_edges = _edge_directions(brush_b)
+    for edge_a in a_edges:
+        for edge_b in b_edges:
+            _append_axis(axes, edge_a.cross(edge_b), tolerances)
+    return tuple(axes)
+
+
+def _append_axis(axes: list[Vec3], axis: Vec3, tolerances: GeometryTolerances) -> None:
+    length = axis.length()
+    if length <= tolerances.coplanar_normal:
+        return
+    normalized = axis.scale(1.0 / length)
+    if any(abs(normalized.dot(existing)) >= 1.0 - tolerances.coplanar_normal for existing in axes):
+        return
+    axes.append(normalized)
+
+
+def _edge_directions(brush: ConvexBrush) -> tuple[Vec3, ...]:
+    directions: list[Vec3] = []
+    for face in brush.faces:
+        for first, second in zip(
+            face.vertices, (*face.vertices[1:], face.vertices[0]), strict=True
+        ):
+            directions.append(second - first)
+    return tuple(directions)
+
+
+def _project_vertices(vertices: tuple[Vec3, ...], axis: Vec3) -> tuple[float, float]:
+    projections = tuple(vertex.dot(axis) for vertex in vertices)
+    return min(projections), max(projections)
 
 
 def _unique_blockers(blockers: list[GeometryBlocker]) -> tuple[GeometryBlocker, ...]:

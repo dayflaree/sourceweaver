@@ -13,7 +13,7 @@ This audit covers every feature currently implemented in SourceWeaver 0.1.0:
 - GMod installation and compiler discovery;
 - compiler fingerprinting and executable-format classification;
 - read-only CST-backed semantic entity and targetname graph extraction;
-- read-only convex brush geometry reconstruction and blocker diagnostics;
+- read-only convex brush geometry reconstruction, relation classification, and blocker diagnostics;
 - project-skill installation;
 - CLI entry points;
 - packaging, dependency metadata, and CI.
@@ -52,8 +52,8 @@ Map stitching, FGD-backed semantic mutation, geometry transformations, compiler 
 
 ### Tests
 
-- 110 tests pass locally on Linux.
-- Branch-aware coverage is 89.68%, above the enforced 80% floor.
+- 116 tests pass locally on Linux.
+- Branch-aware coverage is 90.13%, above the enforced 80% floor.
 - Property-based VMF round-trip tests use Hypothesis.
 - The prior merged cross-platform baseline passed locally on Python 3.11, 3.12, 3.13, and 3.14.
 - GitHub Actions runs the test suite on `ubuntu-latest` and `windows-latest` for Python 3.11–3.14; all thirteen quality, test, package, dependency, and documentation jobs passed for the prior cross-platform baseline in [run 30241981184](https://github.com/dayflaree/sourceweaver/actions/runs/30241981184). Current PRs must pass that matrix before merge.
