@@ -70,6 +70,31 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 7. Click **Preview deletion** to see how much content the cleanup rules would remove.
 8. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
 
+
+## Non-interactive automation
+
+Source Weaver can be driven entirely without the desktop UI through TOML job files. This is the preferred workflow when an assistant or script is running the tool for you.
+
+Create a starter job:
+
+```bash
+cargo run -p sourceweaver-cli -- job-template > sourceweaver-job.toml
+```
+
+Run it:
+
+```bash
+cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml
+```
+
+Preview it without writing a VMF:
+
+```bash
+cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml --dry-run
+```
+
+The job runner prints a JSON report and can also write one to disk. See `docs/automation.md` for the full workflow.
+
 ## CLI usage
 
 The CLI remains available for scripting and regression testing.

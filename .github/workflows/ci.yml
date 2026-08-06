@@ -25,3 +25,5 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --workspace
       - run: cargo build --workspace
+      - name: Validate non-interactive job runner
+        run: cargo run -p sourceweaver-cli -- run --job tests/jobs/fixture-merge.toml --dry-run --report target/sourceweaver-fixture-report.json

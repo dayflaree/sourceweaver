@@ -1,0 +1,8 @@
+base = "../fixtures/base.vmf"
+inputs = ["../fixtures/incoming.vmf"]
+output = "../out/fixture-merged.vmf"
+landmark = "map_transition"
+report = "../out/fixture-merge-report.json"
+
+[delete]
+roles = ["trigger"]

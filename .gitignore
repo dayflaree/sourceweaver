@@ -3,3 +3,6 @@
 *.tmp
 .DS_Store
 Thumbs.db
+tests/out/
+sourceweaver-job.toml
+sourceweaver-report.json

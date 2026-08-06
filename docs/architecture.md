@@ -36,7 +36,7 @@ The desktop app intentionally does not reimplement VMF logic. Any merge or delet
 
 ### `sourceweaver-cli`
 
-The CLI is retained for scripting, development validation, and regression tests.
+The CLI is retained for scripting, development validation, assistant-driven workflows, and regression tests.
 
 Current commands:
 
@@ -44,6 +44,10 @@ Current commands:
 - `list-types`
 - `prune`
 - `merge`
+- `run` / `batch` / `job` for non-interactive TOML job execution
+- `job-template` for generating a starter automation file
+
+The job runner resolves relative paths from the job file directory, can dry-run the operation, and emits a JSON report for machine parsing.
 
 ## VMF model
 
