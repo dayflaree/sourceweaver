@@ -67,6 +67,24 @@ class CompilerInvocationBlockerCode(StrEnum):
     REQUIRED_STAGE_MISSING = "required_stage_missing"
 
 
+class CompilerLogStatus(StrEnum):
+    """Final status for normalized compiler log parsing."""
+
+    CLEAN = "clean"
+    BLOCKED = "blocked"
+
+
+class CompilerLogMessageCode(StrEnum):
+    """Normalized compiler log message classes."""
+
+    LEAK_DETECTED = "leak_detected"
+    LIMIT_EXCEEDED = "limit_exceeded"
+    FATAL_ERROR = "fatal_error"
+    UNKNOWN_ERROR_LIKE_OUTPUT = "unknown_error_like_output"
+    PORTAL_STATISTIC = "portal_statistic"
+    AREA_STATISTIC = "area_statistic"
+
+
 @dataclass(frozen=True, slots=True)
 class CompilerSet:
     vbsp: Path | None
@@ -156,6 +174,25 @@ class CompilerInvocationPlan:
     bsp_path: Path
     commands: tuple[CompilerStageCommand, ...]
     blockers: tuple[CompilerInvocationBlocker, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerLogMessage:
+    """One normalized compiler log message."""
+
+    code: CompilerLogMessageCode
+    line_number: int
+    raw: str
+    blocking: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerLogReport:
+    """Normalized compiler log parse report."""
+
+    status: CompilerLogStatus
+    messages: tuple[CompilerLogMessage, ...]
+    blocking_message_count: int
 
 
 def _decode_vdf_string(value: str) -> str:
@@ -494,6 +531,71 @@ def build_compile_invocation_plan(
             for index, role in enumerate(_REQUIRED_COMPILE_ROLES, start=1)
         ),
         blockers=(),
+    )
+
+
+def parse_compiler_log(text: str) -> CompilerLogReport:
+    """Parse compiler stdout/stderr into normalized message classes."""
+    messages: list[CompilerLogMessage] = []
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        raw = raw_line.strip()
+        if not raw:
+            continue
+        message = _classify_compiler_log_line(line_number, raw)
+        if message is not None:
+            messages.append(message)
+    blocking_message_count = sum(1 for message in messages if message.blocking)
+    return CompilerLogReport(
+        status=CompilerLogStatus.BLOCKED if blocking_message_count else CompilerLogStatus.CLEAN,
+        messages=tuple(messages),
+        blocking_message_count=blocking_message_count,
+    )
+
+
+def _classify_compiler_log_line(line_number: int, raw: str) -> CompilerLogMessage | None:
+    normalized = raw.casefold()
+    if "leaked" in normalized:
+        return _compiler_log_message(
+            CompilerLogMessageCode.LEAK_DETECTED, line_number, raw, blocking=True
+        )
+    if "too many" in normalized or "limit" in normalized or "max_" in normalized:
+        return _compiler_log_message(
+            CompilerLogMessageCode.LIMIT_EXCEEDED, line_number, raw, blocking=True
+        )
+    if normalized.startswith("error:") or "fatal" in normalized:
+        return _compiler_log_message(
+            CompilerLogMessageCode.FATAL_ERROR, line_number, raw, blocking=True
+        )
+    if "error" in normalized or "warning:" in normalized:
+        return _compiler_log_message(
+            CompilerLogMessageCode.UNKNOWN_ERROR_LIKE_OUTPUT,
+            line_number,
+            raw,
+            blocking=True,
+        )
+    if normalized.startswith("numportals:"):
+        return _compiler_log_message(
+            CompilerLogMessageCode.PORTAL_STATISTIC, line_number, raw, blocking=False
+        )
+    if normalized.startswith("numareas:"):
+        return _compiler_log_message(
+            CompilerLogMessageCode.AREA_STATISTIC, line_number, raw, blocking=False
+        )
+    return None
+
+
+def _compiler_log_message(
+    code: CompilerLogMessageCode,
+    line_number: int,
+    raw: str,
+    *,
+    blocking: bool,
+) -> CompilerLogMessage:
+    return CompilerLogMessage(
+        code=code,
+        line_number=line_number,
+        raw=raw,
+        blocking=blocking,
     )
 
 
