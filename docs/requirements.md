@@ -129,6 +129,10 @@ Source Weaver must remain VMF-first. BSP input support must rely on user-selecte
 
 The CLI may run a user-selected BSPSource launcher, BSPSource jar, or generic BSP decompiler wrapper and must validate the generated VMF before reporting success. Reports must include tool kind, tool path, version probe when available, command arguments, input BSP, output VMF, exit code, log path, warnings/errors, entity counts, classname counts, and integrity status. The desktop app must be able to import BSP-derived VMFs with clear warnings while keeping them as normal VMF inputs after import.
 
+## BSP packing stance
+
+BSP content packing must remain optional and must use user-provided external packer paths. Source Weaver must not bundle packers, BSPs, or custom assets. The CLI may generate BSPZIP-compatible file lists from asset roots and relative include rules or use an existing file list. Reports must include command provenance, input/output BSPs, file-list path, requested files, missing files, warnings, packer exit status, log path, and packed file counts when detectable. Desktop packing UI can be added after compile workflow stabilization.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.

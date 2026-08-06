@@ -23,6 +23,7 @@ Current capabilities:
 - Show VMF integrity status before preview/export, including missing common sections, duplicate IDs, and invalid world blocks.
 - Validate generated VMFs for Source-tool readiness and parse captured VBSP logs.
 - Run optional user-configured VBSP/VVIS/VRAD compile pipelines and capture parsed JSON reports.
+- Run optional BSP content packing with user-provided `bspzip`-compatible tools and JSON reports.
 - Run optional user-selected BSPSource decompile commands or generic wrappers and validate generated VMFs before import.
 - Preserve incoming world brushes, including skybox brushes.
 - Preserve incoming point entities and brush entities.
@@ -189,6 +190,21 @@ cargo run -p sourceweaver-cli -- bsp-import map.bsp \
 
 For jar-only BSPSource distributions, use `--bspsource-jar /path/to/bspsrc.jar` and optionally `--java /path/to/java`. `--tool ./custom-wrapper.sh` remains available for unusual decompilers or argument orders. In the desktop app, use **Add BSP-derived VMF...** after decompiling externally. The generated VMF remains a normal VMF input but is marked with decompile-quality warnings.
 
+Pack custom assets into a compiled BSP with a user-provided `bspzip`-compatible tool:
+
+```bash
+cargo run -p sourceweaver-cli -- pack map.bsp \
+  --tool /path/to/bspzip \
+  --output packed.bsp \
+  --asset-root /path/to/game \
+  --include materials/custom/wall01.vmt \
+  --include materials/custom/wall01.vtf \
+  --report pack-report.json \
+  --json
+```
+
+See `docs/bsp-packing.md` for generated file lists, report fields, and legal/asset ownership notes.
+
 ## CLI usage
 
 The CLI remains available for scripting and regression testing.
@@ -276,7 +292,7 @@ Known limitations:
 - The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
 - No bundled/internal BSP decompilation. BSP import can run user-selected BSPSource launchers/jars or generic external wrappers and imports the generated VMF; Source Weaver remains VMF-first. See `docs/bsp-import.md`.
 - FGD support is class-level metadata only; it does not parse all property labels yet.
-- Compile pipeline integration requires user-provided Source tool paths; Source tools are not bundled.
+- Compile and BSP packing integrations require user-provided Source tool paths; Source tools and custom assets are not bundled.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 - Incoming IDs are renumbered during merge and known reference fields are remapped; see `docs/id-renumbering.md`.
 - Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.

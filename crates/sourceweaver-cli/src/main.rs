@@ -38,6 +38,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "validate" => validate_command(&args[1..]),
         "compile" => compile_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
+        "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
         "job-template" => {
             print_job_template();
@@ -1161,6 +1162,381 @@ fn finish_bsp_import_report(
     Ok(())
 }
 
+fn pack_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_pack_help();
+        return Ok(());
+    }
+    let config = parse_pack_args(args)?;
+    let input = config.input.as_ref().ok_or("usage: sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
+    let tool = config.tool.as_ref().ok_or("pack needs --tool <bspzip>")?;
+    let output_bsp = config
+        .output
+        .as_ref()
+        .ok_or("pack needs --output <out.bsp>")?;
+    create_parent_dir(output_bsp, "output BSP")?;
+
+    let list = prepare_pack_filelist(&config)?;
+    if !list.missing_files.is_empty() {
+        let report = PackReport {
+            ok: false,
+            tool: tool.display().to_string(),
+            tool_kind: "bspzip-addlist".to_string(),
+            command_shape: "bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>".to_string(),
+            command_args: Vec::new(),
+            input_bsp: input.display().to_string(),
+            output_bsp: output_bsp.display().to_string(),
+            output_bsp_exists: output_bsp.exists(),
+            filelist_path: list.filelist_path.display().to_string(),
+            asset_roots: config
+                .asset_roots
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect(),
+            requested_files: list.assets,
+            missing_files: list.missing_files,
+            warnings: list.warnings,
+            exit_code: None,
+            log_path: config.log.as_ref().map(|path| path.display().to_string()),
+            packed_file_count: None,
+            log_summary: empty_compile_log_snapshot(),
+        };
+        return finish_pack_report(&config, report);
+    }
+
+    let invocation = BspPackInvocation {
+        executable: tool.clone(),
+        args: vec![
+            "-addlist".to_string(),
+            input.display().to_string(),
+            list.filelist_path.display().to_string(),
+            output_bsp.display().to_string(),
+        ],
+        command_shape: "bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>",
+    };
+    let tool_output = run_bsp_packer(
+        &invocation,
+        Duration::from_secs(tool_timeout_seconds(config.timeout_seconds)),
+    )?;
+    let log_text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&tool_output.stdout),
+        String::from_utf8_lossy(&tool_output.stderr)
+    );
+    if let Some(log_path) = &config.log {
+        create_parent_dir(log_path, "log")?;
+        fs::write(log_path, &log_text).map_err(|error| {
+            format!(
+                "failed to write BSP pack log {}: {error}",
+                log_path.display()
+            )
+        })?;
+    }
+
+    let summary = parse_compile_log(&log_text);
+    let log_snapshot = CompileLogSnapshot {
+        ok: summary.is_ok() || summary.errors.is_empty(),
+        errors: summary.errors.len(),
+        warnings: summary.warnings.len(),
+        leak_detected: summary.leak_detected,
+        error_lines: summary.errors,
+        warning_lines: summary.warnings,
+    };
+    let output_bsp_exists = output_bsp.exists();
+    let ok = tool_output.status.success()
+        && output_bsp_exists
+        && log_snapshot.errors == 0
+        && !log_snapshot.leak_detected;
+    let report = PackReport {
+        ok,
+        tool: invocation.executable.display().to_string(),
+        tool_kind: "bspzip-addlist".to_string(),
+        command_shape: invocation.command_shape.to_string(),
+        command_args: invocation.args,
+        input_bsp: input.display().to_string(),
+        output_bsp: output_bsp.display().to_string(),
+        output_bsp_exists,
+        filelist_path: list.filelist_path.display().to_string(),
+        asset_roots: config
+            .asset_roots
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        requested_files: list.assets,
+        missing_files: list.missing_files,
+        warnings: list.warnings,
+        exit_code: tool_output.status.code(),
+        log_path: config.log.as_ref().map(|path| path.display().to_string()),
+        packed_file_count: count_bspzip_added_files(&log_text),
+        log_summary: log_snapshot,
+    };
+    finish_pack_report(&config, report)
+}
+
+fn parse_pack_args(args: &[String]) -> Result<PackConfig, String> {
+    let mut config = PackConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--tool" => {
+                cursor += 1;
+                config.tool = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--tool needs a path")?,
+                ));
+            }
+            "--output" | "-o" => {
+                cursor += 1;
+                config.output = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--output needs a path")?,
+                ));
+            }
+            "--asset-root" => {
+                cursor += 1;
+                config.asset_roots.push(PathBuf::from(
+                    args.get(cursor).ok_or("--asset-root needs a path")?,
+                ));
+            }
+            "--include" => {
+                cursor += 1;
+                config.includes.push(
+                    args.get(cursor)
+                        .ok_or("--include needs a relative asset path")?
+                        .clone(),
+                );
+            }
+            "--filelist" => {
+                cursor += 1;
+                config.filelist = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--filelist needs a path")?,
+                ));
+            }
+            "--log" => {
+                cursor += 1;
+                config.log = Some(PathBuf::from(args.get(cursor).ok_or("--log needs a path")?));
+            }
+            "--report" => {
+                cursor += 1;
+                config.report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--report needs a path")?,
+                ));
+            }
+            "--timeout-seconds" => {
+                cursor += 1;
+                config.timeout_seconds = Some(parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?);
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => return Err(format!("unknown pack flag `{value}`")),
+            value => {
+                if config.input.is_some() {
+                    return Err("pack accepts one input BSP".to_string());
+                }
+                config.input = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn prepare_pack_filelist(config: &PackConfig) -> Result<PackFilelist, String> {
+    if config.filelist.is_some() && (!config.includes.is_empty() || !config.asset_roots.is_empty())
+    {
+        return Err(
+            "pack accepts either --filelist or --asset-root/--include generation, not both"
+                .to_string(),
+        );
+    }
+    if let Some(filelist) = &config.filelist {
+        if !filelist.exists() {
+            return Err(format!("filelist {} does not exist", filelist.display()));
+        }
+        return Ok(PackFilelist {
+            filelist_path: filelist.clone(),
+            assets: Vec::new(),
+            missing_files: Vec::new(),
+            warnings: Vec::new(),
+        });
+    }
+    if config.includes.is_empty() {
+        return Err("pack needs --filelist or at least one --include".to_string());
+    }
+    if config.asset_roots.is_empty() {
+        return Err(
+            "pack needs --asset-root when generating a file list from --include".to_string(),
+        );
+    }
+
+    let mut assets = Vec::new();
+    let mut missing_files = Vec::new();
+    let mut warnings = Vec::new();
+    let mut filelist_text = String::new();
+    for include in &config.includes {
+        let internal_path = normalize_source_asset_path(include)?;
+        if !is_common_source_asset_path(&internal_path) {
+            warnings.push(format!(
+                "asset `{internal_path}` is outside common Source asset roots"
+            ));
+        }
+        let external_path = config
+            .asset_roots
+            .iter()
+            .map(|root| root.join(Path::new(&internal_path)))
+            .find(|path| path.is_file());
+        if let Some(external_path) = external_path {
+            filelist_text.push_str(&internal_path);
+            filelist_text.push('\n');
+            filelist_text.push_str(&external_path.display().to_string());
+            filelist_text.push('\n');
+            assets.push(PackAssetReport {
+                internal_path,
+                external_path: Some(external_path.display().to_string()),
+                exists: true,
+            });
+        } else {
+            missing_files.push(internal_path.clone());
+            assets.push(PackAssetReport {
+                internal_path,
+                external_path: None,
+                exists: false,
+            });
+        }
+    }
+
+    let filelist_path = generated_pack_filelist_path();
+    create_parent_dir(&filelist_path, "pack file list")?;
+    fs::write(&filelist_path, filelist_text).map_err(|error| {
+        format!(
+            "failed to write generated BSP pack file list {}: {error}",
+            filelist_path.display()
+        )
+    })?;
+
+    Ok(PackFilelist {
+        filelist_path,
+        assets,
+        missing_files,
+        warnings,
+    })
+}
+
+fn generated_pack_filelist_path() -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    env::temp_dir().join(format!(
+        "sourceweaver-{}-{nonce}-bspzip-filelist.txt",
+        process::id()
+    ))
+}
+
+fn normalize_source_asset_path(value: &str) -> Result<String, String> {
+    let normalized = value.trim().replace('\\', "/");
+    if normalized.is_empty() {
+        return Err("empty asset include path".to_string());
+    }
+    if normalized.starts_with('/') || normalized.as_bytes().get(1) == Some(&b':') {
+        return Err(format!("asset include `{value}` must be relative"));
+    }
+    let parts = normalized
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>();
+    if parts.is_empty() || parts.contains(&"..") {
+        return Err(format!("asset include `{value}` must not contain `..`"));
+    }
+    Ok(parts.join("/"))
+}
+
+fn is_common_source_asset_path(internal_path: &str) -> bool {
+    let Some(root) = internal_path.split('/').next() else {
+        return false;
+    };
+    matches!(
+        root,
+        "materials"
+            | "models"
+            | "sound"
+            | "scripts"
+            | "particles"
+            | "resource"
+            | "maps"
+            | "cfg"
+            | "media"
+    )
+}
+
+fn run_bsp_packer(invocation: &BspPackInvocation, timeout: Duration) -> Result<Output, String> {
+    let mut command = Command::new(&invocation.executable);
+    command.args(&invocation.args);
+    run_command_with_timeout(
+        &mut command,
+        &format!("BSP packer {}", invocation.executable.display()),
+        timeout,
+    )
+}
+
+fn count_bspzip_added_files(log: &str) -> Option<usize> {
+    let count = log
+        .lines()
+        .filter(|line| {
+            line.trim_start()
+                .to_ascii_lowercase()
+                .starts_with("adding file:")
+        })
+        .count();
+    (count > 0).then_some(count)
+}
+
+fn empty_compile_log_snapshot() -> CompileLogSnapshot {
+    CompileLogSnapshot {
+        ok: false,
+        errors: 0,
+        warnings: 0,
+        leak_detected: false,
+        error_lines: Vec::new(),
+        warning_lines: Vec::new(),
+    }
+}
+
+fn finish_pack_report(config: &PackConfig, report: PackReport) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode BSP pack report: {error}"))?;
+    if let Some(report_path) = &config.report {
+        create_parent_dir(report_path, "report")?;
+        fs::write(report_path, &json).map_err(|error| {
+            format!(
+                "failed to write BSP pack report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+    if config.json {
+        println!("{json}");
+    } else {
+        println!("bsp pack: {}", if report.ok { "ok" } else { "failed" });
+        println!("tool: {}", report.tool);
+        println!("input bsp: {}", report.input_bsp);
+        println!("output bsp: {}", report.output_bsp);
+        println!("filelist: {}", report.filelist_path);
+        println!("exit code: {:?}", report.exit_code);
+        println!("output bsp exists: {}", report.output_bsp_exists);
+        println!("requested files: {}", report.requested_files.len());
+        println!("missing files: {}", report.missing_files.len());
+        if let Some(count) = report.packed_file_count {
+            println!("packed file count: {count}");
+        }
+        println!("log errors: {}", report.log_summary.errors);
+        println!("log warnings: {}", report.log_summary.warnings);
+    }
+    if !report.ok {
+        return Err("BSP packing validation failed".to_string());
+    }
+    Ok(())
+}
+
 fn run_job_command(args: &[String]) -> Result<(), String> {
     let mut job_path: Option<PathBuf> = None;
     let mut report_override: Option<PathBuf> = None;
@@ -1465,6 +1841,63 @@ struct BspImportReport {
     entity_count: Option<usize>,
     classname_count: Option<usize>,
     log_summary: CompileLogSnapshot,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PackConfig {
+    input: Option<PathBuf>,
+    tool: Option<PathBuf>,
+    output: Option<PathBuf>,
+    asset_roots: Vec<PathBuf>,
+    includes: Vec<String>,
+    filelist: Option<PathBuf>,
+    log: Option<PathBuf>,
+    report: Option<PathBuf>,
+    timeout_seconds: Option<u64>,
+    json: bool,
+}
+
+#[derive(Debug, Clone)]
+struct PackFilelist {
+    filelist_path: PathBuf,
+    assets: Vec<PackAssetReport>,
+    missing_files: Vec<String>,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct BspPackInvocation {
+    executable: PathBuf,
+    args: Vec<String>,
+    command_shape: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PackReport {
+    ok: bool,
+    tool: String,
+    tool_kind: String,
+    command_shape: String,
+    command_args: Vec<String>,
+    input_bsp: String,
+    output_bsp: String,
+    output_bsp_exists: bool,
+    filelist_path: String,
+    asset_roots: Vec<String>,
+    requested_files: Vec<PackAssetReport>,
+    missing_files: Vec<String>,
+    warnings: Vec<String>,
+    exit_code: Option<i32>,
+    log_path: Option<String>,
+    packed_file_count: Option<usize>,
+    log_summary: CompileLogSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PackAssetReport {
+    internal_path: String,
+    external_path: Option<String>,
+    exists: bool,
 }
 
 impl ValidationSnapshot {
@@ -1892,6 +2325,7 @@ Usage:
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
@@ -1991,6 +2425,37 @@ Generic wrapper command shape:
   <wrapper> [--tool-arg values...] <input.bsp> <output.vmf>
 
 Use --tool only as an escape hatch for unusual decompilers or argument orders.
+External tool runs default to a 900 second timeout. Override with --timeout-seconds.
+"#
+    );
+}
+
+fn print_pack_help() {
+    println!(
+        r#"Usage:
+  sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+
+Runs optional BSP content packing with a user-provided bspzip/BSPZIP++-compatible tool.
+
+Source Weaver remains VMF-first:
+  - BSP packers, compiled maps, and custom assets are not bundled.
+  - Packing is optional and separate from VMF editing, merging, and compiling.
+  - Generated file lists use BSPZIP's internal/external path-pair format.
+  - JSON reports include tool path, command arguments, input/output BSP, file list, requested assets, missing files, detected packed file count, log path, warnings/errors, and exit status.
+
+Generated file-list command shape:
+  bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>
+
+Generate a file list from asset roots:
+  sourceweaver pack map.bsp --tool /path/to/bspzip --output packed.bsp \
+    --asset-root /path/to/game \
+    --include materials/custom/wall01.vmt \
+    --include materials/custom/wall01.vtf \
+    --json
+
+Or pass an existing BSPZIP file list:
+  sourceweaver pack map.bsp --tool /path/to/bspzip --output packed.bsp --filelist pack-list.txt --json
+
 External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );

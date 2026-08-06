@@ -13,6 +13,7 @@
 - Campaign transition detection, campaign order suggestions, and landmark-pair suggestions.
 - Fixture/golden regression coverage for parser, merge, prune, preview, and automation reports.
 - First-class BSPSource CLI/jar decompile runner with version/provenance reporting while keeping generic wrapper support.
+- Optional BSP content packing command for user-provided `bspzip`-compatible tools, generated file lists, and JSON reports.
 
 ### Changed
 
