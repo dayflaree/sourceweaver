@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/sourceweaver-core",
-    "crates/sourceweaver-cli"
+    "crates/sourceweaver-cli",
+    "crates/sourceweaver-desktop"
 ]
 resolver = "3"
 

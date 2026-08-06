@@ -10,19 +10,27 @@
 - Preserve skybox solids during merges.
 - Add CLI validation commands.
 
+Status: implemented.
+
 ## Milestone 2: Desktop UI
 
 - Add cross-platform desktop shell.
 - Add VMF file picker and selected-map list.
-- Add entity table with sorting, filtering, and bulk selection.
-- Add deletion preview and apply flow.
-- Add merge configuration panel.
-- Add merge report and warnings panel.
+- Add base-map selector.
+- Add landmark and output controls.
+- Add entity table with classname, targetname, origin, solids, and roles.
+- Add classname summary table.
+- Add deletion filters and preview.
+- Add cleaned VMF export.
+- Add merge/export action.
+- Add status log.
+
+Status: first native Linux/Windows UI slice implemented.
 
 ## Milestone 3: Source/Hammer validation
 
 - Add VMF integrity checks.
-- Detect missing landmarks.
+- Detect missing landmarks before merge.
 - Detect duplicate targetnames created by merge.
 - Detect potential Hammer ID conflicts.
 - Add optional compile-tool integration where available.

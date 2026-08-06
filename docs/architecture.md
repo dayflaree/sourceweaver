@@ -14,11 +14,29 @@ The core crate owns VMF behavior:
 - merge operations
 - deletion/prune operations
 
-The core crate should remain dependency-light and UI-agnostic.
+The core crate stays dependency-light and UI-agnostic so every interface shares the same map behavior.
+
+### `sourceweaver-desktop`
+
+The desktop app is a native egui/eframe application for Linux and Windows. It calls directly into `sourceweaver-core` and provides:
+
+- VMF file selection through native file dialogs
+- base-map selection
+- landmark targetname input
+- output VMF picker
+- entity inspection table
+- classname summary table
+- deletion-rule controls
+- deletion preview
+- cleaned-copy export
+- merge/export action
+- status log
+
+The desktop app intentionally does not reimplement VMF logic. Any merge or deletion behavior change should be made in `sourceweaver-core` first.
 
 ### `sourceweaver-cli`
 
-The CLI is the first executable interface. It is used for development validation, scripting, and regression tests.
+The CLI is retained for scripting, development validation, and regression tests.
 
 Current commands:
 
@@ -26,20 +44,6 @@ Current commands:
 - `list-types`
 - `prune`
 - `merge`
-
-### Future desktop app
-
-The desktop UI should sit above `sourceweaver-core`. Recommended UI candidates remain open, but the UI must expose:
-
-- file picker for VMF selection
-- base map selector
-- landmark selector
-- entity table
-- brush role filters
-- classname and targetname filters
-- bulk selection and deletion preview
-- merge report
-- output path picker
 
 ## VMF model
 
@@ -58,20 +62,25 @@ This preserves unknown Hammer and game-specific data because the parser does not
 The first selected VMF is the base document. For each additional VMF:
 
 1. Parse VMF.
-2. Find requested `info_landmark` targetname.
-3. Compute translation offset against the base landmark.
-4. Translate incoming entity `origin` values.
-5. Translate incoming brush `plane` values.
-6. Translate displacement `startposition` values when present.
-7. Renumber incoming `id` keys.
-8. Append incoming world solids into the base `world` block.
-9. Append incoming top-level entities after existing base nodes.
+2. Optionally prune content using the selected deletion criteria.
+3. Find requested `info_landmark` targetname.
+4. Compute translation offset against the base landmark.
+5. Translate incoming entity `origin` values.
+6. Translate incoming brush `plane` values.
+7. Translate displacement `startposition` values when present.
+8. Renumber incoming `id` keys.
+9. Append incoming world solids into the base `world` block.
+10. Append incoming top-level entities after existing base nodes.
 
 ## Deletion model
 
-Deletion is criteria-based. The UI should build a `DeletionCriteria` object from selected rows or filters, then call the same prune function as the CLI.
+Deletion is criteria-based. The UI builds a `DeletionCriteria` object from selected filters, then calls the same prune function as the CLI.
 
 Brush-role deletion removes matching world solids and whole brush entities that match the selected role.
+
+## Cross-platform strategy
+
+Rust and egui/eframe provide a shared Linux/Windows desktop UI. Native file dialogs are handled through `rfd`. CI builds the Rust workspace on Linux and Windows so platform-specific compile issues surface quickly.
 
 ## Known technical risks
 
