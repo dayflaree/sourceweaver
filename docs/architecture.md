@@ -9,6 +9,7 @@ The core crate owns VMF behavior:
 - VMF tokenization and parsing
 - VMF serialization
 - entity and brush inspection
+- campaign transition discovery for `trigger_changelevel` entities
 - preview geometry extraction for orthographic UI views
 - VMF integrity validation for pre-write safety checks
 - landmark discovery, duplicate checks, selected-landmark status, and origin lookup
@@ -33,6 +34,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - in-memory merged-output preview before export
 - top, front, and side preview projections
 - entity/classname inspection tables
+- transition table grouping detected `trigger_changelevel` target maps and landmarks
 - search, role filtering, filtered counts, and sorting for inspection tables
 - entity table row-selection state for future cleanup actions
 - deletion-rule controls
@@ -104,6 +106,8 @@ The first selected VMF is the base document. For each additional VMF:
 Landmark discovery records top-level `entity` blocks with `classname` `info_landmark` and a non-empty `targetname`. A landmark needs a parseable `origin` before it can drive alignment. The desktop UI still shows duplicate and invalid-origin status so users can fix ambiguous maps before merging.
 
 Integrity validation runs before preview/export write paths. The core validator reports structural errors such as missing or duplicate top-level `world` blocks and warnings such as missing common VMF sections, missing IDs, duplicate numeric IDs, multiple ID fields, or non-numeric IDs on blocks where Hammer normally expects stable IDs.
+
+Campaign transition discovery records top-level `trigger_changelevel` entities, including targetname, target map, landmark/landmarkname, origin, and trigger solid count. CLI inspection, automation reports, and the desktop transition table surface this data so later landmark-ordering workflows can use it.
 
 ## Deletion model
 

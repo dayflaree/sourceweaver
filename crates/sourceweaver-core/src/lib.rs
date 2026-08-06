@@ -11,6 +11,7 @@ pub mod merge;
 pub mod preview;
 pub mod prune;
 pub mod transform;
+pub mod transition;
 pub mod vmf;
 
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
@@ -28,4 +29,5 @@ pub use preview::{
 };
 pub use prune::{BrushEntityDeletionMode, DeletionCriteria, DeletionReport, prune_document};
 pub use transform::{Vec3, find_landmark_origin, translate_block};
+pub use transition::{CampaignTransition, discover_transitions};
 pub use vmf::{Document, Node, ParseError, parse_document};

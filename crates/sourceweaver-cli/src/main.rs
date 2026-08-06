@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
-    BrushEntityDeletionMode, BrushRole, DeletionCriteria, DeletionReport, Document,
-    IntegrityReport, MergeInput, MergeOptions, MergeReport, format_integrity_issue,
-    inspect_entities, merge_maps, prune_document, summarize_entity_types,
+    BrushEntityDeletionMode, BrushRole, CampaignTransition, DeletionCriteria, DeletionReport,
+    Document, IntegrityReport, MergeInput, MergeOptions, MergeReport, discover_transitions,
+    format_integrity_issue, inspect_entities, merge_maps, prune_document, summarize_entity_types,
     validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -54,6 +54,7 @@ fn inspect_command(args: &[String]) -> Result<(), String> {
     }
     let document = load_document(&args[0])?;
     let records = inspect_entities(&document);
+    let transitions = discover_transitions(&document);
     println!("entities: {}", records.len());
     println!("index\tblock\tclassname\ttargetname\torigin\tsolids\troles");
     for record in records {
@@ -74,6 +75,25 @@ fn inspect_command(args: &[String]) -> Result<(), String> {
             record.solid_count,
             roles
         );
+    }
+    if !transitions.is_empty() {
+        println!();
+        println!("transitions: {}", transitions.len());
+        println!("entity_index\ttargetname\ttarget_map\tlandmark\torigin\tsolids");
+        for transition in transitions {
+            println!(
+                "{}\t{}\t{}\t{}\t{}\t{}",
+                transition.entity_index,
+                transition.targetname.as_deref().unwrap_or("-"),
+                transition.target_map.as_deref().unwrap_or("-"),
+                transition.landmark.as_deref().unwrap_or("-"),
+                transition
+                    .origin
+                    .map(|origin| origin.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                transition.solid_count
+            );
+        }
     }
     Ok(())
 }
@@ -333,6 +353,7 @@ struct AutomationReport {
     deletion: DeletionSnapshot,
     per_map: Vec<MapJobReport>,
     integrity: IntegritySnapshot,
+    transitions: Vec<TransitionSnapshot>,
     merge: Option<MergeSnapshot>,
     result_entity_types: BTreeMap<String, usize>,
     result_entity_records: usize,
@@ -375,9 +396,22 @@ struct MapJobReport {
     entity_records_after: usize,
     entity_types_before: BTreeMap<String, usize>,
     entity_types_after: BTreeMap<String, usize>,
+    transitions: Vec<TransitionSnapshot>,
     removed_entities: usize,
     removed_world_solids: usize,
     removed_brush_entity_solids: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TransitionSnapshot {
+    map: String,
+    role: String,
+    entity_index: usize,
+    targetname: Option<String>,
+    target_map: Option<String>,
+    landmark: Option<String>,
+    origin: Option<String>,
+    solid_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -417,6 +451,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
     let mut prepared_documents = Vec::new();
     let mut removed_total = DeletionReport::default();
     let mut integrity_report = IntegrityReport::default();
+    let mut transition_reports = Vec::new();
 
     for (index, path) in map_paths.iter().enumerate() {
         let role = if index == 0 { "base" } else { "input" };
@@ -435,6 +470,11 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
 
         let before_records = inspect_entities(&document).len();
         let before_types = summarize_entity_types(&document);
+        let map_transitions = discover_transitions(&document)
+            .iter()
+            .map(|transition| snapshot_transition(&label, role, transition))
+            .collect::<Vec<_>>();
+        transition_reports.extend(map_transitions.iter().cloned());
         let deletion_report = prune_document(&mut document, &criteria);
         removed_total.removed_entities += deletion_report.removed_entities;
         removed_total.removed_world_solids += deletion_report.removed_world_solids;
@@ -451,6 +491,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
             entity_records_after: after_records,
             entity_types_before: before_types,
             entity_types_after: after_types,
+            transitions: map_transitions,
             removed_entities: deletion_report.removed_entities,
             removed_world_solids: deletion_report.removed_world_solids,
             removed_brush_entity_solids: deletion_report.removed_brush_entity_solids,
@@ -539,6 +580,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         },
         per_map,
         integrity: snapshot_integrity_report(&integrity_report),
+        transitions: transition_reports,
         merge: merge_snapshot,
         result_entity_types,
         result_entity_records,
@@ -610,6 +652,23 @@ fn snapshot_integrity_report(report: &IntegrityReport) -> IntegritySnapshot {
                 message: issue.message.clone(),
             })
             .collect(),
+    }
+}
+
+fn snapshot_transition(
+    map: &str,
+    role: &str,
+    transition: &CampaignTransition,
+) -> TransitionSnapshot {
+    TransitionSnapshot {
+        map: map.to_string(),
+        role: role.to_string(),
+        entity_index: transition.entity_index,
+        targetname: transition.targetname.clone(),
+        target_map: transition.target_map.clone(),
+        landmark: transition.landmark.clone(),
+        origin: transition.origin.map(|origin| origin.to_string()),
+        solid_count: transition.solid_count,
     }
 }
 

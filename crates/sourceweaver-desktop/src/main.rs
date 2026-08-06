@@ -1,11 +1,11 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
-    BrushEntityDeletionMode, BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord,
-    IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions,
-    MergeReport, PreviewBounds, PreviewDocument, PreviewSolid, discover_landmarks,
-    format_integrity_issue, inspect_entities, merge_maps, preview_document, prune_document,
-    summarize_entity_types, validate_document_integrity,
+    BrushEntityDeletionMode, BrushRole, CampaignTransition, DeletionCriteria, DeletionReport,
+    Document, EntityRecord, IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus, MergeInput,
+    MergeOptions, MergeReport, PreviewBounds, PreviewDocument, PreviewSolid, discover_landmarks,
+    discover_transitions, format_integrity_issue, inspect_entities, merge_maps, preview_document,
+    prune_document, summarize_entity_types, validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -71,6 +71,7 @@ struct MapAnalysis {
     type_counts: BTreeMap<String, usize>,
     preview: PreviewDocument,
     landmarks: LandmarkDiscovery,
+    transitions: Vec<CampaignTransition>,
     integrity: IntegrityReport,
 }
 
@@ -123,6 +124,7 @@ enum TableMode {
     Preview,
     Entities,
     Classnames,
+    Transitions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1097,10 +1099,11 @@ impl eframe::App for SourceWeaverApp {
                             match &entry.analysis {
                                 Ok(analysis) => {
                                     ui.small(format!(
-                                        "{} records, {} classnames, {} landmarks, {} preview solids, {} integrity warning(s)",
+                                        "{} records, {} classnames, {} landmarks, {} transitions, {} preview solids, {} integrity warning(s)",
                                         analysis.entity_records.len(),
                                         analysis.type_counts.len(),
                                         analysis.landmarks.targetnames.len(),
+                                        analysis.transitions.len(),
                                         analysis.preview.solids.len(),
                                         analysis.integrity.warning_count()
                                     ));
@@ -1333,6 +1336,11 @@ impl SourceWeaverApp {
             ui.selectable_value(&mut self.active_table, TableMode::Preview, "Preview");
             ui.selectable_value(&mut self.active_table, TableMode::Entities, "Entities");
             ui.selectable_value(&mut self.active_table, TableMode::Classnames, "Classnames");
+            ui.selectable_value(
+                &mut self.active_table,
+                TableMode::Transitions,
+                "Transitions",
+            );
         });
 
         let Some(index) = self.selected_map else {
@@ -1397,6 +1405,10 @@ impl SourceWeaverApp {
                         &mut self.classname_sort_column,
                         &mut self.classname_sort_ascending,
                     );
+                }
+                TableMode::Transitions => {
+                    ui.label(&path);
+                    draw_transition_table(ui, &analysis.transitions);
                 }
             },
             Err(error) => {
@@ -1589,6 +1601,7 @@ impl MapEntry {
                     type_counts: summarize_entity_types(&document),
                     preview: preview_document(&document),
                     landmarks: discover_landmarks(&document),
+                    transitions: discover_transitions(&document),
                     integrity: validate_document_integrity(&document, &label),
                 })
             }
@@ -1894,6 +1907,50 @@ fn draw_classname_table(
                 for (classname, count) in rows {
                     ui.label(count.to_string());
                     ui.label(classname);
+                    ui.end_row();
+                }
+            });
+    });
+}
+
+fn draw_transition_table(ui: &mut egui::Ui, transitions: &[CampaignTransition]) {
+    if transitions.is_empty() {
+        ui.weak("No trigger_changelevel entities detected in this VMF.");
+        return;
+    }
+
+    ui.label(format!(
+        "{} trigger_changelevel transition(s) detected",
+        transitions.len()
+    ));
+    ui.weak("These target maps and landmarks can guide future stitching and landmark selection.");
+
+    egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
+        egui::Grid::new("transition_table")
+            .striped(true)
+            .num_columns(6)
+            .spacing([16.0, 6.0])
+            .show(ui, |ui| {
+                ui.strong("Entity #");
+                ui.strong("Targetname");
+                ui.strong("Target map");
+                ui.strong("Landmark");
+                ui.strong("Origin");
+                ui.strong("Solids");
+                ui.end_row();
+
+                for transition in transitions {
+                    ui.label(transition.entity_index.to_string());
+                    ui.label(transition.targetname.as_deref().unwrap_or("-"));
+                    ui.label(transition.target_map.as_deref().unwrap_or("-"));
+                    ui.label(transition.landmark.as_deref().unwrap_or("-"));
+                    ui.label(
+                        transition
+                            .origin
+                            .map(|origin| origin.to_string())
+                            .unwrap_or_else(|| "-".to_string()),
+                    );
+                    ui.label(transition.solid_count.to_string());
                     ui.end_row();
                 }
             });

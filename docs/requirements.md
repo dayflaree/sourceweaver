@@ -31,6 +31,10 @@ If a map lacks the requested landmark, the tool must report that fact and leave 
 
 The desktop UI must discover `info_landmark` targetnames from selected VMFs, offer discovered values in a dropdown, and keep manual targetname entry available for unusual or messy maps. Before preview/export, it must show per-map status for the chosen landmark and warn when a selected map lacks it, has duplicate matching landmarks, or has a missing/invalid landmark origin.
 
+### Campaign transitions
+
+The engine must detect `trigger_changelevel` entities and expose target map plus landmark-related properties. Desktop inspection and automation reports must surface this transition data so later workflows can suggest map order and landmark pairs.
+
 ## VMF integrity checks
 
 Before writing cleaned or merged output, Source Weaver must validate the relevant VMFs and result document. It must error when an output has no editable top-level `world` block or has multiple top-level `world` blocks. It should warn about missing common VMF sections, missing IDs, duplicate numeric IDs, multiple ID fields, and non-numeric IDs on blocks that normally require stable Hammer IDs. CLI errors must include the VMF filename, and parse errors must include the parser byte position. The desktop UI and automation JSON reports must surface integrity warnings so users can inspect problems before export.

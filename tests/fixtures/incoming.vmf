@@ -40,3 +40,22 @@ entity
 		}
 	}
 }
+entity
+{
+	"id" "8"
+	"classname" "trigger_changelevel"
+	"targetname" "to_next_map"
+	"map" "d1_trainstation_03"
+	"landmark" "map_transition"
+	"origin" "160 0 0"
+	solid
+	{
+		"id" "9"
+		side
+		{
+			"id" "10"
+			"plane" "(150 0 0) (170 0 0) (170 20 0)"
+			"material" "TOOLS/TOOLSTRIGGER"
+		}
+	}
+}

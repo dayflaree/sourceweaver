@@ -25,6 +25,7 @@ Current capabilities:
 - Preserve incoming point entities and brush entities.
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
 - View individual world/entity records with classname, targetname, origin, solid count, and detected roles.
+- Detect `trigger_changelevel` campaign transitions and show target map/landmark data.
 - Search, role-filter, and sort large entity/classname tables.
 - Select multiple entity-table rows with checkboxes for future cleanup actions.
 - Preview scanned VMFs in Hammer-style 2D orthographic views.
@@ -113,7 +114,7 @@ Preview it without writing a VMF:
 cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml --dry-run
 ```
 
-The job runner prints a JSON report and can also write one to disk. See `docs/automation.md` for the full workflow.
+The job runner prints a JSON report and can also write one to disk. Reports include detected `trigger_changelevel` campaign transitions with target map and landmark data. See `docs/automation.md` for the full workflow.
 
 ## CLI usage
 

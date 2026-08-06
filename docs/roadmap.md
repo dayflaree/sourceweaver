@@ -35,8 +35,9 @@ Status: implemented.
 - Add safe deletion modes for brush entities and world solids.
 - Add deletion presets and protected critical entities.
 - Add desktop project save/load using CLI-compatible TOML job files.
+- Detect `trigger_changelevel` campaign transition entities.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, and project save/load implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, and transition detection implemented.
 
 ## Milestone 3: Source/Hammer validation
 
