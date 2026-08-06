@@ -51,6 +51,7 @@ Current capabilities:
 - Translate displacement side planes and `dispinfo` `startposition` values during landmark-aligned moves.
 - Adjust VMF `uaxis`/`vaxis` texture shifts during brush translation to preserve texture-lock behavior.
 - Renumber incoming VMF IDs and remap known ID reference fields during merge.
+- Preserve base editor metadata while intentionally ignoring conflicting incoming top-level editor sections.
 
 ## Build and run the desktop app
 
@@ -223,6 +224,8 @@ Known limitations:
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 
 Incoming IDs are renumbered during merge and known reference fields are remapped; see `docs/id-renumbering.md`.
+
+Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.
 - Very large merged maps can still hit Hammer or Source compiler limits.
 
 ## Design principle

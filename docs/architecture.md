@@ -116,6 +116,8 @@ The first selected VMF is the base document. For each additional VMF:
 11. Append incoming world solids into the base `world` block.
 12. Append incoming top-level entities after existing base nodes.
 
+Base top-level editor metadata remains in place. Incoming top-level editor metadata is intentionally ignored, while nested metadata inside appended objects is preserved. See `docs/editor-metadata.md`.
+
 Landmark discovery records top-level `entity` blocks with `classname` `info_landmark` and a non-empty `targetname`. A landmark needs a parseable `origin` before it can drive alignment. The desktop UI still shows duplicate and invalid-origin status so users can fix ambiguous maps before merging.
 
 Integrity validation runs before preview/export write paths. The core validator reports structural errors such as missing or duplicate top-level `world` blocks and warnings such as missing common VMF sections, missing IDs, duplicate numeric IDs, multiple ID fields, or non-numeric IDs on blocks where Hammer normally expects stable IDs.
@@ -131,6 +133,10 @@ The CLI `validate` command loads a VMF, runs integrity checks, optionally execut
 ## ID renumbering
 
 Each incoming map gets an old-to-new ID map during merge. Known reference fields such as `parentid`, `groupid`, `visgroupid`, `sideid`, `solidid`, `entityid`, `nodeid`, and overlay `sides` are rewritten when the old ID has exactly one new target. Ambiguous duplicate old IDs are intentionally left unchanged instead of guessed. See `docs/id-renumbering.md`.
+
+## Editor metadata
+
+The base VMF supplies top-level editor metadata such as `versioninfo`, `viewsettings`, `visgroups`, `cameras`, and `cordons`. Incoming top-level metadata is ignored to avoid conflicting global editor state. Nested editor metadata inside appended solids/entities is preserved with those objects.
 
 ## Deletion model
 

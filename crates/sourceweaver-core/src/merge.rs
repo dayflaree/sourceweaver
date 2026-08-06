@@ -376,4 +376,62 @@ entity { "id" "20" "classname" "info_overlay" "sides" "11" "sideid" "11" }
         assert!(vmf.contains("\"sides\" \"11\""));
         assert!(vmf.contains("\"sideid\" \"11\""));
     }
+
+    #[test]
+    fn preserves_base_editor_metadata_and_ignores_incoming_top_level_metadata() {
+        let base = parse_document(
+            r#"
+versioninfo { "editorversion" "400" }
+viewsettings { "bSnapToGrid" "1" }
+visgroups { visgroup { "name" "base_visgroup" "visgroupid" "10" } }
+cameras { "activecamera" "0" camera { "position" "[0 0 0]" } }
+cordons { "active" "0" cordon { "name" "base_cordon" } }
+world { "id" "100" editor { "color" "220 220 220" } }
+"#,
+        )
+        .unwrap();
+        let add = parse_document(
+            r#"
+versioninfo { "editorversion" "999" }
+viewsettings { "bSnapToGrid" "0" }
+visgroups { visgroup { "name" "incoming_visgroup" "visgroupid" "20" } }
+cameras { camera { "position" "[999 999 999]" } }
+cordons { cordon { "name" "incoming_cordon" } }
+world {
+  "id" "1"
+  solid { "id" "2" side { "id" "3" "plane" "(0 0 0) (1 0 0) (1 1 0)" } editor { "color" "255 0 0" } }
+}
+entity { "id" "4" "classname" "prop_static" editor { "color" "0 255 0" } }
+"#,
+        )
+        .unwrap();
+
+        let (merged, report) = merge_maps(
+            vec![
+                MergeInput {
+                    label: "base".into(),
+                    document: base,
+                },
+                MergeInput {
+                    label: "add".into(),
+                    document: add,
+                },
+            ],
+            &MergeOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(report.appended_world_solids, 1);
+        assert_eq!(report.appended_entities, 1);
+        let vmf = merged.to_vmf_string();
+        assert!(vmf.contains("base_visgroup"));
+        assert!(vmf.contains("base_cordon"));
+        assert!(vmf.contains("\"bSnapToGrid\" \"1\""));
+        assert!(vmf.contains("\"editorversion\" \"400\""));
+        assert!(!vmf.contains("incoming_visgroup"));
+        assert!(!vmf.contains("incoming_cordon"));
+        assert!(!vmf.contains("\"editorversion\" \"999\""));
+        assert!(vmf.contains("\"color\" \"255 0 0\""));
+        assert!(vmf.contains("\"color\" \"0 255 0\""));
+    }
 }

@@ -61,6 +61,10 @@ Landmark-aligned brush translation must preserve texture-lock behavior for VMF s
 
 Merge renumbering must keep known VMF ID references consistent. Incoming `id` keys must be renumbered to avoid base-map collisions, and known reference keys such as `parentid`, `groupid`, `visgroupid`, `sideid`, `solidid`, `entityid`, `nodeid`, and overlay `sides` must be rewritten when the old ID maps uniquely to a new ID. Ambiguous duplicate old IDs must not be guessed; they should remain visible through integrity warnings and documented behavior.
 
+## Editor metadata policy
+
+Merge output must preserve base top-level editor/document metadata so the resulting VMF remains Hammer-friendly. Incoming top-level editor metadata such as `versioninfo`, `viewsettings`, `visgroups`, `cameras`, `cordons`, and unknown global metadata must be ignored intentionally unless a fixture-backed policy says otherwise. Nested editor metadata inside appended solids/entities must be preserved with those objects.
+
 ### Skybox preservation
 
 World solids from incoming maps must be appended to the base map, including brushes using skybox tool materials. This ensures each selected map can contribute its skybox shell.
