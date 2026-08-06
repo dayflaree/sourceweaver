@@ -5,6 +5,8 @@ import pytest
 from sourceweaver.compiler import (
     CompilerInvocationBlockerCode,
     CompilerInvocationStatus,
+    CompilerLogMessageCode,
+    CompilerLogStatus,
     CompilerRunBlockerCode,
     CompilerRunPreflight,
     CompilerRunStatus,
@@ -16,6 +18,7 @@ from sourceweaver.compiler import (
     discover_gmod_root,
     executable_format,
     host_compatibility,
+    parse_compiler_log,
     parse_steam_library_paths,
 )
 
@@ -350,4 +353,51 @@ def test_compile_invocation_plan_blocks_unready_inputs(tmp_path: Path) -> None:
         CompilerInvocationBlockerCode.PREFLIGHT_BLOCKED,
         CompilerInvocationBlockerCode.SOURCE_VMF_MISSING,
         CompilerInvocationBlockerCode.EMPTY_MAP_NAME,
+    ]
+
+
+def test_compiler_log_parser_reports_clean_statistics() -> None:
+    report = parse_compiler_log(
+        """Valve Software - vbsp.exe
+numportals: 128
+numareas: 4
+writing c:\\maps\\generated.bsp
+"""
+    )
+
+    assert report.status is CompilerLogStatus.CLEAN
+    assert report.blocking_message_count == 0
+    assert [(message.code, message.blocking) for message in report.messages] == [
+        (CompilerLogMessageCode.PORTAL_STATISTIC, False),
+        (CompilerLogMessageCode.AREA_STATISTIC, False),
+    ]
+
+
+def test_compiler_log_parser_blocks_leaks_limits_and_fatal_errors() -> None:
+    report = parse_compiler_log(
+        """**** leaked ****
+Too many T-junctions to fix up!
+Error: displacement found on a(n) func_detail entity - not supported
+"""
+    )
+
+    assert report.status is CompilerLogStatus.BLOCKED
+    assert report.blocking_message_count == 3
+    assert [message.code for message in report.messages] == [
+        CompilerLogMessageCode.LEAK_DETECTED,
+        CompilerLogMessageCode.LIMIT_EXCEEDED,
+        CompilerLogMessageCode.FATAL_ERROR,
+    ]
+
+
+def test_compiler_log_parser_blocks_unknown_error_like_lines() -> None:
+    report = parse_compiler_log("unexpected frobnicator error near portal 12\n")
+
+    assert report.status is CompilerLogStatus.BLOCKED
+    assert [(message.code, message.line_number, message.raw) for message in report.messages] == [
+        (
+            CompilerLogMessageCode.UNKNOWN_ERROR_LIKE_OUTPUT,
+            1,
+            "unexpected frobnicator error near portal 12",
+        )
     ]
