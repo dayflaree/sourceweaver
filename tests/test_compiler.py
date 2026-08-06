@@ -14,7 +14,10 @@ from sourceweaver.compiler import (
     CompilerRunStatus,
     CompilerRunTool,
     CompilerSet,
+    CompilerWorktreeBlockerCode,
+    CompilerWorktreeStatus,
     build_compile_invocation_plan,
+    build_compile_worktree_layout,
     build_compiler_run_preflight,
     discover_compilers,
     discover_gmod_root,
@@ -465,6 +468,87 @@ def test_prt_artifact_inspection_blocks_missing_or_malformed_files(tmp_path: Pat
     malformed_report = inspect_prt_artifact(malformed)
     assert [blocker.code for blocker in malformed_report.blockers] == [
         CompilerArtifactBlockerCode.PRT_MALFORMED
+    ]
+
+
+def test_compile_worktree_layout_is_content_addressed(tmp_path: Path) -> None:
+    vbsp = tmp_path / "vbsp"
+    vvis = tmp_path / "vvis"
+    vrad = tmp_path / "vrad"
+    vmf = tmp_path / "generated.vmf"
+    cache_root = tmp_path / "cache"
+    vbsp.write_bytes(b"\x7fELFvbsp")
+    vvis.write_bytes(b"\x7fELFvvis")
+    vrad.write_bytes(b"\x7fELFvrad")
+    vmf.write_text("world\n{\n}\n", encoding="utf-8")
+    preflight = build_compiler_run_preflight(
+        CompilerSet(vbsp=vbsp, vvis=vvis, vrad=vrad, bspzip=None), host="Linux"
+    )
+
+    layout = build_compile_worktree_layout(
+        preflight,
+        source_vmf=vmf,
+        cache_root=cache_root,
+        profile_name="gmod-toolspp",
+        map_name="generated",
+    )
+
+    assert layout.status is CompilerWorktreeStatus.READY
+    assert layout.blockers == ()
+    assert layout.workdir.parent == cache_root / "gmod-toolspp"
+    assert len(layout.cache_key) == 64
+    assert layout.source_vmf_copy == layout.workdir / "generated.vmf"
+    assert layout.expected_bsp == layout.workdir / "generated.bsp"
+    assert layout.manifest_path == layout.workdir / "compile-manifest.json"
+    assert layout.log_dir == layout.workdir / "logs"
+
+
+def test_compile_worktree_layout_is_stable_for_same_inputs(tmp_path: Path) -> None:
+    vbsp = tmp_path / "vbsp"
+    vvis = tmp_path / "vvis"
+    vrad = tmp_path / "vrad"
+    vmf = tmp_path / "generated.vmf"
+    for executable in (vbsp, vvis, vrad):
+        executable.write_bytes(b"\x7fELFpayload")
+    vmf.write_text("world\n{\n}\n", encoding="utf-8")
+    preflight = build_compiler_run_preflight(
+        CompilerSet(vbsp=vbsp, vvis=vvis, vrad=vrad, bspzip=None), host="Linux"
+    )
+
+    first = build_compile_worktree_layout(
+        preflight,
+        source_vmf=vmf,
+        cache_root=tmp_path / "cache",
+        profile_name="profile",
+        map_name="generated",
+    )
+    second = build_compile_worktree_layout(
+        preflight,
+        source_vmf=vmf,
+        cache_root=tmp_path / "cache",
+        profile_name="profile",
+        map_name="generated",
+    )
+
+    assert first.cache_key == second.cache_key
+    assert first.workdir == second.workdir
+
+
+def test_compile_worktree_layout_blocks_unready_inputs(tmp_path: Path) -> None:
+    layout = build_compile_worktree_layout(
+        CompilerRunPreflight(status=CompilerRunStatus.BLOCKED, tools=(), blockers=()),
+        source_vmf=tmp_path / "missing.vmf",
+        cache_root=tmp_path / "cache",
+        profile_name="",
+        map_name="",
+    )
+
+    assert layout.status is CompilerWorktreeStatus.BLOCKED
+    assert [blocker.code for blocker in layout.blockers] == [
+        CompilerWorktreeBlockerCode.PREFLIGHT_BLOCKED,
+        CompilerWorktreeBlockerCode.SOURCE_VMF_MISSING,
+        CompilerWorktreeBlockerCode.EMPTY_PROFILE_NAME,
+        CompilerWorktreeBlockerCode.EMPTY_MAP_NAME,
     ]
 
 

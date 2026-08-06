@@ -94,6 +94,8 @@ Current code also parses compiler stdout/stderr into normalized log messages. Th
 
 Current code also performs minimal BSP/PRT artifact inspection. BSP inspection verifies artifact presence, `VBSP` magic, complete Source header size, BSP version, and per-lump lengths. PRT inspection verifies artifact presence and extracts top-level leaf and portal counts from ASCII PRT files. Artifact reports remain evidence only and do not yet compare baseline/candidate outputs or qualify tool hashes.
 
+Current code also builds content-addressed compile worktree layouts keyed by compiler preflight tools, tool hashes, source VMF bytes, profile name, map name, and selected compatibility runner. Layouts define the work directory, copied VMF path, expected BSP path, log directory, and compile manifest path without writing files or executing compilers.
+
 ## Log parser
 
 Messages are classified by exact compiler fingerprint and normalized code:
