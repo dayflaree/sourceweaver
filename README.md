@@ -31,6 +31,7 @@ Current capabilities:
 - Select multiple entity-table rows with checkboxes for future cleanup actions.
 - Preview scanned VMFs in Hammer-style 2D orthographic views.
 - Preview the in-memory merged output before writing a VMF.
+- Color merged-preview solids and entity markers by source VMF, with a source-map legend.
 - Switch preview projection between top X/Y, front X/Z, and side Y/Z views.
 - Pan and zoom the preview viewport.
 - Draw brush bounds, face-plane triangles, entity origin markers, grid lines, and role-colored overlays.

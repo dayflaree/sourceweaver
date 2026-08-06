@@ -3,9 +3,10 @@ use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignTransition, DeletionCriteria, DeletionReport,
     Document, EntityRecord, IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus, MergeInput,
-    MergeOptions, MergeReport, PreviewBounds, PreviewDocument, PreviewSolid, discover_landmarks,
-    discover_transitions, format_integrity_issue, inspect_entities, merge_maps, preview_document,
-    prune_document, summarize_entity_types, validate_document_integrity,
+    MergeOptions, MergeReport, PreviewBounds, PreviewDocument, PreviewSolid,
+    combine_preview_documents, discover_landmarks, discover_transitions, format_integrity_issue,
+    inspect_entities, merge_maps, preview_document, preview_document_with_source, prune_document,
+    summarize_entity_types, translate_preview_document, validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -89,6 +90,7 @@ struct MergedPreviewSummary {
     removed_entities: usize,
     removed_world_solids: usize,
     removed_brush_entity_solids: usize,
+    source_labels: Vec<String>,
     offsets: Vec<String>,
 }
 
@@ -856,10 +858,11 @@ impl SourceWeaverApp {
             self.add_status(line);
         }
 
+        let preview_inputs = merge_inputs.clone();
         let landmark = blank_to_none(&self.landmark);
         match merge_maps(merge_inputs, &MergeOptions { landmark }) {
-            Ok((document, report)) => {
-                let preview = preview_document(&document);
+            Ok((_document, report)) => {
+                let preview = build_source_colored_preview(&preview_inputs, &report);
                 let summary = MergedPreviewSummary::from_reports(&report, &removed_total);
                 self.merged_preview = Some(MergedPreview { preview, summary });
                 self.preview_scope = PreviewScope::MergedResult;
@@ -1547,7 +1550,11 @@ impl SourceWeaverApp {
             for entity in &preview.entities {
                 let position = transform.world_to_screen(entity.origin);
                 if rect.contains(position) {
-                    painter.circle_filled(position, 4.5, egui::Color32::from_rgb(255, 232, 128));
+                    let entity_color = entity
+                        .source_index
+                        .map(source_color)
+                        .unwrap_or_else(|| egui::Color32::from_rgb(255, 232, 128));
+                    painter.circle_filled(position, 4.5, entity_color);
                     painter.circle_stroke(
                         position,
                         6.5,
@@ -1569,7 +1576,7 @@ impl SourceWeaverApp {
             }
         }
 
-        draw_preview_legend(&painter, rect);
+        draw_preview_legend(&painter, rect, merged_summary);
     }
 }
 
@@ -1582,6 +1589,11 @@ impl MergedPreviewSummary {
             removed_entities: deletion.removed_entities,
             removed_world_solids: deletion.removed_world_solids,
             removed_brush_entity_solids: deletion.removed_brush_entity_solids,
+            source_labels: report
+                .applied_offsets
+                .iter()
+                .map(|(label, _)| label.clone())
+                .collect(),
             offsets: report
                 .applied_offsets
                 .iter()
@@ -1589,6 +1601,29 @@ impl MergedPreviewSummary {
                 .collect(),
         }
     }
+}
+
+fn build_source_colored_preview(inputs: &[MergeInput], report: &MergeReport) -> PreviewDocument {
+    let previews = inputs
+        .iter()
+        .enumerate()
+        .map(|(index, input)| {
+            let mut preview = preview_document_with_source(
+                &input.document,
+                Some(index),
+                Some(input.label.as_str()),
+            );
+            let offset = report
+                .applied_offsets
+                .iter()
+                .find(|(label, _)| label == &input.label)
+                .map(|(_, offset)| *offset)
+                .unwrap_or(sourceweaver_core::Vec3::ZERO);
+            translate_preview_document(&mut preview, offset);
+            preview
+        })
+        .collect::<Vec<_>>();
+    combine_preview_documents(previews)
 }
 
 impl MapEntry {
@@ -2119,11 +2154,12 @@ fn draw_preview_solid(painter: &egui::Painter, transform: &PreviewTransform, sol
     let a = transform.uv_to_screen(min_u, min_v);
     let b = transform.uv_to_screen(max_u, max_v);
     let rect = egui::Rect::from_two_pos(a, b);
-    let color = solid_color(solid);
+    let role_color = solid_color(solid);
+    let fill_color = solid.source_index.map(source_color).unwrap_or(role_color);
 
     if rect.intersects(transform.rect) {
-        painter.rect_filled(rect, 0.0, color.gamma_multiply(0.18));
-        draw_rect_outline(painter, rect, egui::Stroke::new(1.25_f32, color));
+        painter.rect_filled(rect, 0.0, fill_color.gamma_multiply(0.22));
+        draw_rect_outline(painter, rect, egui::Stroke::new(1.25_f32, role_color));
     }
 
     for chunk in solid.points.chunks(3) {
@@ -2133,21 +2169,25 @@ fn draw_preview_solid(painter: &egui::Painter, transform: &PreviewTransform, sol
             let p2 = transform.world_to_screen(chunk[2]);
             painter.line_segment(
                 [p0, p1],
-                egui::Stroke::new(0.8_f32, color.gamma_multiply(0.7)),
+                egui::Stroke::new(0.8_f32, role_color.gamma_multiply(0.7)),
             );
             painter.line_segment(
                 [p1, p2],
-                egui::Stroke::new(0.8_f32, color.gamma_multiply(0.7)),
+                egui::Stroke::new(0.8_f32, role_color.gamma_multiply(0.7)),
             );
             painter.line_segment(
                 [p2, p0],
-                egui::Stroke::new(0.8_f32, color.gamma_multiply(0.7)),
+                egui::Stroke::new(0.8_f32, role_color.gamma_multiply(0.7)),
             );
         }
     }
 }
 
-fn draw_preview_legend(painter: &egui::Painter, rect: egui::Rect) {
+fn draw_preview_legend(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    merged_summary: Option<&MergedPreviewSummary>,
+) {
     let items = [
         ("world", egui::Color32::from_rgb(170, 190, 220)),
         ("skybox", egui::Color32::from_rgb(100, 170, 255)),
@@ -2170,6 +2210,57 @@ fn draw_preview_legend(painter: &egui::Painter, rect: egui::Rect) {
         );
         cursor.y += 16.0;
     }
+
+    if let Some(summary) = merged_summary {
+        if !summary.source_labels.is_empty() {
+            cursor.y += 8.0;
+            painter.text(
+                cursor,
+                egui::Align2::LEFT_TOP,
+                "source maps",
+                egui::FontId::monospace(10.0),
+                egui::Color32::from_gray(235),
+            );
+            cursor.y += 16.0;
+            for (index, label) in summary.source_labels.iter().enumerate() {
+                let color = source_color(index);
+                let swatch = egui::Rect::from_min_size(cursor, egui::vec2(10.0, 10.0));
+                painter.rect_filled(swatch, 1.0, color);
+                painter.text(
+                    cursor + egui::vec2(16.0, 5.0),
+                    egui::Align2::LEFT_CENTER,
+                    file_label_for_legend(label),
+                    egui::FontId::monospace(10.0),
+                    egui::Color32::from_gray(220),
+                );
+                cursor.y += 16.0;
+            }
+        }
+    }
+}
+
+fn source_color(index: usize) -> egui::Color32 {
+    const PALETTE: [egui::Color32; 10] = [
+        egui::Color32::from_rgb(80, 180, 255),
+        egui::Color32::from_rgb(255, 160, 90),
+        egui::Color32::from_rgb(145, 220, 115),
+        egui::Color32::from_rgb(220, 140, 255),
+        egui::Color32::from_rgb(255, 215, 95),
+        egui::Color32::from_rgb(95, 220, 210),
+        egui::Color32::from_rgb(255, 115, 150),
+        egui::Color32::from_rgb(175, 175, 255),
+        egui::Color32::from_rgb(210, 180, 120),
+        egui::Color32::from_rgb(170, 230, 180),
+    ];
+    PALETTE[index % PALETTE.len()]
+}
+
+fn file_label_for_legend(label: &str) -> String {
+    Path::new(label)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(label)
+        .to_string()
 }
 
 fn draw_axes_label(painter: &egui::Painter, rect: egui::Rect, view: PreviewView) {

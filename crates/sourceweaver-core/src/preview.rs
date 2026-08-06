@@ -15,6 +15,8 @@ pub struct PreviewSolid {
     pub owner_block: String,
     pub classname: Option<String>,
     pub targetname: Option<String>,
+    pub source_index: Option<usize>,
+    pub source_label: Option<String>,
     pub roles: Vec<BrushRole>,
     pub points: Vec<Vec3>,
     pub bounds: PreviewBounds,
@@ -25,6 +27,8 @@ pub struct PreviewEntityMarker {
     pub owner_index: usize,
     pub classname: Option<String>,
     pub targetname: Option<String>,
+    pub source_index: Option<usize>,
+    pub source_label: Option<String>,
     pub origin: Vec3,
 }
 
@@ -78,6 +82,14 @@ impl PreviewBounds {
 }
 
 pub fn preview_document(document: &Document) -> PreviewDocument {
+    preview_document_with_source(document, None, None)
+}
+
+pub fn preview_document_with_source(
+    document: &Document,
+    source_index: Option<usize>,
+    source_label: Option<&str>,
+) -> PreviewDocument {
     let mut solids = Vec::new();
     let mut entities = Vec::new();
     let mut bounds = BoundsBuilder::default();
@@ -101,6 +113,8 @@ pub fn preview_document(document: &Document) -> PreviewDocument {
                     owner_index,
                     classname: classname.clone(),
                     targetname: targetname.clone(),
+                    source_index,
+                    source_label: source_label.map(ToOwned::to_owned),
                     origin,
                 });
             }
@@ -113,6 +127,8 @@ pub fn preview_document(document: &Document) -> PreviewDocument {
                 owner_block: name,
                 classname: classname.as_deref(),
                 targetname: targetname.as_deref(),
+                source_index,
+                source_label,
             },
             &mut solids,
             &mut bounds,
@@ -127,12 +143,58 @@ pub fn preview_document(document: &Document) -> PreviewDocument {
     }
 }
 
+pub fn translate_preview_document(preview: &mut PreviewDocument, offset: Vec3) {
+    if offset == Vec3::ZERO {
+        return;
+    }
+
+    let mut bounds = BoundsBuilder::default();
+    for solid in &mut preview.solids {
+        for point in &mut solid.points {
+            *point = *point + offset;
+        }
+        solid.bounds.min = solid.bounds.min + offset;
+        solid.bounds.max = solid.bounds.max + offset;
+        bounds.include_bounds(solid.bounds);
+    }
+    for entity in &mut preview.entities {
+        entity.origin = entity.origin + offset;
+        bounds.include(entity.origin);
+    }
+    preview.bounds = bounds.finish();
+}
+
+pub fn combine_preview_documents(previews: Vec<PreviewDocument>) -> PreviewDocument {
+    let mut combined = PreviewDocument {
+        solids: Vec::new(),
+        entities: Vec::new(),
+        bounds: None,
+    };
+    let mut bounds = BoundsBuilder::default();
+
+    for preview in previews {
+        for solid in preview.solids {
+            bounds.include_bounds(solid.bounds);
+            combined.solids.push(solid);
+        }
+        for entity in preview.entities {
+            bounds.include(entity.origin);
+            combined.entities.push(entity);
+        }
+    }
+
+    combined.bounds = bounds.finish();
+    combined
+}
+
 #[derive(Debug, Copy, Clone)]
 struct OwnerContext<'a> {
     owner_index: usize,
     owner_block: &'a str,
     classname: Option<&'a str>,
     targetname: Option<&'a str>,
+    source_index: Option<usize>,
+    source_label: Option<&'a str>,
 }
 
 fn collect_solids(
@@ -167,6 +229,8 @@ fn collect_solids(
                     owner_block: owner.owner_block.to_string(),
                     classname: owner.classname.map(ToOwned::to_owned),
                     targetname: owner.targetname.map(ToOwned::to_owned),
+                    source_index: owner.source_index,
+                    source_label: owner.source_label.map(ToOwned::to_owned),
                     roles,
                     points,
                     bounds,
@@ -258,5 +322,33 @@ entity { "id" "2" "classname" "trigger_once" "targetname" "tr" "origin" "128 0 0
         let bounds = preview.bounds.unwrap();
         assert_eq!(bounds.min.x, 0.0);
         assert_eq!(bounds.max.x, 140.0);
+    }
+
+    #[test]
+    fn carries_source_metadata_and_combines_translated_previews() {
+        let document = parse_document(
+            r#"
+world { "id" "1" solid { side { "plane" "(0 0 0) (32 0 0) (32 32 0)" "material" "BRICK/WALL001" } } }
+entity { "id" "2" "classname" "prop_static" "origin" "64 0 0" }
+"#,
+        )
+        .unwrap();
+
+        let mut preview = preview_document_with_source(&document, Some(3), Some("incoming.vmf"));
+        translate_preview_document(&mut preview, Vec3::new(100.0, 0.0, 0.0));
+
+        assert_eq!(preview.solids[0].source_index, Some(3));
+        assert_eq!(
+            preview.solids[0].source_label.as_deref(),
+            Some("incoming.vmf")
+        );
+        assert_eq!(preview.entities[0].source_index, Some(3));
+        assert_eq!(preview.entities[0].origin, Vec3::new(164.0, 0.0, 0.0));
+        assert_eq!(preview.bounds.unwrap().max.x, 164.0);
+
+        let combined = combine_preview_documents(vec![preview.clone(), preview]);
+        assert_eq!(combined.solids.len(), 2);
+        assert_eq!(combined.entities.len(), 2);
+        assert_eq!(combined.bounds.unwrap().max.x, 164.0);
     }
 }
