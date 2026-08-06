@@ -88,6 +88,8 @@ Current code supports compiler discovery, executable fingerprinting, executable-
 
 This preflight does not invoke compilers, parse logs, inspect BSP/PRT artifacts, qualify hashes, or produce acceptance verdicts. A discovered compiler set can still be blocked if the host lacks a required runner.
 
+Current code also builds deterministic compile invocation plans when preflight is ready, the source VMF exists, and the map name is non-empty. Plans define argument arrays for `vbsp`, `vvis`, and `vrad`, stage work directories, stdout/stderr log paths, and the expected BSP artifact path. Windows PE tools on Linux are prefixed with the selected compatibility runner from preflight. Invocation plans are read-only and do not spawn processes.
+
 ## Log parser
 
 Messages are classified by exact compiler fingerprint and normalized code:

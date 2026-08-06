@@ -3,9 +3,14 @@ from pathlib import Path
 import pytest
 
 from sourceweaver.compiler import (
+    CompilerInvocationBlockerCode,
+    CompilerInvocationStatus,
     CompilerRunBlockerCode,
+    CompilerRunPreflight,
     CompilerRunStatus,
+    CompilerRunTool,
     CompilerSet,
+    build_compile_invocation_plan,
     build_compiler_run_preflight,
     discover_compilers,
     discover_gmod_root,
@@ -259,3 +264,90 @@ def test_compiler_run_preflight_accepts_windows_tools_with_runner(
     assert result.status is CompilerRunStatus.READY
     assert result.runner_command == "wine64"
     assert result.blockers == ()
+
+
+def test_compile_invocation_plan_builds_stage_commands(tmp_path: Path) -> None:
+    vbsp = tmp_path / "vbsp"
+    vvis = tmp_path / "vvis"
+    vrad = tmp_path / "vrad"
+    vmf = tmp_path / "generated.vmf"
+    workdir = tmp_path / "work"
+    for executable in (vbsp, vvis, vrad):
+        executable.write_bytes(b"\x7fELFpayload")
+    vmf.write_text("world\n{\n}\n", encoding="utf-8")
+    preflight = build_compiler_run_preflight(
+        CompilerSet(vbsp=vbsp, vvis=vvis, vrad=vrad, bspzip=None), host="Linux"
+    )
+
+    plan = build_compile_invocation_plan(
+        preflight,
+        source_vmf=vmf,
+        workdir=workdir,
+        map_name="generated",
+    )
+
+    assert plan.status is CompilerInvocationStatus.READY
+    assert plan.blockers == ()
+    assert plan.bsp_path == workdir / "generated.bsp"
+    assert [(command.role, command.argv) for command in plan.commands] == [
+        ("vbsp", (str(vbsp), str(vmf))),
+        ("vvis", (str(vvis), str(workdir / "generated.bsp"))),
+        ("vrad", (str(vrad), str(workdir / "generated.bsp"))),
+    ]
+    assert [command.stdout_path.name for command in plan.commands] == [
+        "01-vbsp.stdout.log",
+        "02-vvis.stdout.log",
+        "03-vrad.stdout.log",
+    ]
+
+
+def test_compile_invocation_plan_prefixes_compatibility_runner(tmp_path: Path) -> None:
+    vbsp = tmp_path / "vbsp.exe"
+    vvis = tmp_path / "vvis.exe"
+    vrad = tmp_path / "vrad.exe"
+    vmf = tmp_path / "generated.vmf"
+    workdir = tmp_path / "work"
+    for executable in (vbsp, vvis, vrad):
+        executable.write_bytes(b"MZpayload")
+    vmf.write_text("world\n{\n}\n", encoding="utf-8")
+    preflight = CompilerRunPreflight(
+        status=CompilerRunStatus.READY,
+        tools=(
+            CompilerRunTool("vbsp", vbsp, "windows-pe", "compatibility-layer-required"),
+            CompilerRunTool("vvis", vvis, "windows-pe", "compatibility-layer-required"),
+            CompilerRunTool("vrad", vrad, "windows-pe", "compatibility-layer-required"),
+        ),
+        blockers=(),
+        runner_command="wine64",
+    )
+
+    plan = build_compile_invocation_plan(
+        preflight,
+        source_vmf=vmf,
+        workdir=workdir,
+        map_name="generated",
+    )
+
+    assert plan.status is CompilerInvocationStatus.READY
+    assert plan.commands[0].argv == ("wine64", str(vbsp), str(vmf))
+
+
+def test_compile_invocation_plan_blocks_unready_inputs(tmp_path: Path) -> None:
+    plan = build_compile_invocation_plan(
+        CompilerRunPreflight(
+            status=CompilerRunStatus.BLOCKED,
+            tools=(),
+            blockers=(),
+        ),
+        source_vmf=tmp_path / "missing.vmf",
+        workdir=tmp_path / "work",
+        map_name="",
+    )
+
+    assert plan.status is CompilerInvocationStatus.BLOCKED
+    assert plan.commands == ()
+    assert [blocker.code for blocker in plan.blockers] == [
+        CompilerInvocationBlockerCode.PREFLIGHT_BLOCKED,
+        CompilerInvocationBlockerCode.SOURCE_VMF_MISSING,
+        CompilerInvocationBlockerCode.EMPTY_MAP_NAME,
+    ]
