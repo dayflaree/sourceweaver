@@ -4,6 +4,7 @@
 //! automation layers should all call into this library so Linux and Windows builds
 //! share the same VMF behavior.
 
+pub mod campaign;
 pub mod classify;
 pub mod compiler;
 pub mod integrity;
@@ -15,6 +16,10 @@ pub mod transform;
 pub mod transition;
 pub mod vmf;
 
+pub use campaign::{
+    CampaignLandmarkPairSuggestion, CampaignMapInput, CampaignOrderSuggestion,
+    suggest_campaign_order,
+};
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
 pub use compiler::{
     CompileLogSummary, VmfToolValidationReport, parse_compile_log, validate_for_source_tools,

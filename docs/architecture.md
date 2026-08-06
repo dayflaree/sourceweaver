@@ -38,6 +38,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - top, front, and side preview projections
 - entity/classname inspection tables
 - transition table grouping detected `trigger_changelevel` target maps and landmarks
+- transition-derived campaign order and landmark-pair suggestions
 - search, role filtering, filtered counts, and sorting for inspection tables
 - entity table row-selection state for future cleanup actions
 - deletion-rule controls
@@ -116,6 +117,8 @@ Landmark discovery records top-level `entity` blocks with `classname` `info_land
 Integrity validation runs before preview/export write paths. The core validator reports structural errors such as missing or duplicate top-level `world` blocks and warnings such as missing common VMF sections, missing IDs, duplicate numeric IDs, multiple ID fields, or non-numeric IDs on blocks where Hammer normally expects stable IDs.
 
 Campaign transition discovery records top-level `trigger_changelevel` entities, including targetname, target map, landmark/landmarkname, origin, and trigger solid count. CLI inspection, automation reports, and the desktop transition table surface this data so later landmark-ordering workflows can use it.
+
+Campaign suggestion builds a lightweight graph from selected VMF labels and `trigger_changelevel` target map values. It suggests a topological order, emits landmark-pair candidates, and warns about missing target maps or target maps that lack the referenced landmark. Suggestions remain advisory; desktop users can apply the suggested order/first landmark or keep manual ordering and landmark entry.
 
 ## Source tool validation
 

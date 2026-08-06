@@ -1,12 +1,13 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
-    BrushEntityDeletionMode, BrushRole, CampaignTransition, DeletionCriteria, DeletionReport,
-    Document, EntityRecord, IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus, MergeInput,
-    MergeOptions, MergeReport, PreviewBounds, PreviewDocument, PreviewSolid,
-    combine_preview_documents, discover_landmarks, discover_transitions, format_integrity_issue,
-    inspect_entities, merge_maps, preview_document, preview_document_with_source, prune_document,
-    summarize_entity_types, translate_preview_document, validate_document_integrity,
+    BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
+    CampaignTransition, DeletionCriteria, DeletionReport, Document, EntityRecord, IntegrityReport,
+    LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions, MergeReport, PreviewBounds,
+    PreviewDocument, PreviewSolid, combine_preview_documents, discover_landmarks,
+    discover_transitions, format_integrity_issue, inspect_entities, merge_maps, preview_document,
+    preview_document_with_source, prune_document, suggest_campaign_order, summarize_entity_types,
+    translate_preview_document, validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -811,6 +812,125 @@ impl SourceWeaverApp {
         });
     }
 
+    fn campaign_order_suggestion(&self) -> Option<CampaignOrderSuggestion> {
+        let inputs = self
+            .maps
+            .iter()
+            .filter_map(|entry| {
+                let analysis = entry.analysis.as_ref().ok()?;
+                Some(CampaignMapInput {
+                    label: display_path(&entry.path),
+                    transitions: analysis.transitions.clone(),
+                    landmarks: analysis.landmarks.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        (!inputs.is_empty()).then(|| suggest_campaign_order(&inputs))
+    }
+
+    fn apply_campaign_order(&mut self, ordered_labels: &[String]) {
+        if ordered_labels.is_empty() {
+            return;
+        }
+
+        let mut remaining = std::mem::take(&mut self.maps);
+        let mut ordered = Vec::with_capacity(remaining.len());
+        for label in ordered_labels {
+            if let Some(position) = remaining
+                .iter()
+                .position(|entry| display_path(&entry.path) == *label)
+            {
+                ordered.push(remaining.remove(position));
+            }
+        }
+        ordered.extend(remaining);
+        self.maps = ordered;
+        self.selected_map = (!self.maps.is_empty()).then_some(0);
+        self.base_index = 0;
+        self.clear_merged_preview();
+        self.add_status(
+            "Applied suggested campaign order. You can still override order/base manually.",
+        );
+    }
+
+    fn draw_campaign_suggestions(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("Campaign suggestions");
+            ui.weak("Suggestions are advisory. You can override order with the selected-map list, base dropdown, and manual landmark field.");
+
+            let Some(suggestion) = self.campaign_order_suggestion() else {
+                ui.weak("Add parseable VMFs to inspect campaign transitions.");
+                return;
+            };
+
+            if suggestion.ordered_labels.is_empty() {
+                ui.weak("No map order suggestion is available yet.");
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Suggested order:");
+                    ui.monospace(
+                        suggestion
+                            .ordered_labels
+                            .iter()
+                            .map(|label| file_label_for_legend(label))
+                            .collect::<Vec<_>>()
+                            .join(" → "),
+                    );
+                });
+                if ui.button("Apply suggested order").clicked() {
+                    self.apply_campaign_order(&suggestion.ordered_labels);
+                }
+            }
+
+            if !suggestion.landmark_pairs.is_empty() {
+                ui.separator();
+                ui.label("Suggested landmark pairs:");
+                egui::Grid::new("campaign_landmark_pairs_grid")
+                    .striped(true)
+                    .num_columns(5)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.strong("From");
+                        ui.strong("To");
+                        ui.strong("Target map");
+                        ui.strong("Landmark");
+                        ui.strong("Status");
+                        ui.end_row();
+                        for pair in &suggestion.landmark_pairs {
+                            ui.label(file_label_for_legend(&pair.from_map));
+                            ui.label(file_label_for_legend(&pair.to_map));
+                            ui.label(&pair.target_map);
+                            ui.monospace(&pair.landmark);
+                            if pair.target_has_landmark {
+                                ui.colored_label(egui::Color32::LIGHT_GREEN, "target has landmark");
+                            } else {
+                                ui.colored_label(egui::Color32::YELLOW, "target missing landmark");
+                            }
+                            ui.end_row();
+                        }
+                    });
+                if let Some(first_pair) = suggestion.landmark_pairs.first() {
+                    if ui.button("Use first suggested landmark").clicked() {
+                        self.landmark = first_pair.landmark.clone();
+                        self.clear_merged_preview();
+                        self.add_status(format!(
+                            "Using suggested landmark `{}`. You can still edit it manually.",
+                            first_pair.landmark
+                        ));
+                    }
+                }
+            }
+
+            if !suggestion.warnings.is_empty() {
+                ui.separator();
+                ui.colored_label(egui::Color32::YELLOW, "Campaign warnings:");
+                for warning in &suggestion.warnings {
+                    ui.small(warning);
+                }
+            }
+        });
+    }
+
     fn prepare_merge_inputs(&self) -> Result<(Vec<MergeInput>, DeletionReport), String> {
         if self.maps.len() < 2 {
             return Err("Merge preview needs at least two VMF files.".to_string());
@@ -1180,6 +1300,8 @@ impl SourceWeaverApp {
                     }
                 });
         });
+
+        self.draw_campaign_suggestions(ui);
 
         let previous_landmark = self.landmark.clone();
         let landmark_options = self.discovered_landmark_options();

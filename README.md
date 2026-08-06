@@ -27,6 +27,7 @@ Current capabilities:
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
 - View individual world/entity records with classname, targetname, origin, solid count, and detected roles.
 - Detect `trigger_changelevel` campaign transitions and show target map/landmark data.
+- Suggest campaign map order and landmark pairs from detected transitions.
 - Search, role-filter, and sort large entity/classname tables.
 - Select multiple entity-table rows with checkboxes for future cleanup actions.
 - Preview scanned VMFs in Hammer-style 2D orthographic views.
@@ -81,18 +82,19 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 1. Click **Add VMFs...** and select the campaign VMF files.
 2. Select the base map in the left panel or in the **Base map** dropdown.
 3. Optionally click **Load project/job...** to restore a saved `.toml` setup, or **Save project...** to write the current setup for later CLI or desktop use.
-4. Choose a discovered `info_landmark` targetname from the dropdown, or type one manually. Leave it blank to append maps without alignment.
-5. Review the **Landmark status** table. It shows which selected VMFs contain the chosen landmark and warns about missing, duplicate, or invalid landmarks before preview/export.
-6. Review the **VMF integrity status** table for structural errors and warnings before preview/export.
-7. Browse for an output `.vmf` path.
-8. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
-9. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
-10. Switch **Preview source** between the selected VMF and the merged result.
-11. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, and selected with checkboxes; selections persist while switching tabs.
-12. Optionally apply a deletion preset, then inspect the generated deletion rules.
-13. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
-14. Click **Preview deletion** to see how much content the cleanup rules would remove.
-15. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
+4. Review **Campaign suggestions** for a transition-derived map order and landmark pairs. Apply the suggestion or keep the manual order/base/landmark settings.
+5. Choose a discovered `info_landmark` targetname from the dropdown, or type one manually. Leave it blank to append maps without alignment.
+6. Review the **Landmark status** table. It shows which selected VMFs contain the chosen landmark and warns about missing, duplicate, or invalid landmarks before preview/export.
+7. Review the **VMF integrity status** table for structural errors and warnings before preview/export.
+8. Browse for an output `.vmf` path.
+9. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
+10. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
+11. Switch **Preview source** between the selected VMF and the merged result.
+12. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, and selected with checkboxes; selections persist while switching tabs.
+13. Optionally apply a deletion preset, then inspect the generated deletion rules.
+14. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
+15. Click **Preview deletion** to see how much content the cleanup rules would remove.
+16. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
 
 
 ## Non-interactive automation
@@ -117,7 +119,7 @@ Preview it without writing a VMF:
 cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml --dry-run
 ```
 
-The job runner prints a JSON report and can also write one to disk. Reports include detected `trigger_changelevel` campaign transitions with target map and landmark data. See `docs/automation.md` for the full workflow.
+The job runner prints a JSON report and can also write one to disk. Reports include detected `trigger_changelevel` campaign transitions plus suggested campaign order/landmark pairs. See `docs/automation.md` for the full workflow.
 
 Validate a generated VMF and optionally parse a captured VBSP log:
 

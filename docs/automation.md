@@ -37,7 +37,7 @@ Relative paths are resolved from the directory containing the job file. This mak
 cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml
 ```
 
-The command prints a JSON report to stdout. If the job contains `report = "..."` or the command uses `--report`, the same report is written to disk. Reports include VMF integrity counts and issue details so missing common sections, duplicate IDs, invalid IDs, and world-block errors are visible to automation. Reports also include detected `trigger_changelevel` transitions with target map and landmark data.
+The command prints a JSON report to stdout. If the job contains `report = "..."` or the command uses `--report`, the same report is written to disk. Reports include VMF integrity counts and issue details so missing common sections, duplicate IDs, invalid IDs, and world-block errors are visible to automation. Reports also include detected `trigger_changelevel` transitions plus transition-derived campaign order and landmark-pair suggestions.
 
 ```bash
 cargo run -p sourceweaver-cli -- run \

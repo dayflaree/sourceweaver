@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
-    BrushEntityDeletionMode, BrushRole, CampaignTransition, DeletionCriteria, DeletionReport,
-    Document, IntegrityReport, MergeInput, MergeOptions, MergeReport, VmfToolValidationReport,
-    discover_transitions, format_integrity_issue, inspect_entities, merge_maps, prune_document,
+    BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
+    CampaignTransition, DeletionCriteria, DeletionReport, Document, IntegrityReport, MergeInput,
+    MergeOptions, MergeReport, VmfToolValidationReport, discover_landmarks, discover_transitions,
+    format_integrity_issue, inspect_entities, merge_maps, prune_document, suggest_campaign_order,
     summarize_entity_types, validate_document_integrity, validate_for_source_tools,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -475,6 +476,7 @@ struct AutomationReport {
     per_map: Vec<MapJobReport>,
     integrity: IntegritySnapshot,
     transitions: Vec<TransitionSnapshot>,
+    campaign_order: CampaignOrderSnapshot,
     merge: Option<MergeSnapshot>,
     result_entity_types: BTreeMap<String, usize>,
     result_entity_records: usize,
@@ -533,6 +535,22 @@ struct TransitionSnapshot {
     landmark: Option<String>,
     origin: Option<String>,
     solid_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CampaignOrderSnapshot {
+    ordered_labels: Vec<String>,
+    landmark_pairs: Vec<CampaignLandmarkPairSnapshot>,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CampaignLandmarkPairSnapshot {
+    from_map: String,
+    to_map: String,
+    target_map: String,
+    landmark: String,
+    target_has_landmark: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -611,6 +629,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
     let mut removed_total = DeletionReport::default();
     let mut integrity_report = IntegrityReport::default();
     let mut transition_reports = Vec::new();
+    let mut campaign_inputs = Vec::new();
 
     for (index, path) in map_paths.iter().enumerate() {
         let role = if index == 0 { "base" } else { "input" };
@@ -629,7 +648,13 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
 
         let before_records = inspect_entities(&document).len();
         let before_types = summarize_entity_types(&document);
-        let map_transitions = discover_transitions(&document)
+        let transitions = discover_transitions(&document);
+        campaign_inputs.push(CampaignMapInput {
+            label: label.clone(),
+            transitions: transitions.clone(),
+            landmarks: discover_landmarks(&document),
+        });
+        let map_transitions = transitions
             .iter()
             .map(|transition| snapshot_transition(&label, role, transition))
             .collect::<Vec<_>>();
@@ -707,6 +732,8 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         true
     };
 
+    let campaign_order = suggest_campaign_order(&campaign_inputs);
+
     Ok(AutomationReport {
         operation,
         dry_run: job.dry_run,
@@ -740,6 +767,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         per_map,
         integrity: snapshot_integrity_report(&integrity_report),
         transitions: transition_reports,
+        campaign_order: snapshot_campaign_order(&campaign_order),
         merge: merge_snapshot,
         result_entity_types,
         result_entity_records,
@@ -828,6 +856,24 @@ fn snapshot_transition(
         landmark: transition.landmark.clone(),
         origin: transition.origin.map(|origin| origin.to_string()),
         solid_count: transition.solid_count,
+    }
+}
+
+fn snapshot_campaign_order(suggestion: &CampaignOrderSuggestion) -> CampaignOrderSnapshot {
+    CampaignOrderSnapshot {
+        ordered_labels: suggestion.ordered_labels.clone(),
+        landmark_pairs: suggestion
+            .landmark_pairs
+            .iter()
+            .map(|pair| CampaignLandmarkPairSnapshot {
+                from_map: pair.from_map.clone(),
+                to_map: pair.to_map.clone(),
+                target_map: pair.target_map.clone(),
+                landmark: pair.landmark.clone(),
+                target_has_landmark: pair.target_has_landmark,
+            })
+            .collect(),
+        warnings: suggestion.warnings.clone(),
     }
 }
 

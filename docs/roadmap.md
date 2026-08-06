@@ -39,8 +39,9 @@ Status: implemented.
 - Add portable Source-tool validation and VBSP compile-log parsing.
 - Color merged-preview geometry by source VMF.
 - Render landmark markers, selected-landmark labels, and offset arrows in preview.
+- Suggest campaign order and landmark pairs from transition entities.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, transition detection, and compiler-log validation implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, and compiler-log validation implemented.
 
 ## Milestone 3: Source/Hammer validation
 
