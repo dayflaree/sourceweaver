@@ -1,0 +1,31 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "prop_dynamic"
+	"targetname" "crate_group"
+}
+entity
+{
+	"id" "3"
+	"classname" "prop_dynamic"
+	"targetname" "crate_group"
+}
+entity
+{
+	"id" "4"
+	"classname" "logic_relay"
+	"targetname" "relay_a"
+	"OnTrigger" "crate_group,Kill,,0,-1"
+}

@@ -134,6 +134,83 @@ stderr:
     assert_eq!(report["rule_set"]["warnings"], 0);
 }
 
+#[test]
+fn validate_reports_entity_semantics_separately() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "validate",
+            repo_path("tests/fixtures/entity_semantics_issues.vmf")
+                .to_str()
+                .unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["integrity"]["errors"], 0);
+    assert_eq!(report["entity_semantics"]["errors"], 0);
+    assert_eq!(report["entity_semantics"]["warnings"], 3);
+    assert!(
+        report["entity_semantics"]["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["category"] == "duplicate-targetname"
+                && issue["targetname"] == "exit_a")
+    );
+    assert!(
+        report["entity_semantics"]["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["category"] == "missing-target-reference"
+                && issue["key"] == "OnTrigger"
+                && issue["targetname"] == "door_missing")
+    );
+}
+
+#[test]
+fn validate_warns_for_intentional_duplicate_targetname_groups() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "validate",
+            repo_path("tests/fixtures/entity_semantics_group_warning.vmf")
+                .to_str()
+                .unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["entity_semantics"]["errors"], 0);
+    assert_eq!(report["entity_semantics"]["warnings"], 1);
+    assert_eq!(
+        report["entity_semantics"]["issues"][0]["category"],
+        "duplicate-targetname"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

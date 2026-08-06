@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
-    CampaignTransition, DeletionCriteria, DeletionReport, Document, IntegrityReport, MergeInput,
-    MergeOptions, MergeReport, RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport,
-    discover_landmarks, discover_transitions, format_integrity_issue, inspect_entities, merge_maps,
-    parse_compile_log, prune_document, suggest_campaign_order, summarize_entity_types,
-    validate_document_integrity, validate_for_source_tools,
-    validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
+    CampaignTransition, DeletionCriteria, DeletionReport, Document, EntitySemanticsReport,
+    IntegrityReport, MergeInput, MergeOptions, MergeReport, RuleSetValidationReport,
+    ValidationRuleSet, VmfToolValidationReport, discover_landmarks, discover_transitions,
+    format_integrity_issue, inspect_entities, merge_maps, parse_compile_log, prune_document,
+    suggest_campaign_order, summarize_entity_types, validate_document_integrity,
+    validate_for_source_tools, validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
     validation_rule_set_choices,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -2728,9 +2728,31 @@ struct ValidationSnapshot {
     ok: bool,
     map: String,
     integrity: IntegritySnapshot,
+    entity_semantics: EntitySemanticsSnapshot,
     rule_set: Option<RuleSetValidationSnapshot>,
     vbsp_exit_code: Option<i32>,
     compile_log: Option<CompileLogSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EntitySemanticsSnapshot {
+    errors: usize,
+    warnings: usize,
+    issues: Vec<EntitySemanticsIssueSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EntitySemanticsIssueSnapshot {
+    severity: String,
+    map: String,
+    category: String,
+    rule_id: String,
+    message: String,
+    targetname: Option<String>,
+    entity_index: Option<usize>,
+    classname: Option<String>,
+    key: Option<String>,
+    value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3058,6 +3080,7 @@ impl ValidationSnapshot {
             ok: report.is_ok() && vbsp_exit_code.map(|code| code == 0).unwrap_or(true),
             map: report.map_label.clone(),
             integrity: snapshot_integrity_report(&report.integrity),
+            entity_semantics: snapshot_entity_semantics_report(&report.entity_semantics),
             rule_set: report.rule_set.as_ref().map(snapshot_rule_set_report),
             vbsp_exit_code,
             compile_log: report.compile_log.as_ref().map(|log| CompileLogSnapshot {
@@ -3325,6 +3348,29 @@ fn snapshot_integrity_report(report: &IntegrityReport) -> IntegritySnapshot {
     }
 }
 
+fn snapshot_entity_semantics_report(report: &EntitySemanticsReport) -> EntitySemanticsSnapshot {
+    EntitySemanticsSnapshot {
+        errors: report.error_count(),
+        warnings: report.warning_count(),
+        issues: report
+            .issues
+            .iter()
+            .map(|issue| EntitySemanticsIssueSnapshot {
+                severity: issue.severity.to_string(),
+                map: issue.label.clone(),
+                category: issue.category.clone(),
+                rule_id: issue.rule_id.clone(),
+                message: issue.message.clone(),
+                targetname: issue.targetname.clone(),
+                entity_index: issue.entity_index,
+                classname: issue.classname.clone(),
+                key: issue.key.clone(),
+                value: issue.value.clone(),
+            })
+            .collect(),
+    }
+}
+
 fn snapshot_rule_set_report(report: &RuleSetValidationReport) -> RuleSetValidationSnapshot {
     RuleSetValidationSnapshot {
         id: report.rule_set.id.to_string(),
@@ -3389,6 +3435,20 @@ fn print_validation_snapshot(snapshot: &ValidationSnapshot) {
         println!(
             "integrity\t{}\t{}\t{}",
             issue.severity, issue.map, issue.message
+        );
+    }
+    println!(
+        "entity semantics errors: {}",
+        snapshot.entity_semantics.errors
+    );
+    println!(
+        "entity semantics warnings: {}",
+        snapshot.entity_semantics.warnings
+    );
+    for issue in &snapshot.entity_semantics.issues {
+        println!(
+            "entity-semantics\t{}\t{}\t{}\t{}",
+            issue.severity, issue.map, issue.category, issue.message
         );
     }
     if let Some(rule_set) = &snapshot.rule_set {

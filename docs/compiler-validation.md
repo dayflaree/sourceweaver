@@ -12,7 +12,13 @@ Run structural VMF and Source-tool readiness checks:
 cargo run -p sourceweaver-cli -- validate path/to/merged.vmf --json
 ```
 
-This validates the VMF can be parsed again and checks the same integrity rules used before desktop/CLI writes, including the required top-level `world` block and ID warnings.
+This validates the VMF can be parsed again and checks the same integrity rules used before desktop/CLI writes, including the required top-level `world` block and ID warnings. The report also includes `entity_semantics`, a separate portable pass for duplicate targetnames and missing common target references.
+
+## Entity semantics
+
+Entity semantic validation runs automatically as part of `sourceweaver validate` and desktop integrity checks. It reports duplicate targetnames separately from missing target references, avoids hard failures for common intentional target groups, and skips special I/O references such as `!activator`.
+
+See `docs/entity-semantic-validation.md` for the checked fields, duplicate classification policy, fixtures, and JSON shape.
 
 ## Game/profile rule sets
 

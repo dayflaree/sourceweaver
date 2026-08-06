@@ -8,6 +8,7 @@ pub mod campaign;
 pub mod classify;
 pub mod compiler;
 pub mod entity_metadata;
+pub mod entity_semantics;
 pub mod integrity;
 pub mod landmark;
 pub mod merge;
@@ -30,6 +31,10 @@ pub use compiler::{
 pub use entity_metadata::{
     EntityCategory, EntityMetadata, EntityMetadataSource, metadata_for_classname,
     metadata_for_classname_with_overrides, parse_fgd_metadata,
+};
+pub use entity_semantics::{
+    EntitySemanticsIssue, EntitySemanticsReport, format_entity_semantics_issue,
+    validate_entity_semantics,
 };
 pub use integrity::{
     IntegrityIssue, IntegrityReport, IntegritySeverity, format_integrity_issue,

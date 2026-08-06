@@ -1,3 +1,4 @@
+use crate::entity_semantics::{EntitySemanticsReport, validate_entity_semantics};
 use crate::integrity::{IntegrityReport, validate_document_integrity};
 use crate::validation_rules::{
     RuleSetValidationReport, ValidationRuleSet, validate_document_with_rule_set,
@@ -22,6 +23,7 @@ impl CompileLogSummary {
 pub struct VmfToolValidationReport {
     pub map_label: String,
     pub integrity: IntegrityReport,
+    pub entity_semantics: EntitySemanticsReport,
     pub rule_set: Option<RuleSetValidationReport>,
     pub compile_log: Option<CompileLogSummary>,
 }
@@ -29,6 +31,7 @@ pub struct VmfToolValidationReport {
 impl VmfToolValidationReport {
     pub fn is_ok(&self) -> bool {
         self.integrity.is_ok()
+            && self.entity_semantics.is_ok()
             && self
                 .rule_set
                 .as_ref()
@@ -59,6 +62,7 @@ pub fn validate_for_source_tools_with_rule_set(
     VmfToolValidationReport {
         map_label: label.to_string(),
         integrity: validate_document_integrity(document, label),
+        entity_semantics: validate_entity_semantics(document, label),
         rule_set: rule_set
             .map(|rule_set| validate_document_with_rule_set(document, label, rule_set)),
         compile_log: compile_log.map(parse_compile_log),

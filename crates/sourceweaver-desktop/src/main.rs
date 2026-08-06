@@ -3,15 +3,15 @@ use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BUILTIN_VALIDATION_RULE_SETS, BrushEntityDeletionMode, BrushRole, CampaignMapInput,
     CampaignOrderSuggestion, CampaignTransition, DeletionCriteria, DeletionReport, Document,
-    EntityMetadata, EntityRecord, IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus,
-    MergeInput, MergeOptions, MergeReport, NO_VALIDATION_RULE_SET_ID, PreviewBounds,
-    PreviewDocument, PreviewEntityMarker, PreviewSolid, RuleSetValidationReport,
-    combine_preview_documents, discover_landmarks, discover_transitions, format_integrity_issue,
-    format_rule_set_issue, inspect_entities, is_critical_entity_classname, merge_maps,
-    metadata_for_classname_with_overrides, parse_fgd_metadata, preview_document,
-    preview_document_with_source, prune_document, suggest_campaign_order, summarize_entity_types,
-    translate_preview_document, validate_document_integrity, validate_document_with_rule_set,
-    validation_rule_set_by_id,
+    EntityMetadata, EntityRecord, EntitySemanticsReport, IntegrityReport, LandmarkDiscovery,
+    LandmarkTargetStatus, MergeInput, MergeOptions, MergeReport, NO_VALIDATION_RULE_SET_ID,
+    PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid, RuleSetValidationReport,
+    combine_preview_documents, discover_landmarks, discover_transitions,
+    format_entity_semantics_issue, format_integrity_issue, format_rule_set_issue, inspect_entities,
+    is_critical_entity_classname, merge_maps, metadata_for_classname_with_overrides,
+    parse_fgd_metadata, preview_document, preview_document_with_source, prune_document,
+    suggest_campaign_order, summarize_entity_types, translate_preview_document,
+    validate_document_integrity, validate_document_with_rule_set, validation_rule_set_by_id,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -116,6 +116,7 @@ struct MapAnalysis {
     landmarks: LandmarkDiscovery,
     transitions: Vec<CampaignTransition>,
     integrity: IntegrityReport,
+    entity_semantics: EntitySemanticsReport,
     rule_set: Option<RuleSetValidationReport>,
 }
 
@@ -1120,6 +1121,21 @@ impl SourceWeaverApp {
         lines
     }
 
+    fn entity_semantics_status_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        for entry in &self.maps {
+            if let Ok(analysis) = &entry.analysis {
+                for issue in &analysis.entity_semantics.issues {
+                    lines.push(format!(
+                        "Entity semantics {}",
+                        format_entity_semantics_issue(issue)
+                    ));
+                }
+            }
+        }
+        lines
+    }
+
     fn rule_set_status_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         for entry in &self.maps {
@@ -1189,6 +1205,8 @@ impl SourceWeaverApp {
                             Ok(analysis) => {
                                 let errors = analysis.integrity.error_count();
                                 let warnings = analysis.integrity.warning_count();
+                                let semantic_errors = analysis.entity_semantics.error_count();
+                                let semantic_warnings = analysis.entity_semantics.warning_count();
                                 let rule_errors = analysis
                                     .rule_set
                                     .as_ref()
@@ -1200,11 +1218,11 @@ impl SourceWeaverApp {
                                     .map(RuleSetValidationReport::warning_count)
                                     .unwrap_or(0);
                                 let summary = format!(
-                                    "{errors} integrity error(s), {warnings} integrity warning(s), {rule_errors} rule error(s), {rule_warnings} rule warning(s)"
+                                    "{errors} integrity error(s), {warnings} integrity warning(s), {semantic_errors} semantic error(s), {semantic_warnings} semantic warning(s), {rule_errors} rule error(s), {rule_warnings} rule warning(s)"
                                 );
-                                if errors > 0 || rule_errors > 0 {
+                                if errors > 0 || semantic_errors > 0 || rule_errors > 0 {
                                     ui.colored_label(egui::Color32::LIGHT_RED, summary);
-                                } else if warnings > 0 || rule_warnings > 0 {
+                                } else if warnings > 0 || semantic_warnings > 0 || rule_warnings > 0 {
                                     ui.colored_label(egui::Color32::YELLOW, summary);
                                 } else {
                                     ui.colored_label(egui::Color32::LIGHT_GREEN, "OK");
@@ -1225,6 +1243,14 @@ impl SourceWeaverApp {
             if !detail_lines.is_empty() {
                 ui.collapsing("Integrity details", |ui| {
                     for line in detail_lines {
+                        ui.small(line);
+                    }
+                });
+            }
+            let semantic_lines = self.entity_semantics_status_lines();
+            if !semantic_lines.is_empty() {
+                ui.collapsing("Entity semantic details", |ui| {
+                    for line in semantic_lines {
                         ui.small(line);
                     }
                 });
@@ -3501,6 +3527,9 @@ impl MapEntry {
                     landmarks: discover_landmarks(&document),
                     transitions: discover_transitions(&document),
                     integrity: validate_document_integrity(&document, &label),
+                    entity_semantics: sourceweaver_core::validate_entity_semantics(
+                        &document, &label,
+                    ),
                     rule_set,
                 })
             }

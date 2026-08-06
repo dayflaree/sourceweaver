@@ -1,0 +1,40 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "info_landmark"
+	"targetname" "exit_a"
+	"origin" "0 0 0"
+}
+entity
+{
+	"id" "3"
+	"classname" "info_landmark"
+	"targetname" "exit_a"
+	"origin" "128 0 0"
+}
+entity
+{
+	"id" "4"
+	"classname" "logic_relay"
+	"targetname" "relay_a"
+	"OnTrigger" "door_missing,Open,,0,-1"
+}
+entity
+{
+	"id" "5"
+	"classname" "trigger_multiple"
+	"filtername" "filter_missing"
+	"OnStartTouch" "!activator,Use,,0,-1"
+}
