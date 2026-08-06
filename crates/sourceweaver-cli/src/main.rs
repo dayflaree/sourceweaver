@@ -3,8 +3,9 @@ use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
     CampaignTransition, DeletionCriteria, DeletionReport, Document, IntegrityReport, MergeInput,
     MergeOptions, MergeReport, VmfToolValidationReport, discover_landmarks, discover_transitions,
-    format_integrity_issue, inspect_entities, merge_maps, prune_document, suggest_campaign_order,
-    summarize_entity_types, validate_document_integrity, validate_for_source_tools,
+    format_integrity_issue, inspect_entities, merge_maps, parse_compile_log, prune_document,
+    suggest_campaign_order, summarize_entity_types, validate_document_integrity,
+    validate_for_source_tools,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
@@ -31,6 +32,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "prune" => prune_command(&args[1..]),
         "merge" => merge_command(&args[1..]),
         "validate" => validate_command(&args[1..]),
+        "compile" => compile_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
         "job-template" => {
             print_job_template();
@@ -356,6 +358,348 @@ fn run_vbsp(
     })
 }
 
+fn compile_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_compile_help();
+        return Ok(());
+    }
+    let mut config = parse_compile_args(args)?;
+    apply_compile_profile(&mut config)?;
+    let input = config.input.clone().ok_or("usage: sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--report report.json] [--json]")?;
+
+    let document = load_document(&input)?;
+    let validation = validate_for_source_tools(&document, &input.display().to_string(), None);
+    let integrity = snapshot_integrity_report(&validation.integrity);
+    if let Some(message) = validation.integrity.error_message() {
+        return Err(message);
+    }
+
+    let steps = resolve_compile_steps(&config)?;
+    let mut step_reports = Vec::new();
+    for step in steps {
+        step_reports.push(run_compile_pipeline_step(&step, &config, &input)?);
+    }
+
+    let ok = integrity.errors == 0 && step_reports.iter().all(|step| step.ok);
+    let report = CompilePipelineReport {
+        ok,
+        map: input.display().to_string(),
+        game: config.game.as_ref().map(|path| path.display().to_string()),
+        log_dir: config
+            .log_dir
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        integrity,
+        steps: step_reports,
+    };
+
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode compile report: {error}"))?;
+    if let Some(report_path) = &config.report {
+        if let Some(parent) = report_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    format!(
+                        "failed to create report directory {}: {error}",
+                        parent.display()
+                    )
+                })?;
+            }
+        }
+        fs::write(report_path, &json).map_err(|error| {
+            format!(
+                "failed to write compile report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+
+    if config.json {
+        println!("{json}");
+    } else {
+        print_compile_pipeline_report(&report);
+    }
+
+    if !report.ok {
+        return Err("compile pipeline found errors".to_string());
+    }
+    Ok(())
+}
+
+fn parse_compile_args(args: &[String]) -> Result<CompileConfig, String> {
+    let mut config = CompileConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--profile" => {
+                cursor += 1;
+                config.profile = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--profile needs a path")?,
+                ));
+            }
+            "--vbsp" => {
+                cursor += 1;
+                config.vbsp = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--vbsp needs a path")?,
+                ));
+            }
+            "--vvis" => {
+                cursor += 1;
+                config.vvis = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--vvis needs a path")?,
+                ));
+            }
+            "--vrad" => {
+                cursor += 1;
+                config.vrad = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--vrad needs a path")?,
+                ));
+            }
+            "--game" => {
+                cursor += 1;
+                config.game = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game needs a path")?,
+                ));
+            }
+            "--steps" => {
+                cursor += 1;
+                config.steps = Some(
+                    args.get(cursor)
+                        .ok_or("--steps needs a comma-separated list")?
+                        .split(',')
+                        .map(|step| step.trim().to_ascii_lowercase())
+                        .filter(|step| !step.is_empty())
+                        .collect(),
+                );
+            }
+            "--log-dir" => {
+                cursor += 1;
+                config.log_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--log-dir needs a path")?,
+                ));
+            }
+            "--report" => {
+                cursor += 1;
+                config.report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--report needs a path")?,
+                ));
+            }
+            "--json" => config.json = true,
+            "--help" | "-h" => {
+                print_compile_help();
+                return Err("".to_string());
+            }
+            value if value.starts_with('-') => {
+                return Err(format!("unknown compile flag `{value}`"));
+            }
+            value => {
+                if config.input.is_some() {
+                    return Err("compile accepts one input VMF".to_string());
+                }
+                config.input = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn apply_compile_profile(config: &mut CompileConfig) -> Result<(), String> {
+    let Some(profile_path) = config.profile.clone() else {
+        return Ok(());
+    };
+    let base_dir = profile_path.parent().unwrap_or_else(|| Path::new("."));
+    let text = fs::read_to_string(&profile_path).map_err(|error| {
+        format!(
+            "failed to read compile profile {}: {error}",
+            profile_path.display()
+        )
+    })?;
+    let profile: CompileProfile = toml::from_str(&text).map_err(|error| {
+        format!(
+            "failed to parse compile profile {}: {error}",
+            profile_path.display()
+        )
+    })?;
+    if let Some(tools) = profile.tools {
+        if config.vbsp.is_none() {
+            config.vbsp = tools.vbsp.map(|path| resolve_job_path(base_dir, &path));
+        }
+        if config.vvis.is_none() {
+            config.vvis = tools.vvis.map(|path| resolve_job_path(base_dir, &path));
+        }
+        if config.vrad.is_none() {
+            config.vrad = tools.vrad.map(|path| resolve_job_path(base_dir, &path));
+        }
+        if config.game.is_none() {
+            config.game = tools.game.map(|path| resolve_job_path(base_dir, &path));
+        }
+    }
+    if let Some(settings) = profile.compile {
+        if config.steps.is_none() {
+            config.steps = settings.steps.map(|steps| {
+                steps
+                    .into_iter()
+                    .map(|step| step.trim().to_ascii_lowercase())
+                    .filter(|step| !step.is_empty())
+                    .collect()
+            });
+        }
+        if config.log_dir.is_none() {
+            config.log_dir = settings
+                .log_dir
+                .map(|path| resolve_job_path(base_dir, &path));
+        }
+    }
+    Ok(())
+}
+
+fn resolve_compile_steps(config: &CompileConfig) -> Result<Vec<String>, String> {
+    let steps = match &config.steps {
+        Some(steps) if !steps.is_empty() => steps.clone(),
+        _ => {
+            let mut steps = Vec::new();
+            if config.vbsp.is_some() {
+                steps.push("vbsp".to_string());
+            }
+            if config.vvis.is_some() {
+                steps.push("vvis".to_string());
+            }
+            if config.vrad.is_some() {
+                steps.push("vrad".to_string());
+            }
+            steps
+        }
+    };
+    if steps.is_empty() {
+        return Err("compile needs at least one configured step/tool".to_string());
+    }
+    for step in &steps {
+        if !matches!(step.as_str(), "vbsp" | "vvis" | "vrad") {
+            return Err(format!(
+                "unknown compile step `{step}`; expected vbsp, vvis, or vrad"
+            ));
+        }
+        if compile_tool_for_step(config, step).is_none() {
+            return Err(format!(
+                "compile step `{step}` needs --{step} or a profile tool path"
+            ));
+        }
+    }
+    Ok(steps)
+}
+
+fn compile_tool_for_step<'a>(config: &'a CompileConfig, step: &str) -> Option<&'a PathBuf> {
+    match step {
+        "vbsp" => config.vbsp.as_ref(),
+        "vvis" => config.vvis.as_ref(),
+        "vrad" => config.vrad.as_ref(),
+        _ => None,
+    }
+}
+
+fn compile_input_for_step(input: &Path, step: &str) -> PathBuf {
+    match step {
+        "vbsp" => input.to_path_buf(),
+        "vvis" | "vrad" => input.with_extension("bsp"),
+        _ => input.to_path_buf(),
+    }
+}
+
+fn run_compile_pipeline_step(
+    step: &str,
+    config: &CompileConfig,
+    map_input: &Path,
+) -> Result<CompileStepReport, String> {
+    let tool = compile_tool_for_step(config, step)
+        .ok_or_else(|| format!("compile step `{step}` is missing a tool path"))?;
+    let step_input = compile_input_for_step(map_input, step);
+    let output = run_source_compile_tool(tool, config.game.as_deref(), &step_input)?;
+    let log = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let log_path = if let Some(log_dir) = &config.log_dir {
+        fs::create_dir_all(log_dir)
+            .map_err(|error| format!("failed to create log dir {}: {error}", log_dir.display()))?;
+        let path = log_dir.join(format!("{step}.log"));
+        fs::write(&path, &log)
+            .map_err(|error| format!("failed to write compile log {}: {error}", path.display()))?;
+        Some(path)
+    } else {
+        None
+    };
+    let summary = parse_compile_log(&log);
+    let exit_code = output.status.code();
+    let ok = exit_code.map(|code| code == 0).unwrap_or(false) && summary.is_ok();
+    Ok(CompileStepReport {
+        step: step.to_string(),
+        tool: tool.display().to_string(),
+        input: step_input.display().to_string(),
+        exit_code,
+        ok,
+        log_path: log_path.map(|path| path.display().to_string()),
+        compile_log: CompileLogSnapshot {
+            ok: summary.is_ok(),
+            errors: summary.errors.len(),
+            warnings: summary.warnings.len(),
+            leak_detected: summary.leak_detected,
+            error_lines: summary.errors,
+            warning_lines: summary.warnings,
+        },
+    })
+}
+
+fn run_source_compile_tool(
+    tool_path: &Path,
+    game_dir: Option<&Path>,
+    input: &Path,
+) -> Result<std::process::Output, String> {
+    let mut command = Command::new(tool_path);
+    if let Some(game_dir) = game_dir {
+        command.arg("-game").arg(game_dir);
+    }
+    command.arg(input);
+    command.output().map_err(|error| {
+        format!(
+            "failed to run Source compile tool {}: {error}",
+            tool_path.display()
+        )
+    })
+}
+
+fn print_compile_pipeline_report(report: &CompilePipelineReport) {
+    println!(
+        "compile pipeline: {}",
+        if report.ok { "ok" } else { "failed" }
+    );
+    println!("map: {}", report.map);
+    if let Some(game) = &report.game {
+        println!("game: {game}");
+    }
+    for step in &report.steps {
+        println!(
+            "step\t{}\t{}\texit={:?}\terrors={}\twarnings={}\tleak={}",
+            step.step,
+            if step.ok { "ok" } else { "failed" },
+            step.exit_code,
+            step.compile_log.errors,
+            step.compile_log.warnings,
+            step.compile_log.leak_detected
+        );
+        if let Some(log_path) = &step.log_path {
+            println!("log\t{}\t{}", step.step, log_path);
+        }
+        for line in &step.compile_log.error_lines {
+            println!("compile-error\t{}\t{}", step.step, line);
+        }
+        for line in &step.compile_log.warning_lines {
+            println!("compile-warning\t{}\t{}", step.step, line);
+        }
+    }
+}
+
 fn run_job_command(args: &[String]) -> Result<(), String> {
     let mut job_path: Option<PathBuf> = None;
     let mut report_override: Option<PathBuf> = None;
@@ -570,6 +914,61 @@ struct CompileLogSnapshot {
     leak_detected: bool,
     error_lines: Vec<String>,
     warning_lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct CompileProfile {
+    tools: Option<CompileProfileTools>,
+    compile: Option<CompileProfileSettings>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct CompileProfileTools {
+    vbsp: Option<PathBuf>,
+    vvis: Option<PathBuf>,
+    vrad: Option<PathBuf>,
+    game: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct CompileProfileSettings {
+    steps: Option<Vec<String>>,
+    log_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CompileConfig {
+    input: Option<PathBuf>,
+    profile: Option<PathBuf>,
+    vbsp: Option<PathBuf>,
+    vvis: Option<PathBuf>,
+    vrad: Option<PathBuf>,
+    game: Option<PathBuf>,
+    steps: Option<Vec<String>>,
+    log_dir: Option<PathBuf>,
+    report: Option<PathBuf>,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompilePipelineReport {
+    ok: bool,
+    map: String,
+    game: Option<String>,
+    log_dir: Option<String>,
+    integrity: IntegritySnapshot,
+    steps: Vec<CompileStepReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompileStepReport {
+    step: String,
+    tool: String,
+    input: String,
+    exit_code: Option<i32>,
+    ok: bool,
+    log_path: Option<String>,
+    compile_log: CompileLogSnapshot,
 }
 
 impl ValidationSnapshot {
@@ -983,6 +1382,7 @@ Usage:
   sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--json]
+  sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
@@ -1025,6 +1425,34 @@ Linux-friendly workflow:
 
 Source SDK workflow when VBSP is installed:
   sourceweaver validate merged.vmf --vbsp /path/to/vbsp --game /path/to/game --capture-log vbsp.log --json
+"#
+    );
+}
+
+fn print_compile_help() {
+    println!(
+        r#"Usage:
+  sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--report report.json] [--json]
+
+Runs an optional Source compile pipeline using user-provided tool paths.
+
+Examples:
+  sourceweaver compile stitched.vmf --vbsp /path/to/vbsp --log-dir target/compile-logs --json
+  sourceweaver compile stitched.vmf --profile hl2-tools.toml --steps vbsp,vvis,vrad --report compile-report.json
+
+Compile profile TOML:
+  [tools]
+  vbsp = "/path/to/vbsp"
+  vvis = "/path/to/vvis"
+  vrad = "/path/to/vrad"
+  game = "/path/to/game-dir"
+
+  [compile]
+  steps = ["vbsp", "vvis", "vrad"]
+  log_dir = "target/sourceweaver-compile-logs"
+
+Each step captures stdout/stderr, writes step logs when --log-dir is set,
+parses warnings/errors/leaks, and reports JSON when --json or --report is used.
 "#
     );
 }

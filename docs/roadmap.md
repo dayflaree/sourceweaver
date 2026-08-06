@@ -54,8 +54,9 @@ Status: implemented.
 - Automate GitHub Releases with changelog-backed release notes.
 - Reconstruct convex brush face polygons for more accurate 2D preview rendering.
 - Add lightweight 3D isometric preview with yaw/pitch camera controls.
+- Add optional VBSP/VVIS/VRAD compile pipeline with captured logs and JSON reports.
 
-Status: first native Linux/Windows UI, desktop drag/drop usability, in-session recents, parse progress, error dialogs, theme toggle, adjustable preview sizing, reconstructed 2D face polygons, 3D isometric preview, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, visual deletion overlays, preview/table click synchronization, pending cleanup confirmation, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, entity metadata, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, compiler-log validation, displacement translation hardening, texture-axis translation, ID-reference remapping, editor metadata policy, fixture/golden regression tests, desktop release packages, and tag-driven GitHub Releases implemented.
+Status: first native Linux/Windows UI, desktop drag/drop usability, in-session recents, parse progress, error dialogs, theme toggle, adjustable preview sizing, reconstructed 2D face polygons, 3D isometric preview, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, visual deletion overlays, preview/table click synchronization, pending cleanup confirmation, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, entity metadata, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, compiler-log validation, optional compile pipeline, displacement translation hardening, texture-axis translation, ID-reference remapping, editor metadata policy, fixture/golden regression tests, desktop release packages, and tag-driven GitHub Releases implemented.
 
 ## Milestone 3: Source/Hammer validation
 

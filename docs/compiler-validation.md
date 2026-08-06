@@ -2,6 +2,8 @@
 
 Source Weaver can run a Linux-friendly validation path without Hammer or VBSP installed, and it can consume real Source compiler logs when those tools are available on Windows or through a game/tool install.
 
+For multi-step VBSP/VVIS/VRAD execution, use `sourceweaver compile`; see `docs/compile-pipeline.md`.
+
 ## Portable validation on Linux
 
 Run structural VMF and Source-tool readiness checks:

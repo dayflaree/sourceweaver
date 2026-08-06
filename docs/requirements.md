@@ -45,6 +45,8 @@ Before writing cleaned or merged output, Source Weaver must validate the relevan
 
 Source Weaver must provide a validation path that works on Linux without Hammer installed and can also consume real Source compiler logs. The CLI must validate a generated VMF structurally, parse captured VBSP logs for warnings, errors, and leaks, and optionally run a configured VBSP command when a user has Source tooling installed. CI should cover the portable path with fixture logs rather than depending on proprietary game tools.
 
+The CLI must also provide an optional Source compile pipeline for users who can provide VBSP/VVIS/VRAD paths. Users must be able to configure tool paths through command flags or a TOML profile, select compile steps, capture per-step logs, and receive JSON reports that summarize exit codes, warnings, errors, and leaks. Source tools are never bundled.
+
 ## Regression fixtures and golden outputs
 
 CI must cover representative VMF structures so parser, merge, preview, deletion, transition, and automation behavior cannot drift silently. Fixtures should include world brushes, triggers, clips, areaportals, skybox materials, displacement start positions, multiple/duplicate landmarks, malformed VMFs, transitions, and larger mixed maps. Golden snapshots should verify key merged VMF output and job-runner JSON reports.

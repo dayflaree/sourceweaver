@@ -13,6 +13,7 @@ The core crate owns VMF behavior:
 - preview geometry extraction for orthographic UI views
 - VMF integrity validation for pre-write safety checks
 - Source-tool validation reports and VBSP compile-log parsing
+- optional VBSP/VVIS/VRAD compile pipeline orchestration
 - landmark discovery, duplicate checks, selected-landmark status, and origin lookup
 - brush and entity translation
 - merge operations
@@ -68,6 +69,7 @@ Current commands:
 - `prune`
 - `merge`
 - `validate` for portable Source-tool readiness checks and optional VBSP log parsing/execution
+- `compile` for optional user-configured VBSP/VVIS/VRAD execution with log capture
 - `run` / `batch` / `job` for non-interactive TOML job execution
 - `job-template` for generating a starter automation file
 
@@ -138,6 +140,8 @@ Campaign suggestion builds a lightweight graph from selected VMF labels and `tri
 ## Source tool validation
 
 The CLI `validate` command loads a VMF, runs integrity checks, optionally executes a configured VBSP command, and parses captured compiler logs. CI uses the portable mode plus fixture logs because hosted Linux/Windows runners do not include Hammer or game-specific Source tool installations.
+
+The CLI `compile` command extends this into an optional Source compile pipeline. Users can provide tool paths directly or through a TOML profile, select VBSP/VVIS/VRAD steps, capture stdout/stderr logs, and emit a JSON report with parsed warnings, errors, leaks, and exit codes. See `docs/compile-pipeline.md`.
 
 ## ID renumbering
 

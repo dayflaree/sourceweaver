@@ -22,6 +22,7 @@ Current capabilities:
 - Show missing, duplicate, and invalid landmark status before preview or export.
 - Show VMF integrity status before preview/export, including missing common sections, duplicate IDs, and invalid world blocks.
 - Validate generated VMFs for Source-tool readiness and parse captured VBSP logs.
+- Run optional user-configured VBSP/VVIS/VRAD compile pipelines and capture parsed JSON reports.
 - Preserve incoming world brushes, including skybox brushes.
 - Preserve incoming point entities and brush entities.
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
@@ -150,6 +151,19 @@ cargo run -p sourceweaver-cli -- validate stitched.vmf --compile-log vbsp.log --
 
 When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. See `docs/compiler-validation.md` for Linux-friendly validation, captured-log parsing, and HL2/Black Mesa command examples.
 
+Run a user-configured compile pipeline when VBSP/VVIS/VRAD are available:
+
+```bash
+cargo run -p sourceweaver-cli -- compile stitched.vmf \
+  --profile hl2-tools.toml \
+  --steps vbsp,vvis,vrad \
+  --log-dir target/sourceweaver-compile-logs \
+  --report compile-report.json \
+  --json
+```
+
+See `docs/compile-pipeline.md` for profile format, report fields, and Linux-friendly validation notes.
+
 ## CLI usage
 
 The CLI remains available for scripting and regression testing.
@@ -234,7 +248,7 @@ Known limitations:
 - The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
 - No BSP decompilation.
 - FGD support is class-level metadata only; it does not parse all property labels yet.
-- No automatic compile pipeline yet.
+- Compile pipeline integration requires user-provided Source tool paths; Source tools are not bundled.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 - Incoming IDs are renumbered during merge and known reference fields are remapped; see `docs/id-renumbering.md`.
 - Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.
