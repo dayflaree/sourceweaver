@@ -14,6 +14,7 @@ The core crate owns VMF behavior:
 - VMF integrity validation for pre-write safety checks
 - Source-tool validation reports and VBSP compile-log parsing
 - optional VBSP/VVIS/VRAD compile pipeline orchestration
+- optional user-provided BSP decompiler wrapper and BSP-derived VMF desktop import warning
 - landmark discovery, duplicate checks, selected-landmark status, and origin lookup
 - brush and entity translation
 - merge operations
@@ -158,6 +159,8 @@ The core library provides class-level metadata for common Source entities, infer
 ## BSP import stance
 
 Source Weaver remains VMF-first. BSP import is documented as an external decompile-to-VMF workflow using user-provided tools such as BSPSource. Source Weaver should not bundle decompilers or game BSP assets. Any future integration should be a thin user-configured wrapper with explicit legal/quality warnings. See `docs/bsp-import.md`.
+
+The CLI `bsp-import` command provides that thin wrapper: it runs a user-provided tool or wrapper script, captures logs, validates the generated VMF, and emits JSON. The desktop **Add BSP-derived VMF...** path imports already-generated VMFs as normal VMF inputs while marking them with decompile-quality warnings.
 
 ## Deletion model
 

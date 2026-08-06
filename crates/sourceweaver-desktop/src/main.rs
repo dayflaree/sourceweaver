@@ -67,6 +67,7 @@ struct SourceWeaverApp {
     classname_sort_column: ClassnameSortColumn,
     classname_sort_ascending: bool,
     fgd_metadata: BTreeMap<String, EntityMetadata>,
+    bsp_derived_vmfs: BTreeSet<String>,
     recent_vmfs: Vec<PathBuf>,
     recent_projects: Vec<PathBuf>,
     last_error_dialog: Option<String>,
@@ -365,6 +366,7 @@ impl SourceWeaverApp {
             classname_sort_column: ClassnameSortColumn::Classname,
             classname_sort_ascending: true,
             fgd_metadata: BTreeMap::new(),
+            bsp_derived_vmfs: BTreeSet::new(),
             recent_vmfs: Vec::new(),
             recent_projects: Vec::new(),
             last_error_dialog: None,
@@ -601,6 +603,20 @@ impl SourceWeaverApp {
         }
     }
 
+    fn add_bsp_derived_vmf_dialog(&mut self) {
+        if let Some(files) = rfd::FileDialog::new()
+            .set_title("Import BSP-derived VMF")
+            .add_filter("Valve Map Format", &["vmf"])
+            .pick_files()
+        {
+            for file in &files {
+                self.bsp_derived_vmfs.insert(display_path(file));
+            }
+            self.add_vmf_paths(files);
+            self.add_status("Imported BSP-derived VMF(s). Review parse/integrity warnings before merge; decompiled VMFs can have broken solids, areaportals, materials, overlays, or missing editor metadata.");
+        }
+    }
+
     fn add_vmf_paths(&mut self, files: Vec<PathBuf>) {
         let mut added = 0;
         for file in files {
@@ -635,6 +651,7 @@ impl SourceWeaverApp {
         self.selected_map = None;
         self.base_index = 0;
         self.selected_entity_rows.clear();
+        self.bsp_derived_vmfs.clear();
         self.preview_pan = egui::Vec2::ZERO;
         self.preview_zoom = 1.0;
         self.clear_merged_preview();
@@ -1478,6 +1495,9 @@ impl eframe::App for SourceWeaverApp {
                 if ui.button("Add VMFs...").clicked() {
                     self.add_vmf_files();
                 }
+                if ui.button("Add BSP-derived VMF...").clicked() {
+                    self.add_bsp_derived_vmf_dialog();
+                }
                 if ui.button("Re-scan").clicked() {
                     self.rescan_maps();
                 }
@@ -1545,6 +1565,12 @@ impl eframe::App for SourceWeaverApp {
                                         analysis.preview.solids.len(),
                                         analysis.integrity.warning_count()
                                     ));
+                                    if self.bsp_derived_vmfs.contains(&display_path(&entry.path)) {
+                                        ui.colored_label(
+                                            egui::Color32::YELLOW,
+                                            "BSP-derived VMF: review decompile warnings, broken solids/areaportals/materials/overlays, and missing editor metadata before merge.",
+                                        );
+                                    }
                                 }
                                 Err(error) => {
                                     ui.colored_label(egui::Color32::LIGHT_RED, error);

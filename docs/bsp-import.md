@@ -1,16 +1,41 @@
 # BSP decompile import workflow
 
-Source Weaver is VMF-first. BSP files are compiled game artifacts, while Source Weaver's parser, cleaner, previewer, and stitcher operate on editable VMF documents. BSP import should therefore remain an external pre-processing workflow unless a future ticket adds an explicit user-provided decompiler wrapper.
+Source Weaver is VMF-first. BSP files are compiled game artifacts, while Source Weaver's parser, cleaner, previewer, and stitcher operate on editable VMF documents. BSP import therefore uses external tools to create VMFs before normal Source Weaver processing.
 
 ## Recommendation
 
-Use BSPSource externally, then import the generated VMF into Source Weaver.
+Use BSPSource or another trusted external decompiler to generate a VMF, then import that VMF into Source Weaver.
 
 BSPSource is the most viable current option because it is an actively maintained Source-engine BSP-to-VMF decompiler. Its project README describes it as a Java Source engine map decompiler that converts `.bsp` maps back to `.vmf` files for Hammer. The Valve Developer Union tool page also describes BSPSource as Java-based, graphical, based on VMEX, and able to decompile Source BSPs into editable VMFs.
 
-Source Weaver should not bundle BSPSource, VMEX, or game BSP assets. If integration is added later, it should be a thin wrapper around a user-provided executable/JAR path.
+Source Weaver does not bundle BSPSource, VMEX, game BSPs, or decompiled content. Integration is a thin wrapper around a user-provided executable or wrapper script.
 
-## External workflow
+## CLI wrapper
+
+Use `sourceweaver bsp-import` when you want Source Weaver to run an external decompiler, capture the log, and validate the generated VMF:
+
+```bash
+sourceweaver bsp-import map.bsp \
+  --tool /path/to/bspsource-or-wrapper \
+  --output decompiled_map.vmf \
+  --log decompile.log \
+  --report bsp-import-report.json \
+  --json
+```
+
+The generic command shape is:
+
+```text
+<decompiler> [--tool-arg values...] <input.bsp> <output.vmf>
+```
+
+If BSPSource or another tool needs a different command-line shape, create a small wrapper script and pass that script as `--tool`. The JSON report includes the tool path, input BSP, output VMF, exit code, log path, warning/error counts, entity count, classname count, and VMF integrity status.
+
+## Desktop workflow
+
+The desktop app provides **Add BSP-derived VMF...**. Use it after an external decompiler has produced a VMF. Source Weaver adds the generated VMF as a normal VMF input while marking it as BSP-derived in the map list. The UI warns users to review decompile limitations, parse/integrity warnings, broken solids, areaportals, materials, overlays, and missing editor metadata before merging.
+
+## Manual external workflow
 
 1. Install BSPSource from the upstream project or trusted release source.
 2. Decompile the `.bsp` into a `.vmf` with BSPSource.
@@ -37,7 +62,7 @@ sourceweaver compile stitched.vmf --profile hl2-tools.toml --steps vbsp,vvis,vra
 
 ## Known decompile limitations
 
-BSP decompilation is approximate. The Valve Developer Union page notes that decompiling may not produce a perfect VMF and that keyvalues, materials, variables, solids, instances, and areaportals may differ or break. Source Weaver should treat BSP-derived VMFs as untrusted inputs and rely on existing parse, integrity, preview, and compile-report workflows to expose problems.
+BSP decompilation is approximate. The Valve Developer Union page notes that decompiling may not produce a perfect VMF and that keyvalues, materials, variables, solids, instances, and areaportals may differ or break. Source Weaver should treat BSP-derived VMFs as untrusted inputs and rely on parse, integrity, preview, and compile-report workflows to expose problems.
 
 Expected limitations include:
 
@@ -50,16 +75,11 @@ Expected limitations include:
 
 ## Legal and distribution constraints
 
-Source Weaver should not ship game BSPs, decompiled maps, or third-party decompilers. Users are responsible for only decompiling maps they are legally allowed to inspect or modify. Decompilation can implicate game EULAs, mod licenses, server/community map licenses, and asset copyrights. Documentation and any future wrapper should state that BSP import is for legitimate modding, recovery, interoperability, or user-owned workflows.
+Source Weaver does not ship game BSPs, decompiled maps, or third-party decompilers. Users are responsible for only decompiling maps they are legally allowed to inspect or modify. Decompilation can implicate game EULAs, mod licenses, server/community map licenses, and asset copyrights. BSP import is for legitimate modding, recovery, interoperability, or user-owned workflows.
 
-## Future implementation tickets
+## Future work
 
-Implementation work was split into follow-up issues:
-
-- #74 Add optional user-configured BSPSource wrapper
-- #75 Add desktop BSP-derived VMF import wizard
-
-Future work should include decompile log capture, warning parsing, pre-import `inspect`/`validate`, and legally committable tiny fixture VMFs when available.
+Future improvements can add richer decompile-warning parsers, known BSPSource argument presets, or legally committable tiny BSP-derived VMF fixtures. The VMF-first boundary should remain unchanged.
 
 ## Sources checked
 

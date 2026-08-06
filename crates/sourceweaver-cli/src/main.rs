@@ -33,6 +33,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "merge" => merge_command(&args[1..]),
         "validate" => validate_command(&args[1..]),
         "compile" => compile_command(&args[1..]),
+        "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
         "job-template" => {
             print_job_template();
@@ -700,6 +701,234 @@ fn print_compile_pipeline_report(report: &CompilePipelineReport) {
     }
 }
 
+fn bsp_import_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_bsp_import_help();
+        return Ok(());
+    }
+    let config = parse_bsp_import_args(args)?;
+    let input = config.input.as_ref().ok_or("usage: sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--report report.json] [--json]")?;
+    let tool = config
+        .tool
+        .as_ref()
+        .ok_or("bsp-import needs --tool <decompiler>")?;
+    let output_vmf = config
+        .output
+        .as_ref()
+        .ok_or("bsp-import needs --output <out.vmf>")?;
+
+    let tool_output = run_bsp_decompiler(tool, &config.tool_args, input, output_vmf)?;
+    let log_text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&tool_output.stdout),
+        String::from_utf8_lossy(&tool_output.stderr)
+    );
+    if let Some(log_path) = &config.log {
+        if let Some(parent) = log_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    format!(
+                        "failed to create log directory {}: {error}",
+                        parent.display()
+                    )
+                })?;
+            }
+        }
+        fs::write(log_path, &log_text).map_err(|error| {
+            format!(
+                "failed to write decompile log {}: {error}",
+                log_path.display()
+            )
+        })?;
+    }
+
+    let summary = parse_compile_log(&log_text);
+    let generated_vmf_exists = output_vmf.exists();
+    let mut integrity = None;
+    let mut entity_count = None;
+    let mut classname_count = None;
+    if generated_vmf_exists {
+        match load_document(output_vmf) {
+            Ok(document) => {
+                let report =
+                    validate_document_integrity(&document, &output_vmf.display().to_string());
+                entity_count = Some(inspect_entities(&document).len());
+                classname_count = Some(summarize_entity_types(&document).len());
+                integrity = Some(snapshot_integrity_report(&report));
+            }
+            Err(error) => {
+                let compile_log = CompileLogSnapshot {
+                    ok: false,
+                    errors: summary.errors.len() + 1,
+                    warnings: summary.warnings.len(),
+                    leak_detected: summary.leak_detected,
+                    error_lines: summary
+                        .errors
+                        .iter()
+                        .cloned()
+                        .chain(std::iter::once(error))
+                        .collect(),
+                    warning_lines: summary.warnings.clone(),
+                };
+                let report = BspImportReport {
+                    ok: false,
+                    tool: tool.display().to_string(),
+                    input_bsp: input.display().to_string(),
+                    output_vmf: output_vmf.display().to_string(),
+                    exit_code: tool_output.status.code(),
+                    log_path: config.log.as_ref().map(|path| path.display().to_string()),
+                    generated_vmf_exists,
+                    integrity,
+                    entity_count,
+                    classname_count,
+                    log_summary: compile_log,
+                };
+                return finish_bsp_import_report(&config, report);
+            }
+        }
+    }
+
+    let log_snapshot = CompileLogSnapshot {
+        ok: summary.is_ok() || summary.errors.is_empty(),
+        errors: summary.errors.len(),
+        warnings: summary.warnings.len(),
+        leak_detected: summary.leak_detected,
+        error_lines: summary.errors,
+        warning_lines: summary.warnings,
+    };
+    let ok = tool_output.status.success()
+        && generated_vmf_exists
+        && log_snapshot.errors == 0
+        && !log_snapshot.leak_detected
+        && integrity
+            .as_ref()
+            .map(|report| report.errors == 0)
+            .unwrap_or(false);
+    let report = BspImportReport {
+        ok,
+        tool: tool.display().to_string(),
+        input_bsp: input.display().to_string(),
+        output_vmf: output_vmf.display().to_string(),
+        exit_code: tool_output.status.code(),
+        log_path: config.log.as_ref().map(|path| path.display().to_string()),
+        generated_vmf_exists,
+        integrity,
+        entity_count,
+        classname_count,
+        log_summary: log_snapshot,
+    };
+    finish_bsp_import_report(&config, report)
+}
+
+fn parse_bsp_import_args(args: &[String]) -> Result<BspImportConfig, String> {
+    let mut config = BspImportConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--tool" => {
+                cursor += 1;
+                config.tool = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--tool needs a path")?,
+                ));
+            }
+            "--output" | "-o" => {
+                cursor += 1;
+                config.output = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--output needs a path")?,
+                ));
+            }
+            "--log" => {
+                cursor += 1;
+                config.log = Some(PathBuf::from(args.get(cursor).ok_or("--log needs a path")?));
+            }
+            "--report" => {
+                cursor += 1;
+                config.report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--report needs a path")?,
+                ));
+            }
+            "--tool-arg" => {
+                cursor += 1;
+                config
+                    .tool_args
+                    .push(args.get(cursor).ok_or("--tool-arg needs a value")?.clone());
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown bsp-import flag `{value}`"));
+            }
+            value => {
+                if config.input.is_some() {
+                    return Err("bsp-import accepts one input BSP".to_string());
+                }
+                config.input = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn run_bsp_decompiler(
+    tool: &Path,
+    tool_args: &[String],
+    input: &Path,
+    output_vmf: &Path,
+) -> Result<std::process::Output, String> {
+    let mut command = Command::new(tool);
+    command.args(tool_args);
+    command.arg(input);
+    command.arg(output_vmf);
+    command
+        .output()
+        .map_err(|error| format!("failed to run BSP decompiler {}: {error}", tool.display()))
+}
+
+fn finish_bsp_import_report(
+    config: &BspImportConfig,
+    report: BspImportReport,
+) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode BSP import report: {error}"))?;
+    if let Some(report_path) = &config.report {
+        if let Some(parent) = report_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    format!(
+                        "failed to create report directory {}: {error}",
+                        parent.display()
+                    )
+                })?;
+            }
+        }
+        fs::write(report_path, &json).map_err(|error| {
+            format!(
+                "failed to write BSP import report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+    if config.json {
+        println!("{json}");
+    } else {
+        println!("bsp import: {}", if report.ok { "ok" } else { "failed" });
+        println!("input bsp: {}", report.input_bsp);
+        println!("output vmf: {}", report.output_vmf);
+        println!("exit code: {:?}", report.exit_code);
+        println!("generated vmf exists: {}", report.generated_vmf_exists);
+        if let Some(integrity) = &report.integrity {
+            println!("integrity errors: {}", integrity.errors);
+            println!("integrity warnings: {}", integrity.warnings);
+        }
+        println!("log errors: {}", report.log_summary.errors);
+        println!("log warnings: {}", report.log_summary.warnings);
+    }
+    if !report.ok {
+        return Err("BSP import validation failed".to_string());
+    }
+    Ok(())
+}
+
 fn run_job_command(args: &[String]) -> Result<(), String> {
     let mut job_path: Option<PathBuf> = None;
     let mut report_override: Option<PathBuf> = None;
@@ -969,6 +1198,32 @@ struct CompileStepReport {
     ok: bool,
     log_path: Option<String>,
     compile_log: CompileLogSnapshot,
+}
+
+#[derive(Debug, Clone, Default)]
+struct BspImportConfig {
+    input: Option<PathBuf>,
+    tool: Option<PathBuf>,
+    output: Option<PathBuf>,
+    log: Option<PathBuf>,
+    report: Option<PathBuf>,
+    tool_args: Vec<String>,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BspImportReport {
+    ok: bool,
+    tool: String,
+    input_bsp: String,
+    output_vmf: String,
+    exit_code: Option<i32>,
+    log_path: Option<String>,
+    generated_vmf_exists: bool,
+    integrity: Option<IntegritySnapshot>,
+    entity_count: Option<usize>,
+    classname_count: Option<usize>,
+    log_summary: CompileLogSnapshot,
 }
 
 impl ValidationSnapshot {
@@ -1383,6 +1638,7 @@ Usage:
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--report report.json] [--json]
+  sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
@@ -1453,6 +1709,27 @@ Compile profile TOML:
 
 Each step captures stdout/stderr, writes step logs when --log-dir is set,
 parses warnings/errors/leaks, and reports JSON when --json or --report is used.
+"#
+    );
+}
+
+fn print_bsp_import_help() {
+    println!(
+        r#"Usage:
+  sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--report report.json] [--json]
+
+Runs a user-provided external BSP decompiler and validates the generated VMF.
+
+Source Weaver remains VMF-first:
+  - BSPSource/VMEX/game BSPs are not bundled.
+  - The decompiler path is supplied by the user.
+  - The generated VMF is parsed, inspected, and integrity-checked before use.
+  - JSON reports include tool path, input BSP, output VMF, exit code, log path, warnings/errors, and validation status.
+
+Generic wrapper command shape:
+  <decompiler> [--tool-arg values...] <input.bsp> <output.vmf>
+
+If a decompiler needs a different argument order, create a small wrapper script and pass that script as --tool.
 "#
     );
 }

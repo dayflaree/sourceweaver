@@ -127,6 +127,8 @@ Linux users must be able to download a release tarball containing the desktop ap
 
 Source Weaver must remain VMF-first. BSP input support, if added later, must rely on user-provided external decompiler paths and must not bundle third-party decompilers, game BSPs, or decompiled content. Documentation must explain legal responsibilities, decompile quality limitations, and the recommended external workflow.
 
+The CLI may run a user-provided BSP decompiler wrapper and must validate the generated VMF before reporting success. Reports must include tool path, input BSP, output VMF, exit code, log path, warnings/errors, entity counts, classname counts, and integrity status. The desktop app must be able to import BSP-derived VMFs with clear warnings while keeping them as normal VMF inputs after import.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.
