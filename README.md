@@ -39,6 +39,7 @@ Current capabilities:
 - Draw `info_landmark` diamond markers with targetname labels, selected-landmark highlighting, and merged-preview offset arrows.
 - Detect brush roles such as triggers, clips, areaportals, occluders, skybox, hint, skip, nodraw, and water.
 - Preview bulk deletion rules.
+- Visualize deletion rules in the selected-map preview by highlighting, dimming, or hiding matched content.
 - Apply transparent deletion presets for triggers, clips, areaportals, gameplay logic, world-only cleanup, and world-plus-skybox cleanup.
 - Choose safe brush-entity deletion behavior and protect critical transition/player/logic entities by default.
 - Save a cleaned copy of a selected VMF.
@@ -93,7 +94,7 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 12. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, and selected with checkboxes; selections persist while switching tabs.
 13. Optionally apply a deletion preset, then inspect the generated deletion rules.
 14. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
-15. Click **Preview deletion** to see how much content the cleanup rules would remove.
+15. Use **Deletion preview** in the preview toolbar to highlight, dim, or hide content matched by current cleanup rules. Click **Preview deletion** to see exact in-memory removal counts without writing a file.
 16. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
 
 

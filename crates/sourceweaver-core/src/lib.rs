@@ -38,7 +38,10 @@ pub use preview::{
     combine_preview_documents, preview_document, preview_document_with_source,
     translate_preview_document,
 };
-pub use prune::{BrushEntityDeletionMode, DeletionCriteria, DeletionReport, prune_document};
+pub use prune::{
+    BrushEntityDeletionMode, DeletionCriteria, DeletionReport, is_critical_entity_classname,
+    prune_document,
+};
 pub use transform::{Vec3, find_landmark_origin, translate_block};
 pub use transition::{CampaignTransition, discover_transitions};
 pub use vmf::{Document, Node, ParseError, parse_document};

@@ -4,10 +4,11 @@ use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
     CampaignTransition, DeletionCriteria, DeletionReport, Document, EntityRecord, IntegrityReport,
     LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions, MergeReport, PreviewBounds,
-    PreviewDocument, PreviewSolid, combine_preview_documents, discover_landmarks,
-    discover_transitions, format_integrity_issue, inspect_entities, merge_maps, preview_document,
-    preview_document_with_source, prune_document, suggest_campaign_order, summarize_entity_types,
-    translate_preview_document, validate_document_integrity,
+    PreviewDocument, PreviewEntityMarker, PreviewSolid, combine_preview_documents,
+    discover_landmarks, discover_transitions, format_integrity_issue, inspect_entities,
+    is_critical_entity_classname, merge_maps, preview_document, preview_document_with_source,
+    prune_document, suggest_campaign_order, summarize_entity_types, translate_preview_document,
+    validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -51,6 +52,7 @@ struct SourceWeaverApp {
     preview_show_solids: bool,
     preview_show_entities: bool,
     preview_show_grid: bool,
+    preview_deletion_mode: DeletionPreviewMode,
     selected_entity_rows: BTreeSet<EntitySelectionKey>,
     entity_search: String,
     entity_role_filter: Option<BrushRole>,
@@ -96,6 +98,12 @@ struct MergedPreviewSummary {
     offsets: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct PreviewDeletionCounts {
+    solids: usize,
+    entities: usize,
+}
+
 #[derive(Debug, Clone)]
 struct LandmarkOption {
     targetname: String,
@@ -136,6 +144,14 @@ enum PreviewView {
     Top,
     Front,
     Side,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeletionPreviewMode {
+    Off,
+    HighlightRemoved,
+    DimRemoved,
+    HideRemoved,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,6 +329,7 @@ impl SourceWeaverApp {
             preview_show_solids: true,
             preview_show_entities: true,
             preview_show_grid: true,
+            preview_deletion_mode: DeletionPreviewMode::HighlightRemoved,
             selected_entity_rows: BTreeSet::new(),
             entity_search: String::new(),
             entity_role_filter: None,
@@ -1603,6 +1620,43 @@ impl SourceWeaverApp {
         });
 
         ui.horizontal_wrapped(|ui| {
+            ui.label("Deletion preview:");
+            egui::ComboBox::from_id_salt("deletion_preview_mode")
+                .selected_text(deletion_preview_mode_label(self.preview_deletion_mode))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.preview_deletion_mode,
+                        DeletionPreviewMode::Off,
+                        deletion_preview_mode_label(DeletionPreviewMode::Off),
+                    );
+                    ui.selectable_value(
+                        &mut self.preview_deletion_mode,
+                        DeletionPreviewMode::HighlightRemoved,
+                        deletion_preview_mode_label(DeletionPreviewMode::HighlightRemoved),
+                    );
+                    ui.selectable_value(
+                        &mut self.preview_deletion_mode,
+                        DeletionPreviewMode::DimRemoved,
+                        deletion_preview_mode_label(DeletionPreviewMode::DimRemoved),
+                    );
+                    ui.selectable_value(
+                        &mut self.preview_deletion_mode,
+                        DeletionPreviewMode::HideRemoved,
+                        deletion_preview_mode_label(DeletionPreviewMode::HideRemoved),
+                    );
+                });
+            ui.weak("Selected-VMF previews update immediately from current cleanup rules.");
+        });
+
+        let deletion_criteria = self.build_deletion_criteria();
+        let deletion_overlay_mode = if merged_summary.is_none() && !deletion_criteria.is_empty() {
+            self.preview_deletion_mode
+        } else {
+            DeletionPreviewMode::Off
+        };
+        let preview_deletion_counts = count_preview_deletions(preview, &deletion_criteria);
+
+        ui.horizontal_wrapped(|ui| {
             ui.label(format!("{} preview solids", preview.solids.len()));
             ui.separator();
             ui.label(format!("{} entity origins", preview.entities.len()));
@@ -1612,6 +1666,21 @@ impl SourceWeaverApp {
             ui.add(egui::Slider::new(&mut self.preview_zoom, 0.1..=12.0).text("Zoom"));
             ui.weak("Mouse wheel zooms. Drag the preview to pan.");
         });
+
+        if !deletion_criteria.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 150, 130),
+                    format!(
+                        "Deletion overlay matches {} preview solid(s) and {} entity marker(s).",
+                        preview_deletion_counts.solids, preview_deletion_counts.entities
+                    ),
+                );
+                if merged_summary.is_some() {
+                    ui.weak("Merged preview is already built after applying cleanup rules; source VMF preview shows the overlay.");
+                }
+            });
+        }
 
         if let Some(summary) = merged_summary {
             ui.group(|ui| {
@@ -1680,19 +1749,29 @@ impl SourceWeaverApp {
 
         if self.preview_show_solids {
             for solid in &preview.solids {
-                draw_preview_solid(&painter, &transform, solid);
+                let removed = preview_solid_removed(solid, &deletion_criteria);
+                if deletion_overlay_mode == DeletionPreviewMode::HideRemoved && removed {
+                    continue;
+                }
+                draw_preview_solid(&painter, &transform, solid, deletion_overlay_mode, removed);
             }
         }
 
         if self.preview_show_entities {
             for entity in &preview.entities {
+                let removed = preview_entity_removed(entity, &deletion_criteria);
+                if deletion_overlay_mode == DeletionPreviewMode::HideRemoved && removed {
+                    continue;
+                }
                 let position = transform.world_to_screen(entity.origin);
                 if rect.contains(position) {
                     let entity_color = entity
                         .source_index
                         .map(source_color)
                         .unwrap_or_else(|| egui::Color32::from_rgb(255, 232, 128));
-                    painter.circle_filled(position, 4.5, entity_color);
+                    let entity_color =
+                        deletion_entity_color(entity_color, deletion_overlay_mode, removed);
+                    painter.circle_filled(position, if removed { 5.5 } else { 4.5 }, entity_color);
                     painter.circle_stroke(
                         position,
                         6.5,
@@ -2406,18 +2485,45 @@ fn offset_vector_to_screen_delta(offset: sourceweaver_core::Vec3, view: PreviewV
     egui::vec2(u as f32, -(v as f32))
 }
 
-fn draw_preview_solid(painter: &egui::Painter, transform: &PreviewTransform, solid: &PreviewSolid) {
+fn draw_preview_solid(
+    painter: &egui::Painter,
+    transform: &PreviewTransform,
+    solid: &PreviewSolid,
+    deletion_mode: DeletionPreviewMode,
+    removed: bool,
+) {
     let (min_u, min_v) = project_vec(solid.bounds.min, transform.view);
     let (max_u, max_v) = project_vec(solid.bounds.max, transform.view);
     let a = transform.uv_to_screen(min_u, min_v);
     let b = transform.uv_to_screen(max_u, max_v);
     let rect = egui::Rect::from_two_pos(a, b);
-    let role_color = solid_color(solid);
-    let fill_color = solid.source_index.map(source_color).unwrap_or(role_color);
+    let mut role_color = solid_color(solid);
+    let mut fill_color = solid.source_index.map(source_color).unwrap_or(role_color);
+    if removed {
+        match deletion_mode {
+            DeletionPreviewMode::Off | DeletionPreviewMode::HideRemoved => {}
+            DeletionPreviewMode::HighlightRemoved => {
+                role_color = egui::Color32::from_rgb(255, 40, 40);
+                fill_color = egui::Color32::from_rgb(255, 40, 40);
+            }
+            DeletionPreviewMode::DimRemoved => {
+                role_color = role_color.gamma_multiply(0.25);
+                fill_color = fill_color.gamma_multiply(0.18);
+            }
+        }
+    }
 
     if rect.intersects(transform.rect) {
-        painter.rect_filled(rect, 0.0, fill_color.gamma_multiply(0.22));
-        draw_rect_outline(painter, rect, egui::Stroke::new(1.25_f32, role_color));
+        painter.rect_filled(
+            rect,
+            0.0,
+            fill_color.gamma_multiply(if removed { 0.32 } else { 0.22 }),
+        );
+        draw_rect_outline(
+            painter,
+            rect,
+            egui::Stroke::new(if removed { 2.0_f32 } else { 1.25_f32 }, role_color),
+        );
     }
 
     for chunk in solid.points.chunks(3) {
@@ -2550,6 +2656,117 @@ fn project_vec(point: sourceweaver_core::Vec3, view: PreviewView) -> (f64, f64) 
         PreviewView::Top => (point.x, point.y),
         PreviewView::Front => (point.x, point.z),
         PreviewView::Side => (point.y, point.z),
+    }
+}
+
+fn deletion_preview_mode_label(mode: DeletionPreviewMode) -> &'static str {
+    match mode {
+        DeletionPreviewMode::Off => "Off",
+        DeletionPreviewMode::HighlightRemoved => "Highlight removed red",
+        DeletionPreviewMode::DimRemoved => "Dim removed",
+        DeletionPreviewMode::HideRemoved => "Hide removed",
+    }
+}
+
+fn count_preview_deletions(
+    preview: &PreviewDocument,
+    criteria: &DeletionCriteria,
+) -> PreviewDeletionCounts {
+    if criteria.is_empty() {
+        return PreviewDeletionCounts::default();
+    }
+    PreviewDeletionCounts {
+        solids: preview
+            .solids
+            .iter()
+            .filter(|solid| preview_solid_removed(solid, criteria))
+            .count(),
+        entities: preview
+            .entities
+            .iter()
+            .filter(|entity| preview_entity_removed(entity, criteria))
+            .count(),
+    }
+}
+
+fn preview_entity_removed(entity: &PreviewEntityMarker, criteria: &DeletionCriteria) -> bool {
+    if criteria.is_empty() || preview_entity_protected(entity.classname.as_deref(), criteria) {
+        return false;
+    }
+    if criteria.drop_all_entities {
+        return true;
+    }
+    entity
+        .classname
+        .as_ref()
+        .map(|classname| criteria.classnames.contains(classname))
+        .unwrap_or(false)
+        || entity
+            .targetname
+            .as_ref()
+            .map(|targetname| criteria.targetnames.contains(targetname))
+            .unwrap_or(false)
+}
+
+fn preview_solid_removed(solid: &PreviewSolid, criteria: &DeletionCriteria) -> bool {
+    if criteria.is_empty() || preview_entity_protected(solid.classname.as_deref(), criteria) {
+        return false;
+    }
+
+    let entity_level_match = solid.owner_block == "entity"
+        && (criteria.drop_all_entities
+            || solid
+                .classname
+                .as_ref()
+                .map(|classname| criteria.classnames.contains(classname))
+                .unwrap_or(false)
+            || solid
+                .targetname
+                .as_ref()
+                .map(|targetname| criteria.targetnames.contains(targetname))
+                .unwrap_or(false));
+    if entity_level_match {
+        return true;
+    }
+
+    if criteria.brush_roles.is_empty() {
+        return false;
+    }
+
+    let role_match = solid
+        .roles
+        .iter()
+        .any(|role| criteria.brush_roles.contains(role));
+    if solid.owner_block == "world" {
+        return role_match;
+    }
+
+    match criteria.brush_entity_mode {
+        BrushEntityDeletionMode::WholeEntity => role_match,
+        BrushEntityDeletionMode::MatchingSolids => {
+            role_match || criteria.brush_roles.contains(&BrushRole::BrushEntity)
+        }
+    }
+}
+
+fn preview_entity_protected(classname: Option<&str>, criteria: &DeletionCriteria) -> bool {
+    criteria.protect_critical_entities
+        && classname.map(is_critical_entity_classname).unwrap_or(false)
+}
+
+fn deletion_entity_color(
+    color: egui::Color32,
+    mode: DeletionPreviewMode,
+    removed: bool,
+) -> egui::Color32 {
+    if !removed {
+        return color;
+    }
+    match mode {
+        DeletionPreviewMode::Off => color,
+        DeletionPreviewMode::HighlightRemoved => egui::Color32::from_rgb(255, 70, 70),
+        DeletionPreviewMode::DimRemoved => color.gamma_multiply(0.25),
+        DeletionPreviewMode::HideRemoved => color,
     }
 }
 

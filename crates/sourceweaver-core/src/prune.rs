@@ -195,21 +195,23 @@ fn prune_contained_solids(
 
 fn is_protected_entity_body(body: &[Node]) -> bool {
     Node::get_property(body, "classname")
-        .map(|classname| {
-            matches!(
-                classname,
-                "info_player_start"
-                    | "info_player_deathmatch"
-                    | "info_landmark"
-                    | "trigger_changelevel"
-                    | "logic_auto"
-                    | "logic_relay"
-                    | "env_global"
-                    | "info_node"
-                    | "info_node_hint"
-            )
-        })
+        .map(is_critical_entity_classname)
         .unwrap_or(false)
+}
+
+pub fn is_critical_entity_classname(classname: &str) -> bool {
+    matches!(
+        classname,
+        "info_player_start"
+            | "info_player_deathmatch"
+            | "info_landmark"
+            | "trigger_changelevel"
+            | "logic_auto"
+            | "logic_relay"
+            | "env_global"
+            | "info_node"
+            | "info_node_hint"
+    )
 }
 
 #[cfg(test)]

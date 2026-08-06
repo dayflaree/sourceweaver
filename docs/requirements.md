@@ -79,6 +79,8 @@ Brush-role deletion must distinguish world solids from brush-entity behavior. Wo
 
 Desktop deletion presets must generate transparent deletion criteria that users can inspect before applying. Presets should cover common cleanup workflows such as triggers, clips, areaportals, gameplay logic, world-only geometry, and world-plus-skybox cleanup. Preset previews must run the same deletion implementation as final export so preview counts match final deletion counts.
 
+The desktop preview must visualize current deletion criteria without writing output. Users must be able to distinguish kept and removed content through at least highlight, dim, and hide modes. Exact removal counts must continue to come from the same in-memory pruning path used by export and merge preview.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.
