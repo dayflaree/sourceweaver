@@ -56,9 +56,17 @@ The generic wrapper escape hatch remains available for unusual decompilers or ar
 
 The JSON report includes tool kind, tool path, BSPSource version probe when available, command arguments, input BSP, output VMF, exit code, log path, warning/error counts, entity count, classname count, and VMF integrity status. External decompiler runs default to a 900-second timeout; override with `--timeout-seconds` for slower maps or short failure tests.
 
-## Desktop workflow
+## Desktop decompile/import workflow
 
-The desktop app provides **Add BSP-derived VMF...**. Use it after a decompiler has produced a VMF. Source Weaver adds the generated VMF as a normal VMF input while marking it as BSP-derived in the map list. The UI warns users to review decompile limitations, parse/integrity warnings, broken solids, areaportals, materials, overlays, and missing editor metadata before merging. A desktop `.bsp` picker/decompile runner is still future #82 work.
+The desktop app provides **Decompile BSP...** and a **BSP decompile import** panel. Select a `.bsp`, choose exactly one user-provided decompiler mode, and choose output/log/report paths:
+
+- BSPSource launcher, using `bspsrc -o <out.vmf> <input.bsp>`;
+- BSPSource jar, using `java -jar <bspsrc.jar> -o <out.vmf> <input.bsp>`;
+- generic wrapper escape hatch for unusual tools or argument orders.
+
+The desktop runner delegates to the CLI `bsp-import` workflow in a background worker. Successful output is parsed, integrity-checked, imported into the selected VMF list, and tagged as BSP-derived. The UI shows the command, JSON report, stdout/stderr tails, and decompile-quality warnings. Set `SOURCEWEAVER_CLI=/path/to/sourceweaver` before launching the desktop app if the CLI executable is not next to the desktop executable.
+
+The desktop app also keeps **Add BSP-derived VMF...** for VMFs decompiled outside Source Weaver. Source Weaver adds those VMFs as normal VMF inputs while marking them as BSP-derived in the map list.
 
 ## Manual external workflow
 
