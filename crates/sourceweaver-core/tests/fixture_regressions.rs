@@ -12,7 +12,7 @@ fn fixture(name: &str) -> String {
 
 fn golden(name: &str) -> String {
     let path = format!("{}/../../tests/golden/{name}", env!("CARGO_MANIFEST_DIR"));
-    std::fs::read_to_string(path).unwrap()
+    std::fs::read_to_string(path).unwrap().replace("\r\n", "\n")
 }
 
 #[test]
