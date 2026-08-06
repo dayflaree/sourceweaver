@@ -65,6 +65,11 @@ struct SourceWeaverApp {
     classname_sort_column: ClassnameSortColumn,
     classname_sort_ascending: bool,
     fgd_metadata: BTreeMap<String, EntityMetadata>,
+    recent_vmfs: Vec<PathBuf>,
+    recent_projects: Vec<PathBuf>,
+    last_error_dialog: Option<String>,
+    use_dark_theme: bool,
+    preview_panel_height: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -355,14 +360,76 @@ impl SourceWeaverApp {
             classname_sort_column: ClassnameSortColumn::Classname,
             classname_sort_ascending: true,
             fgd_metadata: BTreeMap::new(),
+            recent_vmfs: Vec::new(),
+            recent_projects: Vec::new(),
+            last_error_dialog: None,
+            use_dark_theme: true,
+            preview_panel_height: 560.0,
         }
     }
 
     fn add_status(&mut self, message: impl Into<String>) {
-        self.status.push(message.into());
+        let message = message.into();
+        let lowered = message.to_ascii_lowercase();
+        if lowered.contains("failed")
+            || lowered.contains("error")
+            || lowered.contains("invalid")
+            || lowered.contains("parse/load")
+        {
+            self.last_error_dialog = Some(message.clone());
+        }
+        self.status.push(message);
         if self.status.len() > 12 {
             let overflow = self.status.len() - 12;
             self.status.drain(0..overflow);
+        }
+    }
+
+    fn remember_recent_vmf(&mut self, path: PathBuf) {
+        remember_recent_path(&mut self.recent_vmfs, path);
+    }
+
+    fn remember_recent_project(&mut self, path: PathBuf) {
+        remember_recent_path(&mut self.recent_projects, path);
+    }
+
+    fn handle_dropped_files(&mut self, ctx: &egui::Context) {
+        let dropped = ctx.input(|input| input.raw.dropped_files.clone());
+        if dropped.is_empty() {
+            return;
+        }
+
+        let mut vmfs = Vec::new();
+        let mut projects = Vec::new();
+        let mut fgds = Vec::new();
+        for file in dropped {
+            let Some(path) = file.path else {
+                continue;
+            };
+            match path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| extension.to_ascii_lowercase())
+                .as_deref()
+            {
+                Some("vmf") => vmfs.push(path),
+                Some("toml") => projects.push(path),
+                Some("fgd") => fgds.push(path),
+                _ => self.add_status(format!(
+                    "Ignored dropped file with unsupported extension: {}",
+                    display_path(&path)
+                )),
+            }
+        }
+
+        if !vmfs.is_empty() {
+            self.add_vmf_paths(vmfs);
+        }
+        for project in projects {
+            self.load_project_path(project);
+        }
+        if !fgds.is_empty() {
+            self.load_fgd_paths(fgds);
         }
     }
 
@@ -375,6 +442,10 @@ impl SourceWeaverApp {
             return;
         };
 
+        self.load_fgd_paths(paths);
+    }
+
+    fn load_fgd_paths(&mut self, paths: Vec<PathBuf>) {
         let mut loaded_files = 0;
         let mut loaded_classes = 0;
         for path in paths {
@@ -413,7 +484,10 @@ impl SourceWeaverApp {
                 .map_err(|error| format!("failed to serialize project: {error}"))
         }) {
             Ok(toml) => match fs::write(&path, toml) {
-                Ok(()) => self.add_status(format!("Saved project {}.", display_path(&path))),
+                Ok(()) => {
+                    self.remember_recent_project(path.clone());
+                    self.add_status(format!("Saved project {}.", display_path(&path)));
+                }
                 Err(error) => self.add_status(format!(
                     "Failed to save project {}: {error}",
                     display_path(&path)
@@ -431,6 +505,12 @@ impl SourceWeaverApp {
         else {
             return;
         };
+
+        self.load_project_path(path);
+    }
+
+    fn load_project_path(&mut self, path: PathBuf) {
+        self.remember_recent_project(path.clone());
 
         match fs::read_to_string(&path)
             .map_err(|error| format!("failed to read project {}: {error}", display_path(&path)))
@@ -512,22 +592,27 @@ impl SourceWeaverApp {
             .add_filter("Valve Map Format", &["vmf"])
             .pick_files()
         {
-            let mut added = 0;
-            for file in files {
-                if self.maps.iter().any(|entry| entry.path == file) {
-                    continue;
-                }
-                self.maps.push(MapEntry::load(file));
-                added += 1;
-            }
-            if self.selected_map.is_none() && !self.maps.is_empty() {
-                self.selected_map = Some(0);
-            }
-            self.base_index = self.base_index.min(self.maps.len().saturating_sub(1));
-            self.retain_valid_entity_selections();
-            self.clear_merged_preview();
-            self.add_status(format!("Added {added} VMF file(s)."));
+            self.add_vmf_paths(files);
         }
+    }
+
+    fn add_vmf_paths(&mut self, files: Vec<PathBuf>) {
+        let mut added = 0;
+        for file in files {
+            self.remember_recent_vmf(file.clone());
+            if self.maps.iter().any(|entry| entry.path == file) {
+                continue;
+            }
+            self.maps.push(MapEntry::load(file));
+            added += 1;
+        }
+        if self.selected_map.is_none() && !self.maps.is_empty() {
+            self.selected_map = Some(0);
+        }
+        self.base_index = self.base_index.min(self.maps.len().saturating_sub(1));
+        self.retain_valid_entity_selections();
+        self.clear_merged_preview();
+        self.add_status(format!("Added {added} VMF file(s)."));
     }
 
     fn rescan_maps(&mut self) {
@@ -917,6 +1002,64 @@ impl SourceWeaverApp {
         });
     }
 
+    fn draw_scan_progress(&self, ui: &mut egui::Ui) {
+        let total = self.maps.len();
+        if total == 0 {
+            return;
+        }
+        let loaded = self
+            .maps
+            .iter()
+            .filter(|entry| entry.analysis.is_ok())
+            .count();
+        let failed = total.saturating_sub(loaded);
+        let fraction = loaded as f32 / total as f32;
+        ui.add(
+            egui::ProgressBar::new(fraction)
+                .show_percentage()
+                .text(format!("Parsed {loaded}/{total} selected VMF(s)")),
+        );
+        if failed > 0 {
+            ui.colored_label(
+                egui::Color32::LIGHT_RED,
+                format!("{failed} VMF(s) need attention."),
+            );
+        }
+    }
+
+    fn draw_recent_paths(&mut self, ui: &mut egui::Ui) {
+        if self.recent_vmfs.is_empty() && self.recent_projects.is_empty() {
+            return;
+        }
+
+        ui.collapsing("Recent files", |ui| {
+            if !self.recent_projects.is_empty() {
+                ui.label("Projects/jobs");
+                for path in self.recent_projects.clone() {
+                    ui.horizontal(|ui| {
+                        if ui.button("Open").clicked() {
+                            self.load_project_path(path.clone());
+                        }
+                        ui.label(file_label_for_legend(&display_path(&path)))
+                            .on_hover_text(display_path(&path));
+                    });
+                }
+            }
+            if !self.recent_vmfs.is_empty() {
+                ui.label("VMFs");
+                for path in self.recent_vmfs.clone() {
+                    ui.horizontal(|ui| {
+                        if ui.button("Add").clicked() {
+                            self.add_vmf_paths(vec![path.clone()]);
+                        }
+                        ui.label(file_label_for_legend(&display_path(&path)))
+                            .on_hover_text(display_path(&path));
+                    });
+                }
+            }
+        });
+    }
+
     fn campaign_order_suggestion(&self) -> Option<CampaignOrderSuggestion> {
         let inputs = self
             .maps
@@ -1301,9 +1444,31 @@ impl SourceWeaverApp {
 
 impl eframe::App for SourceWeaverApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.use_dark_theme {
+            ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            ctx.set_visuals(egui::Visuals::light());
+        }
+        self.handle_dropped_files(ctx);
+
+        if let Some(error) = self.last_error_dialog.clone() {
+            egui::Window::new("Source Weaver needs attention")
+                .collapsible(false)
+                .resizable(true)
+                .show(ctx, |ui| {
+                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    ui.separator();
+                    if ui.button("Dismiss").clicked() {
+                        self.last_error_dialog = None;
+                    }
+                });
+        }
+
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.heading("Source Weaver");
+                ui.separator();
+                ui.label("Drop .vmf, .toml, or .fgd files anywhere in this window.");
                 ui.separator();
                 if ui.button("Add VMFs...").clicked() {
                     self.add_vmf_files();
@@ -1317,6 +1482,18 @@ impl eframe::App for SourceWeaverApp {
                 if ui.button("Clear").clicked() {
                     self.clear_maps();
                 }
+                ui.separator();
+                if ui
+                    .checkbox(&mut self.use_dark_theme, "Dark theme")
+                    .on_hover_text("Toggle egui dark/light visuals.")
+                    .changed()
+                {
+                    self.add_status(if self.use_dark_theme {
+                        "Switched to dark theme."
+                    } else {
+                        "Switched to light theme."
+                    });
+                }
             });
         });
 
@@ -1328,6 +1505,8 @@ impl eframe::App for SourceWeaverApp {
                 ui.label(
                     "First choose the maps. Then pick which one acts as the base output document.",
                 );
+                self.draw_scan_progress(ui);
+                self.draw_recent_paths(ui);
                 ui.separator();
 
                 if self.maps.is_empty() {
@@ -1843,6 +2022,10 @@ impl SourceWeaverApp {
             ui.label(format!("{} landmarks", preview.landmarks.len()));
             ui.separator();
             ui.add(egui::Slider::new(&mut self.preview_zoom, 0.1..=12.0).text("Zoom"));
+            ui.add(
+                egui::Slider::new(&mut self.preview_panel_height, 320.0..=900.0)
+                    .text("Preview height"),
+            );
             ui.weak("Mouse wheel zooms. Drag the preview to pan.");
         });
 
@@ -1879,7 +2062,7 @@ impl SourceWeaverApp {
             });
         }
 
-        let desired_height = 560.0_f32.max(ui.available_height().min(720.0));
+        let desired_height = self.preview_panel_height.clamp(320.0, 900.0);
         let desired_size = egui::vec2(ui.available_width().max(360.0), desired_height);
         let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
@@ -3443,6 +3626,12 @@ fn landmark_status_label(status: &LandmarkTargetStatus) -> (String, egui::Color3
 
 fn display_path(path: &Path) -> String {
     path.display().to_string()
+}
+
+fn remember_recent_path(recent: &mut Vec<PathBuf>, path: PathBuf) {
+    recent.retain(|existing| existing != &path);
+    recent.insert(0, path);
+    recent.truncate(8);
 }
 
 fn project_relative_path(path: &Path, base_dir: &Path) -> String {

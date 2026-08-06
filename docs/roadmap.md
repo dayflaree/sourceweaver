@@ -49,8 +49,9 @@ Status: implemented.
 - Remap known VMF ID reference fields during merge renumbering.
 - Document and test editor metadata merge policy.
 - Add built-in, inferred, and FGD-loaded entity metadata.
+- Improve desktop usability with drag-and-drop, recents, progress, error dialogs, theme toggle, and preview sizing.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, visual deletion overlays, preview/table click synchronization, pending cleanup confirmation, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, entity metadata, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, compiler-log validation, displacement translation hardening, texture-axis translation, ID-reference remapping, editor metadata policy, and fixture/golden regression tests implemented.
+Status: first native Linux/Windows UI, desktop drag/drop usability, in-session recents, parse progress, error dialogs, theme toggle, adjustable preview sizing, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, visual deletion overlays, preview/table click synchronization, pending cleanup confirmation, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, entity metadata, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, compiler-log validation, displacement translation hardening, texture-axis translation, ID-reference remapping, editor metadata policy, and fixture/golden regression tests implemented.
 
 ## Milestone 3: Source/Hammer validation
 

@@ -29,6 +29,8 @@ Current capabilities:
 - Detect `trigger_changelevel` campaign transitions and show target map/landmark data.
 - Suggest campaign map order and landmark pairs from detected transitions.
 - Enrich entity/classname tables with built-in, inferred, and optionally loaded FGD metadata.
+- Drag and drop `.vmf`, `.toml`, and `.fgd` files into the desktop app, with in-session recent files/projects.
+- Show parse progress, error dialogs, dark/light theme controls, and adjustable preview height.
 - Search, role-filter, and sort large entity/classname tables.
 - Select multiple entity-table rows with checkboxes for future cleanup actions.
 - Click preview entity markers or solid bounds to select matching entity/world table rows.
@@ -88,9 +90,9 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 
 ## Desktop workflow
 
-1. Click **Add VMFs...** and select the campaign VMF files.
+1. Click **Add VMFs...** and select the campaign VMF files, or drag `.vmf` files onto the desktop window.
 2. Select the base map in the left panel or in the **Base map** dropdown.
-3. Optionally click **Load project/job...** to restore a saved `.toml` setup, or **Save project...** to write the current setup for later CLI or desktop use.
+3. Optionally click **Load project/job...** to restore a saved `.toml` setup, drag a `.toml` job/project onto the window, or **Save project...** to write the current setup for later CLI or desktop use.
 4. Review **Campaign suggestions** for a transition-derived map order and landmark pairs. Apply the suggestion or keep the manual order/base/landmark settings.
 5. Choose a discovered `info_landmark` targetname from the dropdown, or type one manually. Leave it blank to append maps without alignment.
 6. Review the **Landmark status** table. It shows which selected VMFs contain the chosen landmark and warns about missing, duplicate, or invalid landmarks before preview/export.
@@ -99,13 +101,15 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 9. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
 10. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
 11. Switch **Preview source** between the selected VMF and the merged result.
-12. Optionally click **Load FGD metadata...** to enrich entity descriptions from Hammer FGD files.
+12. Optionally click **Load FGD metadata...** or drag `.fgd` files onto the window to enrich entity descriptions from Hammer FGD files.
 13. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, selected with checkboxes, or selected by clicking preview markers/solids; selections persist while switching tabs and view projections.
 14. Optionally apply a deletion preset, then inspect the generated deletion rules.
 15. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
 16. Use **Deletion preview** in the preview toolbar to highlight, dim, or hide content matched by current cleanup rules. Click **Preview deletion** to create a pending cleanup review with exact in-memory removal counts.
 17. Review **Pending cleanup review**, then click **Confirm cleanup export**. Use **Undo pending review** to clear the pending destructive action.
 18. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the confirmed rules during merge.
+
+The desktop toolbar also provides a dark/light theme toggle. The left panel shows parse progress, recent VMF/project shortcuts, and visible parse failures. Important failures also appear in a dismissible error dialog.
 
 
 ## Non-interactive automation

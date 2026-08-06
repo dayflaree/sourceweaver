@@ -107,6 +107,10 @@ The desktop preview must visualize current deletion criteria without writing out
 
 Desktop cleanup exports must be gated by pending review and confirmation. A deletion preview must create a pending review with exact counts. Users must be able to undo/clear the pending review before export. If deletion criteria change after review, confirmation must be revoked and export must require a fresh preview. Destructive cleaned-copy and merge exports must refuse to write until the current criteria have been reviewed and confirmed.
 
+## Desktop usability
+
+The desktop app must support common workflows with minimal manual steps. Users should be able to add VMFs, projects/jobs, and FGD metadata through drag-and-drop as well as file dialogs. Recent VMF and project paths should be available during the session. Large or failing scan workflows must show visible parse progress/failure status, and important errors must appear in the UI without requiring terminal logs. Users must be able to adjust preview/table space and switch between dark and light visual themes.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.

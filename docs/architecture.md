@@ -41,6 +41,8 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - transition-derived campaign order and landmark-pair suggestions
 - search, role filtering, filtered counts, and sorting for inspection tables
 - built-in, inferred, and FGD-loaded entity metadata in inspection tables
+- drag-and-drop VMF/project/FGD import and in-session recent paths
+- parse progress, error dialog, theme toggle, and adjustable preview height controls
 - entity table row-selection state for future cleanup actions
 - deletion-rule controls
 - transparent deletion presets that generate ordinary criteria
@@ -70,6 +72,8 @@ Current commands:
 - `job-template` for generating a starter automation file
 
 The job runner resolves relative paths from the job file directory, can dry-run the operation, and emits a JSON report for machine parsing. The desktop app writes and reads the same TOML shape where possible, with relative paths anchored to the project file directory.
+
+Desktop usability is intentionally synchronous and native. Loading VMFs, projects, and FGD files can be started with file dialogs, drag-and-drop, or recent-path shortcuts. The selected-map list shows parse progress and failures, and important failures also surface in a dismissible error dialog so users do not need terminal logs.
 
 ## VMF model
 
