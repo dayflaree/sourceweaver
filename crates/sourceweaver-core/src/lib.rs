@@ -7,6 +7,7 @@
 pub mod campaign;
 pub mod classify;
 pub mod compiler;
+pub mod complexity;
 pub mod entity_metadata;
 pub mod entity_semantics;
 pub mod id_references;
@@ -28,6 +29,11 @@ pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_t
 pub use compiler::{
     CompileLogSummary, VmfToolValidationReport, parse_compile_log, validate_for_source_tools,
     validate_for_source_tools_with_rule_set,
+};
+pub use complexity::{
+    MapComplexityReport, MapComplexityRisk, SOURCE_COMPLEXITY_WARN_RATIO, SOURCE_MAX_MAP_BRUSHES,
+    SOURCE_MAX_MAP_BRUSHSIDES, SOURCE_MAX_MAP_DISPINFO, SOURCE_MAX_MAP_ENTITIES,
+    SOURCE_MAX_MAP_FACES, SOURCE_MAX_MAP_OVERLAYS, analyze_map_complexity,
 };
 pub use entity_metadata::{
     EntityCategory, EntityMetadata, EntityMetadataSource, metadata_for_classname,

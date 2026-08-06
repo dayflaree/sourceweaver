@@ -1,3 +1,4 @@
+use crate::complexity::{MapComplexityReport, analyze_map_complexity};
 use crate::entity_semantics::{EntitySemanticsReport, validate_entity_semantics};
 use crate::integrity::{IntegrityReport, validate_document_integrity};
 use crate::validation_rules::{
@@ -24,6 +25,7 @@ pub struct VmfToolValidationReport {
     pub map_label: String,
     pub integrity: IntegrityReport,
     pub entity_semantics: EntitySemanticsReport,
+    pub complexity: MapComplexityReport,
     pub rule_set: Option<RuleSetValidationReport>,
     pub compile_log: Option<CompileLogSummary>,
 }
@@ -63,6 +65,7 @@ pub fn validate_for_source_tools_with_rule_set(
         map_label: label.to_string(),
         integrity: validate_document_integrity(document, label),
         entity_semantics: validate_entity_semantics(document, label),
+        complexity: analyze_map_complexity(document),
         rule_set: rule_set
             .map(|rule_set| validate_document_with_rule_set(document, label, rule_set)),
         compile_log: compile_log.map(parse_compile_log),

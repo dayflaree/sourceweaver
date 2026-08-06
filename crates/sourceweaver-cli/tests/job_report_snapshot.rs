@@ -211,6 +211,39 @@ stderr:
     );
 }
 
+#[test]
+fn validate_reports_complexity_summary() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "validate",
+            repo_path("tests/fixtures/complexity_counts.vmf")
+                .to_str()
+                .unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["complexity"]["entities"], 3);
+    assert_eq!(report["complexity"]["point_entities"], 2);
+    assert_eq!(report["complexity"]["brush_entities"], 1);
+    assert_eq!(report["complexity"]["brush_solids"], 2);
+    assert_eq!(report["complexity"]["sides"], 2);
+    assert_eq!(report["complexity"]["displacements"], 1);
+    assert_eq!(report["complexity"]["overlays"], 1);
+    assert_eq!(report["complexity"]["warnings"], 0);
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

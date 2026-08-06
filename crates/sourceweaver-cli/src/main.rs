@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
     CampaignTransition, DeletionCriteria, DeletionReport, Document, EntitySemanticsReport,
-    IntegrityReport, MergeInput, MergeOptions, MergeReport, RuleSetValidationReport,
-    ValidationRuleSet, VmfToolValidationReport, discover_landmarks, discover_transitions,
-    format_integrity_issue, inspect_entities, merge_maps, parse_compile_log, prune_document,
-    suggest_campaign_order, summarize_entity_types, validate_document_integrity,
+    IntegrityReport, MapComplexityReport, MergeInput, MergeOptions, MergeReport,
+    RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport, discover_landmarks,
+    discover_transitions, format_integrity_issue, inspect_entities, merge_maps, parse_compile_log,
+    prune_document, suggest_campaign_order, summarize_entity_types, validate_document_integrity,
     validate_for_source_tools, validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
     validation_rule_set_choices,
 };
@@ -2729,6 +2729,7 @@ struct ValidationSnapshot {
     map: String,
     integrity: IntegritySnapshot,
     entity_semantics: EntitySemanticsSnapshot,
+    complexity: ComplexitySnapshot,
     rule_set: Option<RuleSetValidationSnapshot>,
     vbsp_exit_code: Option<i32>,
     compile_log: Option<CompileLogSnapshot>,
@@ -2753,6 +2754,29 @@ struct EntitySemanticsIssueSnapshot {
     classname: Option<String>,
     key: Option<String>,
     value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ComplexitySnapshot {
+    entities: usize,
+    point_entities: usize,
+    brush_entities: usize,
+    brush_solids: usize,
+    sides: usize,
+    displacements: usize,
+    overlays: usize,
+    warnings: usize,
+    risks: Vec<ComplexityRiskSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ComplexityRiskSnapshot {
+    severity: String,
+    metric: String,
+    count: usize,
+    warn_at: usize,
+    limit: usize,
+    message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3081,6 +3105,7 @@ impl ValidationSnapshot {
             map: report.map_label.clone(),
             integrity: snapshot_integrity_report(&report.integrity),
             entity_semantics: snapshot_entity_semantics_report(&report.entity_semantics),
+            complexity: snapshot_complexity_report(&report.complexity),
             rule_set: report.rule_set.as_ref().map(snapshot_rule_set_report),
             vbsp_exit_code,
             compile_log: report.compile_log.as_ref().map(|log| CompileLogSnapshot {
@@ -3371,6 +3396,31 @@ fn snapshot_entity_semantics_report(report: &EntitySemanticsReport) -> EntitySem
     }
 }
 
+fn snapshot_complexity_report(report: &MapComplexityReport) -> ComplexitySnapshot {
+    ComplexitySnapshot {
+        entities: report.entity_count,
+        point_entities: report.point_entity_count,
+        brush_entities: report.brush_entity_count,
+        brush_solids: report.brush_solid_count,
+        sides: report.side_count,
+        displacements: report.displacement_count,
+        overlays: report.overlay_count,
+        warnings: report.warning_count(),
+        risks: report
+            .risks
+            .iter()
+            .map(|risk| ComplexityRiskSnapshot {
+                severity: risk.severity.to_string(),
+                metric: risk.metric.to_string(),
+                count: risk.count,
+                warn_at: risk.warn_at,
+                limit: risk.limit,
+                message: risk.message.clone(),
+            })
+            .collect(),
+    }
+}
+
 fn snapshot_rule_set_report(report: &RuleSetValidationReport) -> RuleSetValidationSnapshot {
     RuleSetValidationSnapshot {
         id: report.rule_set.id.to_string(),
@@ -3449,6 +3499,23 @@ fn print_validation_snapshot(snapshot: &ValidationSnapshot) {
         println!(
             "entity-semantics\t{}\t{}\t{}\t{}",
             issue.severity, issue.map, issue.category, issue.message
+        );
+    }
+    println!(
+        "complexity: {} entities ({} point, {} brush), {} solids, {} sides, {} displacements, {} overlays",
+        snapshot.complexity.entities,
+        snapshot.complexity.point_entities,
+        snapshot.complexity.brush_entities,
+        snapshot.complexity.brush_solids,
+        snapshot.complexity.sides,
+        snapshot.complexity.displacements,
+        snapshot.complexity.overlays
+    );
+    println!("complexity warnings: {}", snapshot.complexity.warnings);
+    for risk in &snapshot.complexity.risks {
+        println!(
+            "complexity	{}	{}	{}	{}	{}",
+            risk.severity, risk.metric, risk.count, risk.warn_at, risk.limit
         );
     }
     if let Some(rule_set) = &snapshot.rule_set {

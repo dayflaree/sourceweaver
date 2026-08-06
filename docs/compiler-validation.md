@@ -20,6 +20,12 @@ Entity semantic validation runs automatically as part of `sourceweaver validate`
 
 See `docs/entity-semantic-validation.md` for the checked fields, duplicate classification policy, fixtures, and JSON shape.
 
+## Complexity heuristics
+
+`sourceweaver validate` also reports `complexity` counts and warning-only risks for entities, brush solids, sides/faces, displacements, and overlays. These are VMF-only heuristics based on documented Source BSP limits; they do not prove compile or runtime success/failure.
+
+See `docs/map-complexity.md` for thresholds, uncertainty, JSON shape, and fixture coverage.
+
 ## Game/profile rule sets
 
 Add `--rule-set <id>` to run portable game/mod/profile semantics after generic integrity checks:
