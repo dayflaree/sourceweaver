@@ -53,6 +53,10 @@ CI must cover representative VMF structures so parser, merge, preview, deletion,
 
 Landmark-aligned translation must move displacement-bearing brush sides consistently. Side `plane` points and `dispinfo` `startposition` values are absolute VMF coordinates and must be translated together. Non-position displacement fields such as normals, distances, alphas, triangle tags, and allowed verts must be preserved unless a real-map fixture proves they need different treatment.
 
+## Texture-axis translation
+
+Landmark-aligned brush translation must preserve texture-lock behavior for VMF side axes. When translating a brush by offset `t`, `uaxis` and `vaxis` shift values must be adjusted by `-dot(axis_vector, t)` while preserving axis vectors and scale values. Fixture tests must cover positive and negative axes.
+
 ### Skybox preservation
 
 World solids from incoming maps must be appended to the base map, including brushes using skybox tool materials. This ensures each selected map can contribute its skybox shell.

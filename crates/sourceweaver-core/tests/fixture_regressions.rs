@@ -81,6 +81,18 @@ fn translates_displacement_startposition_in_fixture() {
 }
 
 #[test]
+fn translates_texture_axes_in_fixture() {
+    let mut document = parse_document(&fixture("texture_axes.vmf")).unwrap();
+
+    translate_document(&mut document, Vec3::new(32.0, 16.0, 0.0));
+    let rendered = document.to_vmf_string();
+
+    assert!(rendered.contains("\"uaxis\" \"[1 0 0 -16] 0.25\""));
+    assert!(rendered.contains("\"vaxis\" \"[0 -1 0 24] 0.5\""));
+    assert!(rendered.contains("(32 16 0) (96 16 0) (96 80 0)"));
+}
+
+#[test]
 fn fixture_merge_matches_golden_output() {
     let base = parse_document(&fixture("base.vmf")).unwrap();
     let incoming = parse_document(&fixture("incoming.vmf")).unwrap();

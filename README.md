@@ -49,6 +49,7 @@ Current capabilities:
 - Export a merged `.vmf` for Hammer.
 - Guard parser, merge, prune, preview, and automation behavior with VMF fixture/golden regression tests.
 - Translate displacement side planes and `dispinfo` `startposition` values during landmark-aligned moves.
+- Adjust VMF `uaxis`/`vaxis` texture shifts during brush translation to preserve texture-lock behavior.
 
 ## Build and run the desktop app
 
@@ -218,7 +219,7 @@ Known limitations:
 - No BSP decompilation.
 - No FGD-backed property labels yet.
 - No automatic compile pipeline yet.
-- Texture-axis edge cases may need additional handling as real campaign maps are tested. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
+- Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 - Very large merged maps can still hit Hammer or Source compiler limits.
 
 ## Design principle

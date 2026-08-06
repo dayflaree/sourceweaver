@@ -110,6 +110,11 @@ fn translate_body(body: &mut Vec<Node>, offset: Vec3) {
                     *value = translated;
                 }
             }
+            Node::Property { key, value } if key == "uaxis" || key == "vaxis" => {
+                if let Some(translated) = translate_texture_axis(value, offset) {
+                    *value = translated;
+                }
+            }
             Node::Block { body, .. } => translate_body(body, offset),
             _ => {}
         }
@@ -145,6 +150,49 @@ fn translate_wrapped_vec3(value: &str, offset: Vec3) -> Option<String> {
         return Some(format!("({})", (Vec3::parse(inner)? + offset).to_vmf()));
     }
     Vec3::parse(trimmed).map(|point| (point + offset).to_vmf())
+}
+
+fn translate_texture_axis(value: &str, offset: Vec3) -> Option<String> {
+    let axis = parse_texture_axis(value)?;
+    let shifted_offset = axis.shift - dot(axis.vector, offset);
+    Some(format!(
+        "[{} {}] {}",
+        axis.vector.to_vmf(),
+        format_number(shifted_offset),
+        format_number(axis.scale)
+    ))
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct TextureAxis {
+    vector: Vec3,
+    shift: f64,
+    scale: f64,
+}
+
+fn parse_texture_axis(value: &str) -> Option<TextureAxis> {
+    let trimmed = value.trim();
+    let start = trimmed.find('[')?;
+    let after_start = &trimmed[start + 1..];
+    let end = after_start.find(']')?;
+    let axis_fields = after_start[..end].split_whitespace().collect::<Vec<_>>();
+    if axis_fields.len() != 4 {
+        return None;
+    }
+    let rest = after_start[end + 1..].trim();
+    Some(TextureAxis {
+        vector: Vec3::new(
+            axis_fields[0].parse().ok()?,
+            axis_fields[1].parse().ok()?,
+            axis_fields[2].parse().ok()?,
+        ),
+        shift: axis_fields[3].parse().ok()?,
+        scale: rest.parse().ok()?,
+    })
+}
+
+fn dot(lhs: Vec3, rhs: Vec3) -> f64 {
+    lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z
 }
 
 fn parse_parenthesized_points(value: &str) -> Option<Vec<Vec3>> {
@@ -253,5 +301,44 @@ mod tests {
             translate_wrapped_vec3("1 2 3", Vec3::new(10.0, 0.0, -3.0)),
             Some("11 2 0".to_string())
         );
+    }
+
+    #[test]
+    fn translates_texture_axis_offsets_for_texture_lock() {
+        assert_eq!(
+            translate_texture_axis("[1 0 0 16] 0.25", Vec3::new(32.0, 0.0, 0.0)),
+            Some("[1 0 0 -16] 0.25".to_string())
+        );
+        assert_eq!(
+            translate_texture_axis("[0 -1 0 8] 0.5", Vec3::new(0.0, 16.0, 0.0)),
+            Some("[0 -1 0 24] 0.5".to_string())
+        );
+        assert_eq!(
+            translate_texture_axis("[0 0 1 -4] 1", Vec3::new(0.0, 0.0, -12.0)),
+            Some("[0 0 1 8] 1".to_string())
+        );
+    }
+
+    #[test]
+    fn translates_texture_axes_inside_side_blocks() {
+        let mut block = Node::Block {
+            name: "side".to_string(),
+            body: vec![
+                Node::Property {
+                    key: "uaxis".to_string(),
+                    value: "[1 0 0 0] 0.25".to_string(),
+                },
+                Node::Property {
+                    key: "vaxis".to_string(),
+                    value: "[0 -1 0 0] 0.25".to_string(),
+                },
+            ],
+        };
+
+        translate_block(&mut block, Vec3::new(64.0, 32.0, 0.0));
+
+        let body = block.as_body().unwrap();
+        assert_eq!(Node::get_property(body, "uaxis"), Some("[1 0 0 -64] 0.25"));
+        assert_eq!(Node::get_property(body, "vaxis"), Some("[0 -1 0 32] 0.25"));
     }
 }

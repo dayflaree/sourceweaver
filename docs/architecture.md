@@ -111,9 +111,10 @@ The first selected VMF is the base document. For each additional VMF:
 6. Translate incoming entity `origin` values.
 7. Translate incoming brush `plane` values.
 8. Translate displacement `startposition` values when present, including square-bracket VMF displacement syntax.
-9. Renumber incoming `id` keys.
-10. Append incoming world solids into the base `world` block.
-11. Append incoming top-level entities after existing base nodes.
+9. Adjust `uaxis`/`vaxis` texture offsets to keep textures locked to translated brushes.
+10. Renumber incoming `id` keys.
+11. Append incoming world solids into the base `world` block.
+12. Append incoming top-level entities after existing base nodes.
 
 Landmark discovery records top-level `entity` blocks with `classname` `info_landmark` and a non-empty `targetname`. A landmark needs a parseable `origin` before it can drive alignment. The desktop UI still shows duplicate and invalid-origin status so users can fix ambiguous maps before merging.
 
@@ -152,7 +153,7 @@ Regression tests include representative VMF fixtures and golden snapshots. Core 
 ## Known technical risks
 
 - Real displacement-heavy maps may reveal game-specific edge cases; current behavior is documented in `docs/displacements.md`.
-- Texture lock behavior may require updating texture-axis offsets after brush translation.
+- Real textured map captures may reveal material-specific edge cases; current texture-axis behavior is documented in `docs/texture-axes.md`.
 - Some maps contain nested/hidden groups that need more nuanced merge behavior.
 - VMF instance handling may require expanding or preserving `func_instance` workflows.
 - Hammer compile limits may be reached when many campaign maps are merged.

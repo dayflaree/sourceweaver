@@ -1,0 +1,18 @@
+versioninfo { "editorversion" "400" }
+viewsettings { "bSnapToGrid" "1" }
+world
+{
+	"id" "1"
+	solid
+	{
+		"id" "2"
+		side
+		{
+			"id" "3"
+			"plane" "(0 0 0) (64 0 0) (64 64 0)"
+			"material" "BRICK/WALL001"
+			"uaxis" "[1 0 0 16] 0.25"
+			"vaxis" "[0 -1 0 8] 0.5"
+		}
+	}
+}
