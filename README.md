@@ -60,7 +60,7 @@ Current capabilities:
 - Reproduce public real-VMF validation with a pinned two-map Source 1 workflow script.
 - Translate displacement side planes and `dispinfo` `startposition` values during landmark-aligned moves.
 - Adjust VMF `uaxis`/`vaxis` texture shifts during brush translation to preserve texture-lock behavior.
-- Renumber incoming VMF IDs and remap known ID reference fields during merge.
+- Renumber incoming VMF IDs, remap known ID reference fields during merge, and warn on unsupported suspected ID-reference keys.
 - Preserve base editor metadata while intentionally ignoring conflicting incoming top-level editor sections.
 - Package Linux tarball and Windows zip releases from version tags.
 
@@ -325,7 +325,7 @@ Known limitations:
 - FGD support is class-level metadata only; it does not parse all property labels yet.
 - Compile, BSP packing, BSP decompile, and model compile integrations require user-provided Source tool paths; Source tools, Hammer, Crowbar, StudioMDL, game content, model assets, and custom assets are not bundled. Desktop compile launch uses the Source Weaver CLI compile pipeline and remains separate from VMF export success.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
-- Incoming IDs are renumbered during merge and known reference fields are remapped; see `docs/id-renumbering.md`.
+- Incoming IDs are renumbered during merge, known reference fields are remapped, and unsupported suspected ID-reference keys are surfaced as warnings; see `docs/id-renumbering.md`.
 - Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.
 - Entity metadata uses built-in semantics, inferred categories, and optional FGD class descriptions; see `docs/entity-metadata.md`.
 - Very large merged maps can still hit Hammer or Source compiler limits.

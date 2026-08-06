@@ -1,0 +1,21 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "logic_relay"
+	"targetname" "relay_a"
+	"targetid" "1"
+	"nodeids" "2 99"
+	"hammerid" "1000"
+}

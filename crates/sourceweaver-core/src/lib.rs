@@ -9,6 +9,7 @@ pub mod classify;
 pub mod compiler;
 pub mod entity_metadata;
 pub mod entity_semantics;
+pub mod id_references;
 pub mod integrity;
 pub mod landmark;
 pub mod merge;
@@ -35,6 +36,12 @@ pub use entity_metadata::{
 pub use entity_semantics::{
     EntitySemanticsIssue, EntitySemanticsReport, format_entity_semantics_issue,
     validate_entity_semantics,
+};
+pub use id_references::{
+    KNOWN_ID_LIKE_NON_REFERENCE_KEYS, SUPPORTED_LIST_ID_REFERENCE_KEYS,
+    SUPPORTED_SINGLE_ID_REFERENCE_KEYS, is_list_id_reference_key, is_numeric_id_or_id_list,
+    is_single_id_reference_key, is_supported_id_reference_key, is_suspected_id_reference_key,
+    supported_id_reference_summary,
 };
 pub use integrity::{
     IntegrityIssue, IntegrityReport, IntegritySeverity, format_integrity_issue,

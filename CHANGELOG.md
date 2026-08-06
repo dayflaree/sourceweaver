@@ -21,6 +21,7 @@
 - Optional model tooling slice with native MDL header inspection, user-provided StudioMDL-compatible compile reports, and Crowbar research/licensing docs.
 - Opt-in game validation rule-set model with an initial portable HL2 single-player profile exposed in CLI JSON/text reports and the desktop integrity panel.
 - Entity semantic validation for duplicate targetnames and missing common target references, reported separately in CLI JSON/text output and the desktop integrity panel.
+- Centralized VMF ID-reference remap policy plus integrity warnings for unsupported suspected ID-reference fields.
 
 ### Changed
 

@@ -1,0 +1,44 @@
+world
+{
+	"id" "1"
+	solid
+	{
+		"id" "10"
+		side
+		{
+			"id" "11"
+			"plane" "(0 0 0) (1 0 0) (1 1 0)"
+		}
+		editor
+		{
+			"groupid" "20"
+			"visgroupid" "30"
+		}
+	}
+}
+entity
+{
+	"id" "20"
+	"classname" "func_detail"
+	"parentid" "10"
+	solid
+	{
+		"id" "21"
+		side
+		{
+			"id" "22"
+			"plane" "(0 0 0) (1 0 0) (1 1 0)"
+		}
+	}
+}
+entity
+{
+	"id" "31"
+	"classname" "info_overlay"
+	"sides" "11 22 999"
+	"sideid" "11"
+	"solidid" "10"
+	"entityid" "20"
+	"nodeid" "21"
+	"visgroupid" "30"
+}

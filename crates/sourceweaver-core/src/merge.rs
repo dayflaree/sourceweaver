@@ -1,3 +1,4 @@
+use crate::id_references::{is_list_id_reference_key, is_single_id_reference_key};
 use crate::integrity::validate_merge_inputs;
 use crate::transform::{Vec3, find_landmark_origin, translate_block};
 use crate::vmf::{Document, Node};
@@ -212,7 +213,7 @@ fn remap_id_references(node: &mut Node, id_remap: &IdRemap) {
                 *value = new_id.to_string();
             }
         }
-        Node::Property { key, value } if key == "sides" => {
+        Node::Property { key, value } if is_list_id_reference_key(key) => {
             let mut changed = false;
             let remapped = value
                 .split_whitespace()
@@ -238,13 +239,6 @@ fn remap_id_references(node: &mut Node, id_remap: &IdRemap) {
         }
         _ => {}
     }
-}
-
-fn is_single_id_reference_key(key: &str) -> bool {
-    matches!(
-        key,
-        "parentid" | "groupid" | "visgroupid" | "sideid" | "solidid" | "entityid" | "nodeid"
-    )
 }
 
 #[cfg(test)]
@@ -294,20 +288,9 @@ entity { "id" "5" "classname" "prop_static" "origin" "128 0 0" }
     #[test]
     fn remaps_known_id_references_after_renumbering() {
         let base = parse_document(r#"world { "id" "100" }"#).unwrap();
-        let add = parse_document(
-            r#"
-world {
-  "id" "1"
-  solid {
-    "id" "10"
-    side { "id" "11" "plane" "(0 0 0) (1 0 0) (1 1 0)" }
-    editor { "groupid" "20" "visgroupid" "30" }
-  }
-}
-entity { "id" "20" "classname" "func_detail" "parentid" "10" solid { "id" "21" side { "id" "22" "plane" "(0 0 0) (1 0 0) (1 1 0)" } } }
-entity { "id" "31" "classname" "info_overlay" "sides" "11 22 999" "sideid" "11" "solidid" "10" "entityid" "20" "nodeid" "21" "visgroupid" "30" }
-"#,
-        )
+        let add = parse_document(include_str!(
+            "../../../tests/fixtures/id_reference_remap_fields.vmf"
+        ))
         .unwrap();
 
         let (merged, _) = merge_maps(

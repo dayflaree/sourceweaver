@@ -1,3 +1,4 @@
+use crate::id_references::{is_suspected_id_reference_key, supported_id_reference_summary};
 use crate::vmf::{Document, Node};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -96,6 +97,7 @@ pub fn validate_document_integrity(document: &Document, label: &str) -> Integrit
     let mut report = IntegrityReport::default();
     validate_top_level_sections(document, label, &mut report);
     validate_ids(document, label, &mut report);
+    validate_suspected_id_reference_fields(document, label, &mut report);
     report
 }
 
@@ -239,6 +241,56 @@ fn validate_node_ids(
     context.pop();
 }
 
+fn validate_suspected_id_reference_fields(
+    document: &Document,
+    label: &str,
+    report: &mut IntegrityReport,
+) {
+    validate_suspected_id_reference_fields_in_nodes(
+        &document.nodes,
+        label,
+        report,
+        &mut Vec::new(),
+    );
+}
+
+fn validate_suspected_id_reference_fields_in_nodes(
+    nodes: &[Node],
+    label: &str,
+    report: &mut IntegrityReport,
+    context: &mut Vec<String>,
+) {
+    let mut block_counts: BTreeMap<&str, usize> = BTreeMap::new();
+
+    for node in nodes {
+        match node {
+            Node::Property { key, value } => {
+                if is_suspected_id_reference_key(key, value) {
+                    let path = if context.is_empty() {
+                        "<root>".to_string()
+                    } else {
+                        context.join("/")
+                    };
+                    report.push(IntegrityIssue::warning(
+                        label,
+                        format!(
+                            "{path} property `{key}` has numeric value `{value}` and looks like an unsupported VMF ID-reference field; Source Weaver currently remaps {}; add a fixture before enabling automatic remap",
+                            supported_id_reference_summary()
+                        ),
+                    ));
+                }
+            }
+            Node::Block { name, body } => {
+                let index = block_counts.entry(name.as_str()).or_insert(0);
+                context.push(format!("{name}[{index}]"));
+                validate_suspected_id_reference_fields_in_nodes(body, label, report, context);
+                context.pop();
+                *index += 1;
+            }
+        }
+    }
+}
+
 fn id_is_relevant(block_name: &str) -> bool {
     matches!(
         block_name,
@@ -250,6 +302,31 @@ fn id_is_relevant(block_name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::vmf::parse_document;
+
+    #[test]
+    fn warns_about_unknown_suspected_id_reference_fields() {
+        let document = parse_document(include_str!(
+            "../../../tests/fixtures/id_reference_suspected_unknown.vmf"
+        ))
+        .unwrap();
+        let report = validate_document_integrity(&document, "id_reference_suspected_unknown.vmf");
+        let messages = report
+            .warnings()
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("`targetid`"))
+        );
+        assert!(messages.iter().any(|message| message.contains("`nodeids`")));
+        assert!(
+            !messages
+                .iter()
+                .any(|message| message.contains("`hammerid`"))
+        );
+    }
 
     #[test]
     fn reports_missing_and_duplicate_world_blocks() {

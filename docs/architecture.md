@@ -147,7 +147,7 @@ The CLI `compile` command extends this into an optional Source compile pipeline.
 
 ## ID renumbering
 
-Each incoming map gets an old-to-new ID map during merge. Known reference fields such as `parentid`, `groupid`, `visgroupid`, `sideid`, `solidid`, `entityid`, `nodeid`, and overlay `sides` are rewritten when the old ID has exactly one new target. Ambiguous duplicate old IDs are intentionally left unchanged instead of guessed. See `docs/id-renumbering.md`.
+Each incoming map gets an old-to-new ID map during merge. Known reference fields such as `parentid`, `groupid`, `visgroupid`, `sideid`, `solidid`, `entityid`, `nodeid`, and overlay `sides` are rewritten when the old ID has exactly one new target. Ambiguous duplicate old IDs are intentionally left unchanged instead of guessed. Integrity validation warns about unsupported numeric `*id`/`*ids` keys that look like possible ID references so new fields do not disappear silently. See `docs/id-renumbering.md`.
 
 ## Editor metadata
 
