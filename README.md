@@ -1,46 +1,140 @@
 # Source Weaver
 
-Source Weaver is a Linux and Windows tool for automatically combining Source Engine campaign VMFs into a single editable Hammer map. It is designed for projects such as Half-Life 2 and Black Mesa where multiple campaign maps need to be stitched together, inspected, cleaned, and exported as one VMF.
+Source Weaver is a cross-platform Source Engine VMF tool for combining campaign maps into one Hammer-editable map. It is being built for workflows around games such as Half-Life 2, Black Mesa, and other Source 1 projects that use `.vmf` map sources.
 
-## Goals
+The project has been restarted from a clean repository. The current implementation is a Rust VMF core plus a command-line interface. A desktop UI is planned after the merge, inspection, and deletion engine is stable.
 
-- Merge selected `.vmf` files into one Hammer-editable `.vmf`.
-- Move each incoming map to a shared `info_landmark` targetname so campaign transitions line up.
-- Preserve and append world brushes, including skybox brushes, so each selected map contributes its skybox shell.
-- Detect and list all top-level VMF `entity` blocks and their Hammer `classname` values without requiring a fixed whitelist.
-- Detect important brush roles such as triggers, clips, areaportals, occluders, skybox, hint, skip, nodraw, water, world brushes, and brush entities.
-- Delete entities and brushes by classname, targetname, or brush role, including bulk-style deletion rules.
-- Keep the VMF engine separate from the UI so Linux and Windows builds share the same parser, merger, and deletion behavior.
+## What Source Weaver is meant to do
 
-## Current rebuild slice
+Source Weaver takes selected VMF files and creates a single merged VMF. It is designed around campaign map stitching, where separate maps need to line up at transition landmarks and remain editable in Hammer afterward.
 
-The repository has been restarted with a Rust core and CLI. The CLI is intentionally the first deliverable because it exercises the map logic before a desktop UI is added.
+Core goals:
 
-```bash
-cargo test --workspace
-cargo run -p sourceweaver-cli -- inspect path/to/map.vmf
-cargo run -p sourceweaver-cli -- list-types path/to/map.vmf
-cargo run -p sourceweaver-cli -- prune path/to/map.vmf -o cleaned.vmf --drop-classname prop_static --drop-role clip
-cargo run -p sourceweaver-cli -- merge -o stitched.vmf --landmark landmark_name base.vmf next.vmf another.vmf
+- Merge multiple selected `.vmf` files into one output `.vmf`.
+- Align incoming maps to a shared `info_landmark` targetname.
+- Preserve incoming world brushes, including skybox brushes.
+- Preserve incoming point entities and brush entities.
+- Detect every Hammer entity classname present in the VMF, including unknown or game-specific classnames.
+- Classify common brush roles such as triggers, clips, areaportals, occluders, skybox, hint, skip, nodraw, and water.
+- Delete map content in bulk by classname, targetname, or brush role.
+
+## Current status
+
+Implemented now:
+
+- VMF KeyValues-style parser and writer.
+- Ordered VMF tree model that keeps unknown blocks and keys.
+- Entity inspection command.
+- Classname summary command.
+- Bulk prune command.
+- Landmark-aligned merge command.
+- Incoming ID renumbering to reduce Hammer conflicts.
+- Tests and VMF fixtures for parser, transform, classification, prune, and merge behavior.
+
+Planned next:
+
+- Desktop UI for Linux and Windows.
+- File picker for selecting VMFs.
+- Entity table with filtering, sorting, and bulk selection.
+- Deletion preview before applying cleanup rules.
+- Merge warnings for missing landmarks and duplicate names.
+- Hammer/compiler validation workflows.
+
+## Repository layout
+
+```text
+crates/sourceweaver-core/   VMF parser, inspection, deletion, transform, and merge engine
+crates/sourceweaver-cli/    CLI for validating and using the core engine
+docs/                       Requirements, architecture, and roadmap notes
+tests/fixtures/             Small VMF files used for local validation
 ```
 
-## Planned desktop workflow
+## Requirements
 
-1. Select multiple VMFs.
-2. Choose a base map and landmark targetname.
-3. View every detected Hammer entity type and every individual entity record.
-4. Filter by classname, targetname, role, map source, and brush material role.
-5. Bulk-select matching entities or brushes.
-6. Preview deletion rules before applying them.
-7. Merge selected VMFs into one output file.
-8. Open the generated VMF in Hammer for compile-time validation.
+- Rust stable toolchain
+- Linux, Windows, or another platform supported by Rust
 
-## Non-goals for the first slice
+The current CLI has no external runtime dependencies beyond the Rust standard library and the local `sourceweaver-core` crate.
 
-- BSP decompilation.
-- Automatic leak fixing.
-- Full compile pipeline integration.
-- Custom FGD parsing.
-- 3D preview rendering.
+## Build and test
 
-These are candidates for later milestones once VMF parsing, merging, and deletion are stable.
+```bash
+cargo fmt --check
+cargo test --workspace
+cargo build --workspace
+```
+
+## CLI usage
+
+Inspect all top-level VMF world/entity records and detected roles:
+
+```bash
+cargo run -p sourceweaver-cli -- inspect path/to/map.vmf
+```
+
+List every detected Hammer classname and count:
+
+```bash
+cargo run -p sourceweaver-cli -- list-types path/to/map.vmf
+```
+
+Delete matching content by classname, targetname, or brush role:
+
+```bash
+cargo run -p sourceweaver-cli -- prune path/to/map.vmf \
+  -o cleaned.vmf \
+  --drop-classname prop_static \
+  --drop-role clip
+```
+
+Merge multiple VMFs using a shared `info_landmark` targetname:
+
+```bash
+cargo run -p sourceweaver-cli -- merge \
+  -o stitched.vmf \
+  --landmark map_transition \
+  base.vmf next.vmf another.vmf
+```
+
+The first VMF is used as the base document. Each additional VMF contributes its world solids and entities. When `--landmark` is supplied, matching `info_landmark` origins are used to translate incoming geometry and entities into the base map's coordinate space.
+
+## Deletion roles
+
+The current deletion/classification roles are:
+
+```text
+trigger
+clip
+areaportal
+skybox
+occluder
+hint
+skip
+nodraw
+water
+world-brush
+brush-entity
+```
+
+Raw `tools/...` materials are also surfaced internally so the UI can later expose more precise cleanup filters.
+
+## Important limitations
+
+Source Weaver is early in the rebuild. The current CLI is useful for validating the VMF engine, but it is not yet the final desktop tool.
+
+Known limitations:
+
+- No graphical interface yet.
+- No BSP decompilation.
+- No FGD-backed property labels yet.
+- No automatic compile pipeline yet.
+- Texture-axis and displacement edge cases may need additional handling as real campaign maps are tested.
+- Very large merged maps can still hit Hammer or Source compiler limits.
+
+## Design principle
+
+The core engine should preserve data it does not understand. Source maps often contain game-specific entities and custom Hammer data, so Source Weaver should inspect and move VMF content conservatively instead of relying on a fixed whitelist.
+
+## License
+
+MIT
