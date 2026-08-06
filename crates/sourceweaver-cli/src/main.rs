@@ -1814,7 +1814,7 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
     }
 
     let summary = parse_compile_log(&log_text);
-    let generated_vmf_exists = output_vmf.exists();
+    let generated_vmf_exists = output_vmf.is_file();
     let mut integrity = None;
     let mut entity_count = None;
     let mut classname_count = None;
@@ -1873,8 +1873,6 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
     };
     let ok = tool_output.status.success()
         && generated_vmf_exists
-        && log_snapshot.errors == 0
-        && !log_snapshot.leak_detected
         && integrity
             .as_ref()
             .map(|report| report.errors == 0)

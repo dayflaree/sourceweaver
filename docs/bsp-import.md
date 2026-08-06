@@ -46,6 +46,8 @@ The jar command shape is:
 java -jar <bspsrc.jar> [--tool-arg values...] -o <out.vmf> <input.bsp>
 ```
 
+Jar mode is also the safest option when a launcher script mishandles quoted paths. Some generated shell launchers forward arguments with unquoted `$*`, which can split BSP paths such as `Half-Life 2/hl2/maps/example.bsp`. Source Weaver preserves arguments when launching Java directly with `--bspsource-jar` and `--java`.
+
 `--tool-arg` forwards one argument at a time before `-o`. Use it for BSPSource options such as `--unpack_embedded`, `--no_smart_unpack`, `--appid`, or `--format`.
 
 The generic wrapper escape hatch remains available for unusual decompilers or argument orders:

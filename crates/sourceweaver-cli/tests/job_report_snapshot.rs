@@ -105,6 +105,7 @@ if [[ "$#" -ne 3 || "$1" != "-o" ]]; then
   exit 64
 fi
 cp '{}' "$2"
+echo "2026-08-06T22:07:50Z main ERROR Console contains an invalid element or attribute \"IsDecompileTaskFilter\"" >&2
 echo "'$3' - Decompiled successfully."
 "#,
         fixture_vmf.display()
@@ -153,13 +154,74 @@ echo "'$3' - Decompiled successfully."
     );
     assert_eq!(report["generated_vmf_exists"], true);
     assert_eq!(report["integrity"]["errors"], 0);
-    assert!(output_vmf.exists());
+    assert_eq!(report["log_summary"]["errors"], 1);
+    assert!(output_vmf.is_file());
     assert!(report_path.exists());
 
     let command_args = report["command_args"].as_array().unwrap();
     assert_eq!(command_args[0], "-o");
     assert_eq!(command_args[1], output_vmf.display().to_string());
     assert_eq!(command_args[2], input_bsp.display().to_string());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn bsp_import_rejects_directory_at_output_vmf_path() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-bspsource-directory-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let fake_bspsource = temp_dir.join("bspsrc.sh");
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  echo "BSPSource 1.4.8"
+  exit 0
+fi
+mkdir -p "$2"
+echo "wrote directory instead of VMF"
+"#;
+    let mut file = std::fs::File::create(&fake_bspsource).unwrap();
+    file.write_all(script.as_bytes()).unwrap();
+    drop(file);
+    let mut permissions = std::fs::metadata(&fake_bspsource).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake_bspsource, permissions).unwrap();
+
+    let input_bsp = temp_dir.join("map.bsp");
+    std::fs::write(&input_bsp, b"fake bsp placeholder").unwrap();
+    let output_vmf = temp_dir.join("out.vmf");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "bsp-import",
+            input_bsp.to_str().unwrap(),
+            "--bspsource",
+            fake_bspsource.to_str().unwrap(),
+            "--output",
+            output_vmf.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], false);
+    assert_eq!(report["generated_vmf_exists"], false);
+    assert!(output_vmf.is_dir());
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
