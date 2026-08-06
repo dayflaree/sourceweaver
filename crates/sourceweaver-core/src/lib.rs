@@ -7,6 +7,7 @@
 pub mod campaign;
 pub mod classify;
 pub mod compiler;
+pub mod entity_metadata;
 pub mod integrity;
 pub mod landmark;
 pub mod merge;
@@ -23,6 +24,10 @@ pub use campaign::{
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
 pub use compiler::{
     CompileLogSummary, VmfToolValidationReport, parse_compile_log, validate_for_source_tools,
+};
+pub use entity_metadata::{
+    EntityCategory, EntityMetadata, EntityMetadataSource, metadata_for_classname,
+    metadata_for_classname_with_overrides, parse_fgd_metadata,
 };
 pub use integrity::{
     IntegrityIssue, IntegrityReport, IntegritySeverity, format_integrity_issue,

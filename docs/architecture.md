@@ -40,6 +40,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - transition table grouping detected `trigger_changelevel` target maps and landmarks
 - transition-derived campaign order and landmark-pair suggestions
 - search, role filtering, filtered counts, and sorting for inspection tables
+- built-in, inferred, and FGD-loaded entity metadata in inspection tables
 - entity table row-selection state for future cleanup actions
 - deletion-rule controls
 - transparent deletion presets that generate ordinary criteria
@@ -137,6 +138,10 @@ Each incoming map gets an old-to-new ID map during merge. Known reference fields
 ## Editor metadata
 
 The base VMF supplies top-level editor metadata such as `versioninfo`, `viewsettings`, `visgroups`, `cameras`, and `cordons`. Incoming top-level metadata is ignored to avoid conflicting global editor state. Nested editor metadata inside appended solids/entities is preserved with those objects.
+
+## Entity metadata
+
+The core library provides class-level metadata for common Source entities, infers broad categories from unknown classname prefixes, and can parse lightweight FGD class declarations for class descriptions. Desktop inspection tables display category, friendly name, and description without hiding unknown classnames. See `docs/entity-metadata.md`.
 
 ## Deletion model
 

@@ -28,6 +28,7 @@ Current capabilities:
 - View individual world/entity records with classname, targetname, origin, solid count, and detected roles.
 - Detect `trigger_changelevel` campaign transitions and show target map/landmark data.
 - Suggest campaign map order and landmark pairs from detected transitions.
+- Enrich entity/classname tables with built-in, inferred, and optionally loaded FGD metadata.
 - Search, role-filter, and sort large entity/classname tables.
 - Select multiple entity-table rows with checkboxes for future cleanup actions.
 - Click preview entity markers or solid bounds to select matching entity/world table rows.
@@ -98,12 +99,13 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 9. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
 10. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
 11. Switch **Preview source** between the selected VMF and the merged result.
-12. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, selected with checkboxes, or selected by clicking preview markers/solids; selections persist while switching tabs and view projections.
-13. Optionally apply a deletion preset, then inspect the generated deletion rules.
-14. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
-15. Use **Deletion preview** in the preview toolbar to highlight, dim, or hide content matched by current cleanup rules. Click **Preview deletion** to create a pending cleanup review with exact in-memory removal counts.
-16. Review **Pending cleanup review**, then click **Confirm cleanup export**. Use **Undo pending review** to clear the pending destructive action.
-17. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the confirmed rules during merge.
+12. Optionally click **Load FGD metadata...** to enrich entity descriptions from Hammer FGD files.
+13. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, selected with checkboxes, or selected by clicking preview markers/solids; selections persist while switching tabs and view projections.
+14. Optionally apply a deletion preset, then inspect the generated deletion rules.
+15. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
+16. Use **Deletion preview** in the preview toolbar to highlight, dim, or hide content matched by current cleanup rules. Click **Preview deletion** to create a pending cleanup review with exact in-memory removal counts.
+17. Review **Pending cleanup review**, then click **Confirm cleanup export**. Use **Undo pending review** to clear the pending destructive action.
+18. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the confirmed rules during merge.
 
 
 ## Non-interactive automation
@@ -219,13 +221,12 @@ Known limitations:
 
 - The current map preview is a 2D orthographic preview based on VMF brush plane points and bounds. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer 3D viewport.
 - No BSP decompilation.
-- No FGD-backed property labels yet.
+- FGD support is class-level metadata only; it does not parse all property labels yet.
 - No automatic compile pipeline yet.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
-
-Incoming IDs are renumbered during merge and known reference fields are remapped; see `docs/id-renumbering.md`.
-
-Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.
+- Incoming IDs are renumbered during merge and known reference fields are remapped; see `docs/id-renumbering.md`.
+- Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.
+- Entity metadata uses built-in semantics, inferred categories, and optional FGD class descriptions; see `docs/entity-metadata.md`.
 - Very large merged maps can still hit Hammer or Source compiler limits.
 
 ## Design principle

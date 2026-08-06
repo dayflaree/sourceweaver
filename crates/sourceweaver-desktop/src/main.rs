@@ -2,13 +2,14 @@ use eframe::egui;
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
-    CampaignTransition, DeletionCriteria, DeletionReport, Document, EntityRecord, IntegrityReport,
-    LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions, MergeReport, PreviewBounds,
-    PreviewDocument, PreviewEntityMarker, PreviewSolid, combine_preview_documents,
-    discover_landmarks, discover_transitions, format_integrity_issue, inspect_entities,
-    is_critical_entity_classname, merge_maps, preview_document, preview_document_with_source,
-    prune_document, suggest_campaign_order, summarize_entity_types, translate_preview_document,
-    validate_document_integrity,
+    CampaignTransition, DeletionCriteria, DeletionReport, Document, EntityMetadata, EntityRecord,
+    IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions,
+    MergeReport, PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid,
+    combine_preview_documents, discover_landmarks, discover_transitions, format_integrity_issue,
+    inspect_entities, is_critical_entity_classname, merge_maps,
+    metadata_for_classname_with_overrides, parse_fgd_metadata, preview_document,
+    preview_document_with_source, prune_document, suggest_campaign_order, summarize_entity_types,
+    translate_preview_document, validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -63,6 +64,7 @@ struct SourceWeaverApp {
     classname_search: String,
     classname_sort_column: ClassnameSortColumn,
     classname_sort_ascending: bool,
+    fgd_metadata: BTreeMap<String, EntityMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +171,7 @@ enum DeletionPreviewMode {
 enum EntitySortColumn {
     Index,
     Block,
+    Category,
     Classname,
     Targetname,
     Origin,
@@ -351,6 +354,7 @@ impl SourceWeaverApp {
             classname_search: String::new(),
             classname_sort_column: ClassnameSortColumn::Classname,
             classname_sort_ascending: true,
+            fgd_metadata: BTreeMap::new(),
         }
     }
 
@@ -360,6 +364,38 @@ impl SourceWeaverApp {
             let overflow = self.status.len() - 12;
             self.status.drain(0..overflow);
         }
+    }
+
+    fn load_fgd_dialog(&mut self) {
+        let Some(paths) = rfd::FileDialog::new()
+            .set_title("Load Hammer FGD metadata")
+            .add_filter("Forge Game Data", &["fgd"])
+            .pick_files()
+        else {
+            return;
+        };
+
+        let mut loaded_files = 0;
+        let mut loaded_classes = 0;
+        for path in paths {
+            match fs::read_to_string(&path) {
+                Ok(text) => {
+                    let entries = parse_fgd_metadata(&text, &display_path(&path));
+                    loaded_classes += entries.len();
+                    for entry in entries {
+                        self.fgd_metadata.insert(entry.classname.clone(), entry);
+                    }
+                    loaded_files += 1;
+                }
+                Err(error) => self.add_status(format!(
+                    "Failed to load FGD {}: {error}",
+                    display_path(&path)
+                )),
+            }
+        }
+        self.add_status(format!(
+            "Loaded {loaded_classes} FGD class metadata record(s) from {loaded_files} file(s)."
+        ));
     }
 
     fn save_project_dialog(&mut self) {
@@ -1373,7 +1409,13 @@ impl SourceWeaverApp {
             if ui.button("Save project...").clicked() {
                 self.save_project_dialog();
             }
-            ui.weak("Project files use the CLI job TOML shape where possible.");
+            if ui.button("Load FGD metadata...").clicked() {
+                self.load_fgd_dialog();
+            }
+            ui.weak(format!(
+                "Project files use CLI job TOML where possible. {} FGD class record(s) loaded.",
+                self.fgd_metadata.len()
+            ));
         });
         ui.horizontal(|ui| {
             ui.label("Base map:");
@@ -1683,6 +1725,7 @@ impl SourceWeaverApp {
                         &mut self.entity_role_filter,
                         &mut self.entity_sort_column,
                         &mut self.entity_sort_ascending,
+                        &self.fgd_metadata,
                     );
                 }
                 TableMode::Classnames => {
@@ -1693,6 +1736,7 @@ impl SourceWeaverApp {
                         &mut self.classname_search,
                         &mut self.classname_sort_column,
                         &mut self.classname_sort_ascending,
+                        &self.fgd_metadata,
                     );
                 }
                 TableMode::Transitions => {
@@ -2137,6 +2181,7 @@ fn draw_entity_table(
     role_filter: &mut Option<BrushRole>,
     sort_column: &mut EntitySortColumn,
     sort_ascending: &mut bool,
+    fgd_metadata: &BTreeMap<String, EntityMetadata>,
 ) {
     let row_keys = records
         .iter()
@@ -2148,7 +2193,7 @@ fn draw_entity_table(
         ui.add(
             egui::TextEdit::singleline(search)
                 .desired_width(260.0)
-                .hint_text("classname, targetname, role"),
+                .hint_text("classname, targetname, category, description, role"),
         );
         if !search.trim().is_empty() && ui.button("Clear search").clicked() {
             search.clear();
@@ -2178,6 +2223,7 @@ fn draw_entity_table(
                 for column in [
                     EntitySortColumn::Index,
                     EntitySortColumn::Block,
+                    EntitySortColumn::Category,
                     EntitySortColumn::Classname,
                     EntitySortColumn::Targetname,
                     EntitySortColumn::Origin,
@@ -2193,9 +2239,11 @@ fn draw_entity_table(
     let mut rows = records
         .iter()
         .zip(row_keys.iter())
-        .filter(|(record, _)| entity_matches_filters(record, search, role_filter.as_ref()))
+        .filter(|(record, _)| {
+            entity_matches_filters(record, search, role_filter.as_ref(), fgd_metadata)
+        })
         .collect::<Vec<_>>();
-    sort_entity_rows(&mut rows, *sort_column, *sort_ascending);
+    sort_entity_rows(&mut rows, *sort_column, *sort_ascending, fgd_metadata);
 
     let filtered_keys = rows
         .iter()
@@ -2250,20 +2298,26 @@ fn draw_entity_table(
     egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
         egui::Grid::new("entity_table")
             .striped(true)
-            .num_columns(8)
+            .num_columns(11)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
                 ui.strong("Select");
                 ui.strong("#");
                 ui.strong("Block");
+                ui.strong("Category");
+                ui.strong("Friendly name");
                 ui.strong("Classname");
                 ui.strong("Targetname");
                 ui.strong("Origin");
                 ui.strong("Solids");
                 ui.strong("Roles");
+                ui.strong("Description");
                 ui.end_row();
 
                 for (record, key) in rows {
+                    let metadata = record.classname.as_deref().map(|classname| {
+                        metadata_for_classname_with_overrides(classname, fgd_metadata)
+                    });
                     let mut selected = selected_rows.contains(key);
                     if ui.checkbox(&mut selected, "").changed() {
                         if selected {
@@ -2279,6 +2333,20 @@ fn draw_entity_table(
                     };
                     ui.colored_label(text_color, record.index.to_string());
                     ui.colored_label(text_color, &record.block_name);
+                    ui.colored_label(
+                        text_color,
+                        metadata
+                            .as_ref()
+                            .map(|metadata| metadata.category.to_string())
+                            .unwrap_or_else(|| "world".to_string()),
+                    );
+                    ui.colored_label(
+                        text_color,
+                        metadata
+                            .as_ref()
+                            .map(|metadata| metadata.display_name.as_str())
+                            .unwrap_or("World"),
+                    );
                     ui.colored_label(text_color, record.classname.as_deref().unwrap_or("-"));
                     ui.colored_label(text_color, record.targetname.as_deref().unwrap_or("-"));
                     ui.colored_label(
@@ -2290,6 +2358,13 @@ fn draw_entity_table(
                     );
                     ui.colored_label(text_color, record.solid_count.to_string());
                     ui.colored_label(text_color, format_roles(&record.roles));
+                    ui.colored_label(
+                        text_color,
+                        metadata
+                            .as_ref()
+                            .and_then(|metadata| metadata.description.as_deref())
+                            .unwrap_or("-"),
+                    );
                     ui.end_row();
                 }
             });
@@ -2323,13 +2398,14 @@ fn draw_classname_table(
     search: &mut String,
     sort_column: &mut ClassnameSortColumn,
     sort_ascending: &mut bool,
+    fgd_metadata: &BTreeMap<String, EntityMetadata>,
 ) {
     ui.horizontal_wrapped(|ui| {
         ui.label("Search classnames:");
         ui.add(
             egui::TextEdit::singleline(search)
                 .desired_width(260.0)
-                .hint_text("classname"),
+                .hint_text("classname, category, description"),
         );
         if !search.trim().is_empty() && ui.button("Clear search").clicked() {
             search.clear();
@@ -2356,9 +2432,7 @@ fn draw_classname_table(
     let query = search.trim().to_ascii_lowercase();
     let mut rows = type_counts
         .iter()
-        .filter(|(classname, _)| {
-            query.is_empty() || classname.to_ascii_lowercase().contains(&query)
-        })
+        .filter(|(classname, _)| classname_matches_metadata_search(classname, &query, fgd_metadata))
         .collect::<Vec<_>>();
     sort_classname_rows(&mut rows, *sort_column, *sort_ascending);
 
@@ -2370,19 +2444,46 @@ fn draw_classname_table(
     egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
         egui::Grid::new("classname_table")
             .striped(true)
-            .num_columns(2)
+            .num_columns(5)
             .spacing([24.0, 6.0])
             .show(ui, |ui| {
                 ui.strong("Count");
                 ui.strong("Classname");
+                ui.strong("Category");
+                ui.strong("Friendly name");
+                ui.strong("Description");
                 ui.end_row();
                 for (classname, count) in rows {
+                    let metadata = metadata_for_classname_with_overrides(classname, fgd_metadata);
                     ui.label(count.to_string());
                     ui.label(classname);
+                    ui.label(metadata.category.to_string());
+                    ui.label(metadata.display_name);
+                    ui.label(metadata.description.as_deref().unwrap_or("-"));
                     ui.end_row();
                 }
             });
     });
+}
+
+fn classname_matches_metadata_search(
+    classname: &str,
+    query: &str,
+    fgd_metadata: &BTreeMap<String, EntityMetadata>,
+) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let metadata = metadata_for_classname_with_overrides(classname, fgd_metadata);
+    classname.to_ascii_lowercase().contains(query)
+        || metadata.category.to_string().contains(query)
+        || metadata.display_name.to_ascii_lowercase().contains(query)
+        || metadata
+            .description
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .contains(query)
 }
 
 fn draw_transition_table(ui: &mut egui::Ui, transitions: &[CampaignTransition]) {
@@ -2433,6 +2534,7 @@ fn entity_matches_filters(
     record: &EntityRecord,
     search: &str,
     role_filter: Option<&BrushRole>,
+    fgd_metadata: &BTreeMap<String, EntityMetadata>,
 ) -> bool {
     if let Some(role) = role_filter {
         if !record.roles.iter().any(|record_role| record_role == role) {
@@ -2446,6 +2548,10 @@ fn entity_matches_filters(
     }
 
     let roles = format_roles(&record.roles).to_ascii_lowercase();
+    let metadata = record
+        .classname
+        .as_deref()
+        .map(|classname| metadata_for_classname_with_overrides(classname, fgd_metadata));
     record.block_name.to_ascii_lowercase().contains(&query)
         || record
             .classname
@@ -2459,6 +2565,19 @@ fn entity_matches_filters(
             .unwrap_or("")
             .to_ascii_lowercase()
             .contains(&query)
+        || metadata
+            .as_ref()
+            .map(|metadata| {
+                metadata.category.to_string().contains(&query)
+                    || metadata.display_name.to_ascii_lowercase().contains(&query)
+                    || metadata
+                        .description
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(&query)
+            })
+            .unwrap_or(false)
         || roles.contains(&query)
 }
 
@@ -2466,11 +2585,14 @@ fn sort_entity_rows(
     rows: &mut Vec<(&EntityRecord, &EntitySelectionKey)>,
     column: EntitySortColumn,
     ascending: bool,
+    fgd_metadata: &BTreeMap<String, EntityMetadata>,
 ) {
     rows.sort_by(|(left, _), (right, _)| {
         let ordering = match column {
             EntitySortColumn::Index => left.index.cmp(&right.index),
             EntitySortColumn::Block => left.block_name.cmp(&right.block_name),
+            EntitySortColumn::Category => entity_category_sort_key(left, fgd_metadata)
+                .cmp(&entity_category_sort_key(right, fgd_metadata)),
             EntitySortColumn::Classname => left.classname.cmp(&right.classname),
             EntitySortColumn::Targetname => left.targetname.cmp(&right.targetname),
             EntitySortColumn::Origin => left
@@ -2488,6 +2610,21 @@ fn sort_entity_rows(
                 .then_with(|| left.index.cmp(&right.index))
         }
     });
+}
+
+fn entity_category_sort_key(
+    record: &EntityRecord,
+    fgd_metadata: &BTreeMap<String, EntityMetadata>,
+) -> String {
+    record
+        .classname
+        .as_deref()
+        .map(|classname| {
+            metadata_for_classname_with_overrides(classname, fgd_metadata)
+                .category
+                .to_string()
+        })
+        .unwrap_or_else(|| "world".to_string())
 }
 
 fn sort_classname_rows(
@@ -2529,6 +2666,7 @@ fn entity_sort_column_label(column: EntitySortColumn) -> &'static str {
     match column {
         EntitySortColumn::Index => "Index",
         EntitySortColumn::Block => "Block",
+        EntitySortColumn::Category => "Category",
         EntitySortColumn::Classname => "Classname",
         EntitySortColumn::Targetname => "Targetname",
         EntitySortColumn::Origin => "Origin",
