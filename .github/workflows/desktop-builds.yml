@@ -1,4 +1,4 @@
-name: Desktop Builds
+name: Desktop Release Builds
 
 on:
   workflow_dispatch:
@@ -6,32 +6,61 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  build:
-    name: Build desktop app (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact: sourceweaver-linux-x86_64
-            binary: target/release/sourceweaver-desktop
-          - os: windows-latest
-            artifact: sourceweaver-windows-x86_64
-            binary: target/release/sourceweaver-desktop.exe
-    runs-on: ${{ matrix.os }}
+  linux:
+    name: Package Linux desktop release
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux GUI dependencies
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev
-      - name: Build release desktop binary
-        run: cargo build --release -p sourceweaver-desktop
-      - name: Upload desktop binary
+      - name: Build Linux tarball
+        run: scripts/package-linux.sh "${GITHUB_REF_NAME:-manual}"
+      - name: Upload Linux package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.binary }}
+          name: sourceweaver-linux-x86_64
+          path: target/package/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Package Windows desktop release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Windows zip
+        shell: pwsh
+        run: scripts/package-windows.ps1 -Version "$env:GITHUB_REF_NAME"
+      - name: Upload Windows package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sourceweaver-windows-x86_64
+          path: target/package/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release packages
+        uses: actions/download-artifact@v4
+        with:
+          path: target/release-artifacts
+          merge-multiple: true
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md
+          files: |
+            target/release-artifacts/*.tar.gz
+            target/release-artifacts/*.zip

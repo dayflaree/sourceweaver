@@ -165,6 +165,8 @@ Cleanup exports are gated by a pending-review state. Running deletion preview st
 
 Rust and egui/eframe provide a shared Linux/Windows desktop UI. Native file dialogs are handled through `rfd`. CI builds the Rust workspace on Linux and Windows so platform-specific compile issues surface quickly.
 
+Desktop release builds run from `.github/workflows/desktop-builds.yml`. Manual dispatch creates workflow artifacts. Pushing a `v*` tag builds the Linux tarball and Windows zip, then publishes both to a GitHub Release using `CHANGELOG.md` as release notes.
+
 ## Regression fixtures
 
 Regression tests include representative VMF fixtures and golden snapshots. Core integration tests cover role classification, duplicate landmarks, transition discovery, preview extraction, prune counts, malformed input errors, and merged VMF golden output. CLI integration tests snapshot the job-runner JSON report and verify malformed inputs produce actionable filename/byte-position errors.

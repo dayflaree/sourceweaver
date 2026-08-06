@@ -55,8 +55,11 @@ Current capabilities:
 - Adjust VMF `uaxis`/`vaxis` texture shifts during brush translation to preserve texture-lock behavior.
 - Renumber incoming VMF IDs and remap known ID reference fields during merge.
 - Preserve base editor metadata while intentionally ignoring conflicting incoming top-level editor sections.
+- Package Linux tarball and Windows zip releases from version tags.
 
 ## Build and run the desktop app
+
+Download packaged releases from the GitHub Releases page, or build locally from source. Linux releases are `.tar.gz` archives and Windows releases are `.zip` archives. See `docs/packaging.md` and `docs/release.md` for package contents, runtime notes, and the tag-based release process.
 
 ### Linux
 
@@ -86,7 +89,7 @@ A release executable can be built with:
 cargo build --release -p sourceweaver-desktop
 ```
 
-The executable will be under `target\release\sourceweaver-desktop.exe` on Windows and `target/release/sourceweaver-desktop` on Linux. The `Desktop Builds` GitHub Actions workflow also builds Linux and Windows desktop binaries for tags and manual runs.
+The executable will be under `target\\release\\sourceweaver-desktop.exe` on Windows and `target/release/sourceweaver-desktop` on Linux. The `Desktop Release Builds` GitHub Actions workflow packages Linux and Windows release archives for tags and manual runs.
 
 ## Desktop workflow
 
@@ -213,6 +216,9 @@ crates/sourceweaver-core/      VMF parser, inspection, deletion, transform, and 
 crates/sourceweaver-cli/       CLI for validating and using the core engine
 crates/sourceweaver-desktop/   Native Linux/Windows desktop app
 docs/                          Requirements, architecture, and roadmap notes
+packaging/                     Linux desktop entry/icon and Windows icon assets
+scripts/package-linux.sh       Linux release tarball builder
+scripts/package-windows.ps1    Windows release zip builder
 tests/fixtures/                Small VMF files used for local validation
 tests/golden/                  Golden VMF and JSON snapshots used by regression tests
 ```

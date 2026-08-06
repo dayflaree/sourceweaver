@@ -111,6 +111,10 @@ Desktop cleanup exports must be gated by pending review and confirmation. A dele
 
 The desktop app must support common workflows with minimal manual steps. Users should be able to add VMFs, projects/jobs, and FGD metadata through drag-and-drop as well as file dialogs. Recent VMF and project paths should be available during the session. Large or failing scan workflows must show visible parse progress/failure status, and important errors must appear in the UI without requiring terminal logs. Users must be able to adjust preview/table space and switch between dark and light visual themes.
 
+## Release packaging
+
+Linux users must be able to download a release tarball containing the desktop app, CLI, desktop entry, icon, docs, README, and license. Windows users must be able to download a release zip containing the desktop app, CLI, icon asset, docs, README, and license. Tagging a `v*` version must build both packages, upload workflow artifacts, and publish a GitHub Release with release notes. Required Linux runtime libraries and Windows runtime expectations must be documented.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.
