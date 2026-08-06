@@ -5,6 +5,7 @@
 //! share the same VMF behavior.
 
 pub mod classify;
+pub mod landmark;
 pub mod merge;
 pub mod preview;
 pub mod prune;
@@ -12,6 +13,10 @@ pub mod transform;
 pub mod vmf;
 
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
+pub use landmark::{
+    DiscoveredLandmark, LandmarkDiscovery, LandmarkDuplicate, LandmarkTargetStatus,
+    discover_landmarks, landmark_status,
+};
 pub use merge::{MergeInput, MergeOptions, MergeReport, merge_maps};
 pub use preview::{
     PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid, preview_document,

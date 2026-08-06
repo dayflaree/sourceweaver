@@ -1,8 +1,9 @@
 use eframe::egui;
 use sourceweaver_core::{
-    BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord, MergeInput, MergeOptions,
-    MergeReport, PreviewBounds, PreviewDocument, PreviewSolid, inspect_entities, merge_maps,
-    preview_document, prune_document, summarize_entity_types,
+    BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord, LandmarkDiscovery,
+    LandmarkTargetStatus, MergeInput, MergeOptions, MergeReport, PreviewBounds, PreviewDocument,
+    PreviewSolid, discover_landmarks, inspect_entities, merge_maps, preview_document,
+    prune_document, summarize_entity_types,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -56,6 +57,7 @@ struct MapAnalysis {
     entity_records: Vec<EntityRecord>,
     type_counts: BTreeMap<String, usize>,
     preview: PreviewDocument,
+    landmarks: LandmarkDiscovery,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +74,27 @@ struct MergedPreviewSummary {
     removed_entities: usize,
     removed_world_solids: usize,
     offsets: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct LandmarkOption {
+    targetname: String,
+    present_maps: usize,
+    total_maps: usize,
+    warning_maps: usize,
+}
+
+impl LandmarkOption {
+    fn label(&self) -> String {
+        let mut label = format!(
+            "{} ({}/{})",
+            self.targetname, self.present_maps, self.total_maps
+        );
+        if self.warning_maps > 0 {
+            label.push_str(&format!(", {} warning(s)", self.warning_maps));
+        }
+        label
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,6 +263,157 @@ impl SourceWeaverApp {
         }
     }
 
+    fn discovered_landmark_options(&self) -> Vec<LandmarkOption> {
+        let total_maps = self.maps.len();
+        let mut options: BTreeMap<String, LandmarkOption> = BTreeMap::new();
+
+        for entry in &self.maps {
+            let Ok(analysis) = &entry.analysis else {
+                continue;
+            };
+            for targetname in &analysis.landmarks.targetnames {
+                let status = analysis.landmarks.status_for(targetname);
+                let option = options
+                    .entry(targetname.clone())
+                    .or_insert_with(|| LandmarkOption {
+                        targetname: targetname.clone(),
+                        present_maps: 0,
+                        total_maps,
+                        warning_maps: 0,
+                    });
+                option.present_maps += 1;
+                if matches!(
+                    status,
+                    LandmarkTargetStatus::Duplicate { .. }
+                        | LandmarkTargetStatus::InvalidOrigin { .. }
+                ) {
+                    option.warning_maps += 1;
+                }
+            }
+        }
+
+        options.into_values().collect()
+    }
+
+    fn landmark_warning_lines(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        let selected = self.landmark.trim();
+
+        for entry in &self.maps {
+            let path = file_name_or_path(&entry.path);
+            let Ok(analysis) = &entry.analysis else {
+                warnings.push(format!(
+                    "Warning: {path} could not be parsed; landmark status is unavailable."
+                ));
+                continue;
+            };
+
+            for duplicate in &analysis.landmarks.duplicates {
+                warnings.push(format!(
+                    "Warning: {path} has duplicate info_landmark `{}` ({} entries, {} valid origin(s)).",
+                    duplicate.targetname, duplicate.count, duplicate.valid_origins
+                ));
+            }
+
+            if selected.is_empty() {
+                continue;
+            }
+
+            match analysis.landmarks.status_for(selected) {
+                LandmarkTargetStatus::Blank | LandmarkTargetStatus::Present { .. } => {}
+                LandmarkTargetStatus::Missing => warnings.push(format!(
+                    "Warning: {path} is missing landmark `{selected}`; it will be left unshifted if merged."
+                )),
+                LandmarkTargetStatus::InvalidOrigin { .. } => warnings.push(format!(
+                    "Warning: {path} has landmark `{selected}` with a missing or invalid origin; it will be left unshifted if merged."
+                )),
+                LandmarkTargetStatus::Duplicate {
+                    count,
+                    valid_origins,
+                } => warnings.push(format!(
+                    "Warning: {path} has duplicate landmark `{selected}` ({count} entries, {valid_origins} valid origin(s)); alignment is ambiguous."
+                )),
+            }
+        }
+
+        warnings
+    }
+
+    fn draw_landmark_status(&self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("Landmark status");
+
+            if self.maps.is_empty() {
+                ui.weak("Add VMFs to discover info_landmark targetnames.");
+                return;
+            }
+
+            let selected = self.landmark.trim();
+            if selected.is_empty() {
+                ui.weak("Blank landmark: selected maps will be appended without alignment.");
+            } else {
+                egui::Grid::new("landmark_status_grid")
+                    .num_columns(2)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.strong("Map");
+                        ui.strong(format!("`{selected}` status"));
+                        ui.end_row();
+
+                        for entry in &self.maps {
+                            ui.label(file_name_or_path(&entry.path));
+                            match &entry.analysis {
+                                Ok(analysis) => {
+                                    let (message, color) = landmark_status_label(
+                                        &analysis.landmarks.status_for(selected),
+                                    );
+                                    ui.colored_label(color, message);
+                                }
+                                Err(error) => {
+                                    ui.colored_label(
+                                        egui::Color32::LIGHT_RED,
+                                        format!("Parse failed: {error}"),
+                                    );
+                                }
+                            }
+                            ui.end_row();
+                        }
+                    });
+            }
+
+            let duplicate_lines = self
+                .maps
+                .iter()
+                .filter_map(|entry| {
+                    entry
+                        .analysis
+                        .as_ref()
+                        .ok()
+                        .map(|analysis| (entry, analysis))
+                })
+                .flat_map(|(entry, analysis)| {
+                    analysis.landmarks.duplicates.iter().map(move |duplicate| {
+                        format!(
+                            "{} duplicates `{}` ({} entries, {} valid origin(s))",
+                            file_name_or_path(&entry.path),
+                            duplicate.targetname,
+                            duplicate.count,
+                            duplicate.valid_origins
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            if !duplicate_lines.is_empty() {
+                ui.separator();
+                ui.colored_label(egui::Color32::YELLOW, "Duplicate landmark targetnames:");
+                for line in duplicate_lines {
+                    ui.small(line);
+                }
+            }
+        });
+    }
+
     fn prepare_merge_inputs(&self) -> Result<(Vec<MergeInput>, DeletionReport), String> {
         if self.maps.len() < 2 {
             return Err("Merge preview needs at least two VMF files.".to_string());
@@ -279,6 +453,10 @@ impl SourceWeaverApp {
                 return;
             }
         };
+
+        for warning in self.landmark_warning_lines() {
+            self.add_status(warning);
+        }
 
         let landmark = blank_to_none(&self.landmark);
         match merge_maps(merge_inputs, &MergeOptions { landmark }) {
@@ -406,6 +584,10 @@ impl SourceWeaverApp {
             }
         };
 
+        for warning in self.landmark_warning_lines() {
+            self.add_status(warning);
+        }
+
         let landmark = blank_to_none(&self.landmark);
         match merge_maps(merge_inputs, &MergeOptions { landmark }) {
             Ok((document, report)) => {
@@ -490,9 +672,10 @@ impl eframe::App for SourceWeaverApp {
                             match &entry.analysis {
                                 Ok(analysis) => {
                                     ui.small(format!(
-                                        "{} records, {} classnames, {} preview solids",
+                                        "{} records, {} classnames, {} landmarks, {} preview solids",
                                         analysis.entity_records.len(),
                                         analysis.type_counts.len(),
+                                        analysis.landmarks.targetnames.len(),
                                         analysis.preview.solids.len()
                                     ));
                                 }
@@ -556,11 +739,38 @@ impl SourceWeaverApp {
                 });
         });
 
-        ui.horizontal(|ui| {
+        let previous_landmark = self.landmark.clone();
+        let landmark_options = self.discovered_landmark_options();
+        ui.horizontal_wrapped(|ui| {
             ui.label("Landmark targetname:");
+            egui::ComboBox::from_id_salt("landmark_targetname_combo")
+                .width(280.0)
+                .selected_text(if self.landmark.trim().is_empty() {
+                    "Choose discovered landmark..."
+                } else {
+                    self.landmark.trim()
+                })
+                .show_ui(ui, |ui| {
+                    if landmark_options.is_empty() {
+                        ui.weak("No info_landmark targetnames discovered.");
+                    } else {
+                        for option in &landmark_options {
+                            ui.selectable_value(
+                                &mut self.landmark,
+                                option.targetname.clone(),
+                                option.label(),
+                            );
+                        }
+                    }
+                });
             ui.text_edit_singleline(&mut self.landmark)
-                .on_hover_text("Leave blank to append maps without landmark alignment.");
+                .on_hover_text("Manual entry remains available. Leave blank to append maps without landmark alignment.");
         });
+        if self.landmark != previous_landmark {
+            self.clear_merged_preview();
+        }
+
+        self.draw_landmark_status(ui);
 
         ui.horizontal(|ui| {
             ui.label("Output VMF:");
@@ -863,6 +1073,7 @@ impl MapEntry {
                 entity_records: inspect_entities(&document),
                 type_counts: summarize_entity_types(&document),
                 preview: preview_document(&document),
+                landmarks: discover_landmarks(&document),
             }),
             Err(error) => Err(error),
         };
@@ -1193,6 +1404,33 @@ fn format_roles(roles: &[BrushRole]) -> String {
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn landmark_status_label(status: &LandmarkTargetStatus) -> (String, egui::Color32) {
+    match status {
+        LandmarkTargetStatus::Blank => (
+            "No alignment requested".to_string(),
+            egui::Color32::LIGHT_GRAY,
+        ),
+        LandmarkTargetStatus::Missing => (
+            "Missing; map will be unshifted".to_string(),
+            egui::Color32::YELLOW,
+        ),
+        LandmarkTargetStatus::Present { origin } => {
+            (format!("Present at {origin}"), egui::Color32::LIGHT_GREEN)
+        }
+        LandmarkTargetStatus::InvalidOrigin { .. } => (
+            "Found, but origin is missing or invalid".to_string(),
+            egui::Color32::YELLOW,
+        ),
+        LandmarkTargetStatus::Duplicate {
+            count,
+            valid_origins,
+        } => (
+            format!("Duplicate: {count} entries, {valid_origins} valid origin(s)"),
+            egui::Color32::YELLOW,
+        ),
+    }
 }
 
 fn display_path(path: &Path) -> String {

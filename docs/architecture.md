@@ -10,7 +10,7 @@ The core crate owns VMF behavior:
 - VMF serialization
 - entity and brush inspection
 - preview geometry extraction for orthographic UI views
-- landmark origin lookup
+- landmark discovery, duplicate checks, selected-landmark status, and origin lookup
 - brush and entity translation
 - merge operations
 - deletion/prune operations
@@ -23,7 +23,8 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 
 - VMF file selection through native file dialogs
 - base-map selection
-- landmark targetname input
+- discovered-landmark dropdown plus manual landmark targetname input
+- per-map landmark status warnings before preview/export
 - output VMF picker
 - Hammer-style 2D orthographic VMF preview
 - in-memory merged-output preview before export
@@ -84,14 +85,17 @@ The first selected VMF is the base document. For each additional VMF:
 
 1. Parse VMF.
 2. Optionally prune content using the selected deletion criteria.
-3. Find requested `info_landmark` targetname.
-4. Compute translation offset against the base landmark.
-5. Translate incoming entity `origin` values.
-6. Translate incoming brush `plane` values.
-7. Translate displacement `startposition` values when present.
-8. Renumber incoming `id` keys.
-9. Append incoming world solids into the base `world` block.
-10. Append incoming top-level entities after existing base nodes.
+3. Discover selected-map `info_landmark` targetnames for UI status and warnings.
+4. Find requested `info_landmark` targetname.
+5. Compute translation offset against the base landmark.
+6. Translate incoming entity `origin` values.
+7. Translate incoming brush `plane` values.
+8. Translate displacement `startposition` values when present.
+9. Renumber incoming `id` keys.
+10. Append incoming world solids into the base `world` block.
+11. Append incoming top-level entities after existing base nodes.
+
+Landmark discovery records top-level `entity` blocks with `classname` `info_landmark` and a non-empty `targetname`. A landmark needs a parseable `origin` before it can drive alignment. The desktop UI still shows duplicate and invalid-origin status so users can fix ambiguous maps before merging.
 
 ## Deletion model
 

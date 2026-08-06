@@ -28,13 +28,13 @@ Status: implemented.
 - Add merged-output preview before export.
 - Add preview pan and zoom.
 - Add role-colored brush overlays and entity origin markers.
+- Add landmark discovery dropdown and missing/duplicate landmark warnings.
 
-Status: first native Linux/Windows UI and 2D preview slices implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, and landmark warnings implemented.
 
 ## Milestone 3: Source/Hammer validation
 
-- Add VMF integrity checks.
-- Detect missing landmarks before merge.
+- Add broader VMF integrity checks before writing.
 - Detect duplicate targetnames created by merge.
 - Detect potential Hammer ID conflicts.
 - Add optional compile-tool integration where available.

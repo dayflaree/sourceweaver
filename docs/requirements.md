@@ -27,6 +27,8 @@ base_landmark_origin - incoming_landmark_origin
 
 If a map lacks the requested landmark, the tool must report that fact and leave that map unshifted for the current slice.
 
+The desktop UI must discover `info_landmark` targetnames from selected VMFs, offer discovered values in a dropdown, and keep manual targetname entry available for unusual or messy maps. Before preview/export, it must show per-map status for the chosen landmark and warn when a selected map lacks it, has duplicate matching landmarks, or has a missing/invalid landmark origin.
+
 ### Skybox preservation
 
 World solids from incoming maps must be appended to the base map, including brushes using skybox tool materials. This ensures each selected map can contribute its skybox shell.
@@ -46,6 +48,10 @@ Incoming VMF `id` keys must be renumbered before insertion to reduce Hammer conf
 The tool must list every top-level VMF `entity` block and expose its Hammer `classname`, `targetname`, `origin`, solid count, and detected roles.
 
 Source Weaver must not rely on a fixed Hammer entity whitelist. Unknown or game-specific classnames must still be shown.
+
+### Landmark discovery
+
+The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.
 
 ### Brush role discovery
 
