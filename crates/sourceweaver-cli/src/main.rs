@@ -37,6 +37,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "merge" => merge_command(&args[1..]),
         "validate" => validate_command(&args[1..]),
         "compile" => compile_command(&args[1..]),
+        "compile-profile" | "profile" => compile_profile_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
@@ -811,6 +812,680 @@ fn print_compile_pipeline_report(report: &CompilePipelineReport) {
         for line in &step.compile_log.warning_lines {
             println!("compile-warning\t{}\t{}", step.step, line);
         }
+    }
+}
+
+fn compile_profile_command(args: &[String]) -> Result<(), String> {
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        print_compile_profile_help();
+        return Ok(());
+    };
+    match subcommand {
+        "create" => compile_profile_create_command(&args[1..]),
+        "validate" | "check" => compile_profile_validate_command(&args[1..]),
+        "discover" => compile_profile_discover_command(&args[1..]),
+        "--help" | "-h" | "help" => {
+            print_compile_profile_help();
+            Ok(())
+        }
+        other => Err(format!(
+            "unknown compile-profile subcommand `{other}`; expected create, validate, or discover"
+        )),
+    }
+}
+
+fn compile_profile_create_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_compile_profile_create_help();
+        return Ok(());
+    }
+    let config = parse_compile_profile_create_args(args)?;
+    let profile = profile_from_create_config(&config);
+    let toml_text = toml::to_string_pretty(&profile)
+        .map_err(|error| format!("failed to encode compile profile TOML: {error}"))?;
+    if let Some(output) = &config.output {
+        create_parent_dir(output, "compile profile")?;
+        fs::write(output, &toml_text).map_err(|error| {
+            format!(
+                "failed to write compile profile {}: {error}",
+                output.display()
+            )
+        })?;
+    }
+    if config.json || config.validate {
+        let report = validate_compile_profile(
+            &profile,
+            config
+                .output
+                .as_deref()
+                .unwrap_or_else(|| Path::new("<stdout>")),
+        );
+        let json = serde_json::to_string_pretty(&CompileProfileCreateReport {
+            ok: !toml_text.trim().is_empty() && (!config.validate || report.ok),
+            output: config
+                .output
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            profile_toml: if config.output.is_some() {
+                None
+            } else {
+                Some(toml_text.clone())
+            },
+            validation: Some(report),
+        })
+        .map_err(|error| format!("failed to encode compile profile create report: {error}"))?;
+        println!("{json}");
+    } else if config.output.is_none() {
+        print!("{toml_text}");
+    } else if let Some(output) = &config.output {
+        println!("wrote compile profile: {}", output.display());
+    }
+    Ok(())
+}
+
+fn compile_profile_validate_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_compile_profile_validate_help();
+        return Ok(());
+    }
+    let config = parse_compile_profile_validate_args(args)?;
+    let profile_path = config
+        .profile
+        .as_ref()
+        .ok_or("usage: sourceweaver compile-profile validate --profile profile.toml [--json]")?;
+    let profile = read_compile_profile(profile_path)?;
+    let report = validate_compile_profile(&profile, profile_path);
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode compile profile validation report: {error}"))?;
+    if config.json {
+        println!("{json}");
+    } else {
+        print_compile_profile_validation_report(&report);
+    }
+    if !report.ok {
+        return Err("compile profile validation failed".to_string());
+    }
+    Ok(())
+}
+
+fn compile_profile_discover_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_compile_profile_discover_help();
+        return Ok(());
+    }
+    let config = parse_compile_profile_discover_args(args)?;
+    let report = discover_compile_tools(&config);
+    if let Some(output) = &config.output {
+        let profile = profile_from_discovery(&config, &report);
+        let toml_text = toml::to_string_pretty(&profile).map_err(|error| {
+            format!("failed to encode discovered compile profile TOML: {error}")
+        })?;
+        create_parent_dir(output, "compile profile")?;
+        fs::write(output, toml_text).map_err(|error| {
+            format!(
+                "failed to write discovered compile profile {}: {error}",
+                output.display()
+            )
+        })?;
+    }
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode compile tool discovery report: {error}"))?;
+    if config.json {
+        println!("{json}");
+    } else {
+        print_compile_tool_discovery_report(&report);
+        if let Some(output) = &config.output {
+            println!("wrote compile profile: {}", output.display());
+        }
+    }
+    if !report.ok {
+        return Err("compile tool discovery found missing required tools".to_string());
+    }
+    Ok(())
+}
+
+fn parse_compile_profile_create_args(
+    args: &[String],
+) -> Result<CompileProfileCreateConfig, String> {
+    let mut config = CompileProfileCreateConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--output" | "-o" => {
+                cursor += 1;
+                config.output = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--output needs a path")?,
+                ));
+            }
+            "--vbsp" => {
+                cursor += 1;
+                config.vbsp = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--vbsp needs a path")?,
+                ));
+            }
+            "--vvis" => {
+                cursor += 1;
+                config.vvis = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--vvis needs a path")?,
+                ));
+            }
+            "--vrad" => {
+                cursor += 1;
+                config.vrad = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--vrad needs a path")?,
+                ));
+            }
+            "--game" => {
+                cursor += 1;
+                config.game = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game needs a path")?,
+                ));
+            }
+            "--steps" => {
+                cursor += 1;
+                config.steps = Some(parse_compile_step_list(
+                    args.get(cursor)
+                        .ok_or("--steps needs a comma-separated list")?,
+                )?);
+            }
+            "--log-dir" => {
+                cursor += 1;
+                config.log_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--log-dir needs a path")?,
+                ));
+            }
+            "--timeout-seconds" => {
+                cursor += 1;
+                config.timeout_seconds = Some(parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?);
+            }
+            "--validate" => config.validate = true,
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown compile-profile create flag `{value}`"));
+            }
+            value => {
+                return Err(format!(
+                    "unexpected compile-profile create argument `{value}`"
+                ));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn parse_compile_profile_validate_args(
+    args: &[String],
+) -> Result<CompileProfileValidateConfig, String> {
+    let mut config = CompileProfileValidateConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--profile" => {
+                cursor += 1;
+                config.profile = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--profile needs a path")?,
+                ));
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown compile-profile validate flag `{value}`"));
+            }
+            value => {
+                if config.profile.is_some() {
+                    return Err("compile-profile validate accepts one profile path".to_string());
+                }
+                config.profile = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn parse_compile_profile_discover_args(
+    args: &[String],
+) -> Result<CompileProfileDiscoverConfig, String> {
+    let mut config = CompileProfileDiscoverConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--search-dir" => {
+                cursor += 1;
+                config.search_dirs.push(PathBuf::from(
+                    args.get(cursor).ok_or("--search-dir needs a path")?,
+                ));
+            }
+            "--output" | "-o" => {
+                cursor += 1;
+                config.output = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--output needs a path")?,
+                ));
+            }
+            "--game" => {
+                cursor += 1;
+                config.game = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game needs a path")?,
+                ));
+            }
+            "--steps" => {
+                cursor += 1;
+                config.steps = Some(parse_compile_step_list(
+                    args.get(cursor)
+                        .ok_or("--steps needs a comma-separated list")?,
+                )?);
+            }
+            "--log-dir" => {
+                cursor += 1;
+                config.log_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--log-dir needs a path")?,
+                ));
+            }
+            "--timeout-seconds" => {
+                cursor += 1;
+                config.timeout_seconds = Some(parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?);
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown compile-profile discover flag `{value}`"));
+            }
+            value => {
+                return Err(format!(
+                    "unexpected compile-profile discover argument `{value}`"
+                ));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn parse_compile_step_list(value: &str) -> Result<Vec<String>, String> {
+    let steps = value
+        .split(',')
+        .map(|step| step.trim().to_ascii_lowercase())
+        .filter(|step| !step.is_empty())
+        .collect::<Vec<_>>();
+    if steps.is_empty() {
+        return Err("compile step list cannot be empty".to_string());
+    }
+    for step in &steps {
+        if !matches!(step.as_str(), "vbsp" | "vvis" | "vrad") {
+            return Err(format!(
+                "unknown compile step `{step}`; expected vbsp, vvis, or vrad"
+            ));
+        }
+    }
+    Ok(steps)
+}
+
+fn profile_from_create_config(config: &CompileProfileCreateConfig) -> CompileProfile {
+    CompileProfile {
+        tools: Some(CompileProfileTools {
+            vbsp: config.vbsp.clone(),
+            vvis: config.vvis.clone(),
+            vrad: config.vrad.clone(),
+            game: config.game.clone(),
+        }),
+        compile: Some(CompileProfileSettings {
+            steps: Some(config.steps.clone().unwrap_or_else(|| {
+                let mut steps = Vec::new();
+                if config.vbsp.is_some() {
+                    steps.push("vbsp".to_string());
+                }
+                if config.vvis.is_some() {
+                    steps.push("vvis".to_string());
+                }
+                if config.vrad.is_some() {
+                    steps.push("vrad".to_string());
+                }
+                steps
+            })),
+            log_dir: config.log_dir.clone(),
+            timeout_seconds: Some(
+                config
+                    .timeout_seconds
+                    .unwrap_or(DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS),
+            ),
+        }),
+    }
+}
+
+fn read_compile_profile(profile_path: &Path) -> Result<CompileProfile, String> {
+    let text = fs::read_to_string(profile_path).map_err(|error| {
+        format!(
+            "failed to read compile profile {}: {error}",
+            profile_path.display()
+        )
+    })?;
+    toml::from_str(&text).map_err(|error| {
+        format!(
+            "failed to parse compile profile {}: {error}",
+            profile_path.display()
+        )
+    })
+}
+
+fn validate_compile_profile(
+    profile: &CompileProfile,
+    profile_path: &Path,
+) -> CompileProfileValidationReport {
+    let base_dir = profile_path.parent().unwrap_or_else(|| Path::new("."));
+    let tools = profile.tools.clone().unwrap_or_default();
+    let settings = profile.compile.clone().unwrap_or_default();
+    let steps = settings
+        .steps
+        .clone()
+        .unwrap_or_else(|| inferred_compile_steps(&tools));
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    if steps.is_empty() {
+        errors.push("profile must configure at least one compile step".to_string());
+    }
+    let mut tool_reports = Vec::new();
+    for step in &steps {
+        if !matches!(step.as_str(), "vbsp" | "vvis" | "vrad") {
+            errors.push(format!(
+                "unknown compile step `{step}`; expected vbsp, vvis, or vrad"
+            ));
+            continue;
+        }
+        let configured_path = compile_profile_tool_for_step(&tools, step);
+        match configured_path {
+            Some(path) => {
+                let resolved = resolve_job_path(base_dir, path);
+                let exists = resolved.exists();
+                let is_file = resolved.is_file();
+                let executable = is_executable_file(&resolved);
+                if !exists {
+                    errors.push(format!(
+                        "{step} tool does not exist: {}",
+                        resolved.display()
+                    ));
+                } else if !is_file {
+                    errors.push(format!("{step} tool is not a file: {}", resolved.display()));
+                } else if !executable {
+                    warnings.push(format!(
+                        "{step} tool may not be executable: {}",
+                        resolved.display()
+                    ));
+                }
+                tool_reports.push(CompileProfileToolCheck {
+                    step: step.clone(),
+                    path: resolved.display().to_string(),
+                    exists,
+                    is_file,
+                    executable,
+                    command_shape: compile_command_shape_for_step(step),
+                });
+            }
+            None => {
+                errors.push(format!("compile step `{step}` has no tool path in [tools]"));
+                tool_reports.push(CompileProfileToolCheck {
+                    step: step.clone(),
+                    path: String::new(),
+                    exists: false,
+                    is_file: false,
+                    executable: false,
+                    command_shape: compile_command_shape_for_step(step),
+                });
+            }
+        }
+    }
+    let game = tools
+        .game
+        .as_ref()
+        .map(|path| resolve_job_path(base_dir, path));
+    if let Some(game) = &game {
+        if !game.exists() {
+            errors.push(format!("game directory does not exist: {}", game.display()));
+        } else if !game.is_dir() {
+            errors.push(format!("game path is not a directory: {}", game.display()));
+        }
+    } else {
+        warnings.push(
+            "no [tools].game directory is configured; compile commands will omit -game".to_string(),
+        );
+    }
+    let log_dir = settings
+        .log_dir
+        .as_ref()
+        .map(|path| resolve_job_path(base_dir, path));
+    if let Some(timeout) = settings.timeout_seconds {
+        if timeout == 0 {
+            errors.push("compile.timeout_seconds must be at least 1".to_string());
+        }
+    } else {
+        warnings.push(format!(
+            "compile.timeout_seconds is not set; sourceweaver compile defaults to {DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS} seconds"
+        ));
+    }
+    CompileProfileValidationReport {
+        ok: errors.is_empty(),
+        profile: profile_path.display().to_string(),
+        steps,
+        tools: tool_reports,
+        game: game.map(|path| path.display().to_string()),
+        log_dir: log_dir.map(|path| path.display().to_string()),
+        timeout_seconds: settings.timeout_seconds,
+        errors,
+        warnings,
+    }
+}
+
+fn inferred_compile_steps(tools: &CompileProfileTools) -> Vec<String> {
+    let mut steps = Vec::new();
+    if tools.vbsp.is_some() {
+        steps.push("vbsp".to_string());
+    }
+    if tools.vvis.is_some() {
+        steps.push("vvis".to_string());
+    }
+    if tools.vrad.is_some() {
+        steps.push("vrad".to_string());
+    }
+    steps
+}
+
+fn compile_profile_tool_for_step<'a>(
+    tools: &'a CompileProfileTools,
+    step: &str,
+) -> Option<&'a PathBuf> {
+    match step {
+        "vbsp" => tools.vbsp.as_ref(),
+        "vvis" => tools.vvis.as_ref(),
+        "vrad" => tools.vrad.as_ref(),
+        _ => None,
+    }
+}
+
+fn compile_command_shape_for_step(step: &str) -> String {
+    match step {
+        "vbsp" => "<vbsp> [-game <game-dir>] <map.vmf>".to_string(),
+        "vvis" => "<vvis> [-game <game-dir>] <map.bsp>".to_string(),
+        "vrad" => "<vrad> [-game <game-dir>] <map.bsp>".to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn discover_compile_tools(config: &CompileProfileDiscoverConfig) -> CompileToolDiscoveryReport {
+    let mut search_dirs = config.search_dirs.clone();
+    if let Some(paths) = env::var_os("PATH") {
+        search_dirs.extend(env::split_paths(&paths));
+    }
+    search_dirs.sort();
+    search_dirs.dedup();
+    let requested_steps = config
+        .steps
+        .clone()
+        .unwrap_or_else(|| vec!["vbsp".to_string(), "vvis".to_string(), "vrad".to_string()]);
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let mut tools = Vec::new();
+    for step in &requested_steps {
+        let candidates = discover_tool_candidates(step, &search_dirs);
+        if candidates.is_empty() {
+            errors.push(format!(
+                "could not find `{step}` in --search-dir paths or PATH; pass an explicit --{step} path to compile-profile create"
+            ));
+        }
+        tools.push(CompileToolDiscoveryCheck {
+            step: step.clone(),
+            selected: candidates.first().cloned(),
+            candidates,
+            command_shape: compile_command_shape_for_step(step),
+        });
+    }
+    if let Some(game) = &config.game {
+        if !game.exists() {
+            errors.push(format!("game directory does not exist: {}", game.display()));
+        } else if !game.is_dir() {
+            errors.push(format!("game path is not a directory: {}", game.display()));
+        }
+    } else {
+        warnings.push("no --game path was provided for the generated profile".to_string());
+    }
+    CompileToolDiscoveryReport {
+        ok: errors.is_empty(),
+        search_dirs: search_dirs
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        tools,
+        game: config.game.as_ref().map(|path| path.display().to_string()),
+        log_dir: config
+            .log_dir
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        timeout_seconds: config.timeout_seconds,
+        errors,
+        warnings,
+    }
+}
+
+fn discover_tool_candidates(step: &str, search_dirs: &[PathBuf]) -> Vec<String> {
+    let names = tool_binary_names(step);
+    let mut candidates = BTreeSet::new();
+    for dir in search_dirs {
+        for name in &names {
+            let candidate = dir.join(name);
+            if is_executable_file(&candidate) {
+                candidates.insert(candidate.display().to_string());
+            }
+        }
+    }
+    candidates.into_iter().collect()
+}
+
+fn tool_binary_names(step: &str) -> Vec<String> {
+    let mut names = vec![step.to_string()];
+    if cfg!(windows) {
+        names.push(format!("{step}.exe"));
+    } else {
+        names.push(format!("{step}.exe"));
+        names.push(format!("{step}.sh"));
+    }
+    names
+}
+
+fn profile_from_discovery(
+    config: &CompileProfileDiscoverConfig,
+    report: &CompileToolDiscoveryReport,
+) -> CompileProfile {
+    let selected = |step: &str| -> Option<PathBuf> {
+        report
+            .tools
+            .iter()
+            .find(|tool| tool.step == step)
+            .and_then(|tool| tool.selected.as_ref())
+            .map(PathBuf::from)
+    };
+    CompileProfile {
+        tools: Some(CompileProfileTools {
+            vbsp: selected("vbsp"),
+            vvis: selected("vvis"),
+            vrad: selected("vrad"),
+            game: config.game.clone(),
+        }),
+        compile: Some(CompileProfileSettings {
+            steps: Some(config.steps.clone().unwrap_or_else(|| {
+                vec!["vbsp".to_string(), "vvis".to_string(), "vrad".to_string()]
+            })),
+            log_dir: config.log_dir.clone(),
+            timeout_seconds: Some(
+                config
+                    .timeout_seconds
+                    .unwrap_or(DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS),
+            ),
+        }),
+    }
+}
+
+fn print_compile_profile_validation_report(report: &CompileProfileValidationReport) {
+    println!(
+        "compile profile: {}",
+        if report.ok { "ok" } else { "failed" }
+    );
+    println!("profile: {}", report.profile);
+    if let Some(game) = &report.game {
+        println!("game: {game}");
+    }
+    for tool in &report.tools {
+        println!(
+            "tool\t{}\t{}\texists={}\texecutable={}\t{}",
+            tool.step, tool.path, tool.exists, tool.executable, tool.command_shape
+        );
+    }
+    for warning in &report.warnings {
+        println!("warning\t{warning}");
+    }
+    for error in &report.errors {
+        println!("error\t{error}");
+    }
+}
+
+fn print_compile_tool_discovery_report(report: &CompileToolDiscoveryReport) {
+    println!(
+        "compile tool discovery: {}",
+        if report.ok { "ok" } else { "failed" }
+    );
+    for tool in &report.tools {
+        println!(
+            "tool\t{}\tselected={}\tcandidates={}",
+            tool.step,
+            tool.selected.as_deref().unwrap_or(""),
+            tool.candidates.len()
+        );
+        for candidate in &tool.candidates {
+            println!("candidate\t{}\t{}", tool.step, candidate);
+        }
+    }
+    for warning in &report.warnings {
+        println!("warning\t{warning}");
+    }
+    for error in &report.errors {
+        println!("error\t{error}");
     }
 }
 
@@ -1766,13 +2441,13 @@ struct CompileLogSnapshot {
     warning_lines: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct CompileProfile {
     tools: Option<CompileProfileTools>,
     compile: Option<CompileProfileSettings>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct CompileProfileTools {
     vbsp: Option<PathBuf>,
     vvis: Option<PathBuf>,
@@ -1780,11 +2455,93 @@ struct CompileProfileTools {
     game: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct CompileProfileSettings {
     steps: Option<Vec<String>>,
     log_dir: Option<PathBuf>,
     timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CompileProfileCreateConfig {
+    output: Option<PathBuf>,
+    vbsp: Option<PathBuf>,
+    vvis: Option<PathBuf>,
+    vrad: Option<PathBuf>,
+    game: Option<PathBuf>,
+    steps: Option<Vec<String>>,
+    log_dir: Option<PathBuf>,
+    timeout_seconds: Option<u64>,
+    validate: bool,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CompileProfileValidateConfig {
+    profile: Option<PathBuf>,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CompileProfileDiscoverConfig {
+    search_dirs: Vec<PathBuf>,
+    output: Option<PathBuf>,
+    game: Option<PathBuf>,
+    steps: Option<Vec<String>>,
+    log_dir: Option<PathBuf>,
+    timeout_seconds: Option<u64>,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompileProfileCreateReport {
+    ok: bool,
+    output: Option<String>,
+    profile_toml: Option<String>,
+    validation: Option<CompileProfileValidationReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompileProfileValidationReport {
+    ok: bool,
+    profile: String,
+    steps: Vec<String>,
+    tools: Vec<CompileProfileToolCheck>,
+    game: Option<String>,
+    log_dir: Option<String>,
+    timeout_seconds: Option<u64>,
+    errors: Vec<String>,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompileProfileToolCheck {
+    step: String,
+    path: String,
+    exists: bool,
+    is_file: bool,
+    executable: bool,
+    command_shape: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompileToolDiscoveryReport {
+    ok: bool,
+    search_dirs: Vec<String>,
+    tools: Vec<CompileToolDiscoveryCheck>,
+    game: Option<String>,
+    log_dir: Option<String>,
+    timeout_seconds: Option<u64>,
+    errors: Vec<String>,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompileToolDiscoveryCheck {
+    step: String,
+    selected: Option<String>,
+    candidates: Vec<String>,
+    command_shape: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2347,6 +3104,7 @@ Usage:
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver compile-profile create|validate|discover [options]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
@@ -2423,6 +3181,55 @@ Compile profile TOML:
 Each step captures stdout/stderr, writes step logs when --log-dir is set,
 parses warnings/errors/leaks, and reports JSON when --json or --report is used.
 External tool runs default to a 900 second timeout. Override with --timeout-seconds.
+"#
+    );
+}
+
+fn print_compile_profile_help() {
+    println!(
+        r#"Usage:
+  sourceweaver compile-profile create [--output profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--validate] [--json]
+  sourceweaver compile-profile validate --profile profile.toml [--json]
+  sourceweaver compile-profile discover [--search-dir dir] [--output profile.toml] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--json]
+
+Creates, validates, or discovers Source compile profiles for user-provided external tools.
+
+Source Weaver does not ship VBSP, VVIS, VRAD, game SDKs, or proprietary assets.
+Use this command to make profile TOML without hand-editing it and to get actionable
+missing-tool/game-path reports before running `sourceweaver compile`.
+"#
+    );
+}
+
+fn print_compile_profile_create_help() {
+    println!(
+        r#"Usage:
+  sourceweaver compile-profile create [--output profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--validate] [--json]
+
+Writes a compile profile TOML from explicit paths. Omit --output to print TOML.
+Use --validate to check the generated profile paths in the same run.
+"#
+    );
+}
+
+fn print_compile_profile_validate_help() {
+    println!(
+        r#"Usage:
+  sourceweaver compile-profile validate --profile profile.toml [--json]
+
+Checks that the profile's selected compile steps have configured tool paths, that tool
+paths exist, that the game directory exists when provided, and that timeout values are valid.
+"#
+    );
+}
+
+fn print_compile_profile_discover_help() {
+    println!(
+        r#"Usage:
+  sourceweaver compile-profile discover [--search-dir dir] [--output profile.toml] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--json]
+
+Searches explicit --search-dir paths plus PATH for vbsp/vvis/vrad executables.
+When --output is set, writes a profile using the first discovered candidate per step.
 "#
     );
 }

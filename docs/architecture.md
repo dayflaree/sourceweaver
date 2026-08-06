@@ -13,7 +13,7 @@ The core crate owns VMF behavior:
 - preview geometry extraction for orthographic UI views
 - VMF integrity validation for pre-write safety checks
 - Source-tool validation reports and VBSP compile-log parsing
-- optional VBSP/VVIS/VRAD compile pipeline orchestration
+- optional VBSP/VVIS/VRAD compile pipeline orchestration and compile-profile creation/validation
 - optional user-provided BSP decompiler wrapper and BSP-derived VMF desktop import warning
 - landmark discovery, duplicate checks, selected-landmark status, and origin lookup
 - brush and entity translation
@@ -142,7 +142,7 @@ Campaign suggestion builds a lightweight graph from selected VMF labels and `tri
 
 The CLI `validate` command loads a VMF, runs integrity checks, optionally executes a configured VBSP command, and parses captured compiler logs. CI uses the portable mode plus fixture logs because hosted Linux/Windows runners do not include Hammer or game-specific Source tool installations.
 
-The CLI `compile` command extends this into an optional Source compile pipeline. Users can provide tool paths directly or through a TOML profile, select VBSP/VVIS/VRAD steps, capture stdout/stderr logs, and emit a JSON report with parsed warnings, errors, leaks, and exit codes. External compiler and decompiler executions are bounded by configurable timeouts, and stdout/stderr are captured through temporary files so large tool logs do not deadlock pipe buffers before reports are written. See `docs/compile-pipeline.md`.
+The CLI `compile` command extends this into an optional Source compile pipeline. The CLI `compile-profile` command creates, validates, and discovers compile profiles so users can configure external VBSP/VVIS/VRAD tools without hand-writing TOML. Users can provide tool paths directly or through a TOML profile, select VBSP/VVIS/VRAD steps, capture stdout/stderr logs, and emit a JSON report with parsed warnings, errors, leaks, and exit codes. External compiler and decompiler executions are bounded by configurable timeouts, and stdout/stderr are captured through temporary files so large tool logs do not deadlock pipe buffers before reports are written. See `docs/compile-pipeline.md`.
 
 ## ID renumbering
 

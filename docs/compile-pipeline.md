@@ -29,6 +29,29 @@ Available flags:
 
 VBSP receives the input `.vmf`. VVIS and VRAD receive the corresponding `.bsp` path by changing the input extension to `.bsp`.
 
+## Compile profile helper
+
+Use `compile-profile` to create, validate, or discover profiles before running real external tools:
+
+```bash
+sourceweaver compile-profile create \
+  --output hl2-tools.toml \
+  --vbsp /path/to/vbsp-or-wrapper \
+  --vvis /path/to/vvis-or-wrapper \
+  --vrad /path/to/vrad-or-wrapper \
+  --game /path/to/game-dir \
+  --steps vbsp,vvis,vrad \
+  --log-dir target/sourceweaver-compile-logs \
+  --timeout-seconds 900 \
+  --validate \
+  --json
+
+sourceweaver compile-profile validate --profile hl2-tools.toml --json
+sourceweaver compile-profile discover --search-dir /path/to/source/bin --output discovered.toml --game /path/to/game-dir --json
+```
+
+Profile validation checks selected steps, missing tool paths, file/executable status, game directory status, and timeout settings. Discovery searches explicit `--search-dir` values plus `PATH`; it does not download tools or guess game ownership.
+
 ## Profile TOML
 
 A profile can store game/tool paths:
@@ -70,4 +93,4 @@ The command exits non-zero if VMF integrity has structural errors, any compile p
 
 This repository is developed on Linux and does not assume licensed Source tools are installed. The compile command is validated with fake compiler tools in local test runs so pipeline control flow, log capture, JSON reporting, and leak/error parsing are deterministic.
 
-Real compile validation still requires a Source game/tool installation or captured logs from a machine that has those tools.
+Real compile validation still requires a Source game/tool installation or captured logs from a machine that has those tools. See `docs/linux-source-compiler-setup.md` for Wine/Proton wrappers, sample profiles, and troubleshooting.

@@ -289,3 +289,141 @@ echo "BSPZIP finished"
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn compile_profile_create_validate_and_discover_reports_tools() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-compile-profile-test-{}-{nonce}",
+        std::process::id()
+    ));
+    let bin_dir = temp_dir.join("bin");
+    let game_dir = temp_dir.join("game");
+    let log_dir = temp_dir.join("logs");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    std::fs::create_dir_all(&game_dir).unwrap();
+
+    for tool in ["vbsp", "vvis", "vrad"] {
+        let path = bin_dir.join(tool);
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(file, "#!/usr/bin/env bash\necho {tool} fixture\n").unwrap();
+        drop(file);
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+
+    let profile_path = temp_dir.join("compile-profile.toml");
+    let create_output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "compile-profile",
+            "create",
+            "--output",
+            profile_path.to_str().unwrap(),
+            "--vbsp",
+            bin_dir.join("vbsp").to_str().unwrap(),
+            "--vvis",
+            bin_dir.join("vvis").to_str().unwrap(),
+            "--vrad",
+            bin_dir.join("vrad").to_str().unwrap(),
+            "--game",
+            game_dir.to_str().unwrap(),
+            "--steps",
+            "vbsp,vvis,vrad",
+            "--log-dir",
+            log_dir.to_str().unwrap(),
+            "--timeout-seconds",
+            "42",
+            "--validate",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        create_output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&create_output.stdout),
+        String::from_utf8_lossy(&create_output.stderr)
+    );
+    assert!(profile_path.exists());
+    let create_report: serde_json::Value = serde_json::from_slice(&create_output.stdout).unwrap();
+    assert_eq!(create_report["ok"], true);
+    assert_eq!(create_report["validation"]["ok"], true);
+    assert_eq!(
+        create_report["validation"]["tools"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+
+    let validate_output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "compile-profile",
+            "validate",
+            "--profile",
+            profile_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        validate_output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&validate_output.stdout),
+        String::from_utf8_lossy(&validate_output.stderr)
+    );
+    let validate_report: serde_json::Value =
+        serde_json::from_slice(&validate_output.stdout).unwrap();
+    assert_eq!(validate_report["ok"], true);
+    assert_eq!(validate_report["timeout_seconds"], 42);
+
+    let discovered_profile = temp_dir.join("discovered.toml");
+    let discover_output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "compile-profile",
+            "discover",
+            "--search-dir",
+            bin_dir.to_str().unwrap(),
+            "--output",
+            discovered_profile.to_str().unwrap(),
+            "--game",
+            game_dir.to_str().unwrap(),
+            "--log-dir",
+            log_dir.to_str().unwrap(),
+            "--timeout-seconds",
+            "99",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        discover_output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&discover_output.stdout),
+        String::from_utf8_lossy(&discover_output.stderr)
+    );
+    assert!(discovered_profile.exists());
+    let discover_report: serde_json::Value =
+        serde_json::from_slice(&discover_output.stdout).unwrap();
+    assert_eq!(discover_report["ok"], true);
+    assert_eq!(discover_report["tools"].as_array().unwrap().len(), 3);
+    for tool in discover_report["tools"].as_array().unwrap() {
+        assert!(
+            tool["selected"]
+                .as_str()
+                .unwrap()
+                .contains("sourceweaver-compile-profile-test")
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

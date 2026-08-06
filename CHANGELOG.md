@@ -14,6 +14,7 @@
 - Fixture/golden regression coverage for parser, merge, prune, preview, and automation reports.
 - First-class BSPSource CLI/jar decompile runner with version/provenance reporting while keeping generic wrapper support.
 - Optional BSP content packing command for user-provided `bspzip`-compatible tools, generated file lists, and JSON reports.
+- Compile profile create/validate/discover command plus Linux/Wine/Proton wrapper examples and setup docs.
 
 ### Changed
 

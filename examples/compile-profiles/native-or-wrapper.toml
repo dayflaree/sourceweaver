@@ -1,0 +1,13 @@
+# Example profile for native-compatible tools or per-tool wrapper scripts.
+# Replace paths with actual tools available on your system.
+
+[tools]
+vbsp = "/path/to/vbsp-or-wrapper"
+vvis = "/path/to/vvis-or-wrapper"
+vrad = "/path/to/vrad-or-wrapper"
+game = "/path/to/game/content-dir"
+
+[compile]
+steps = ["vbsp", "vvis", "vrad"]
+log_dir = "target/sourceweaver-compile-logs/native-or-wrapper"
+timeout_seconds = 900

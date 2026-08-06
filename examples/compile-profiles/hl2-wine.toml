@@ -1,0 +1,13 @@
+# Example profile for legally installed Windows Source tools launched through Wine.
+# Edit SOURCE_SDK_BIN and game paths for your machine before use.
+
+[tools]
+vbsp = "../wrappers/source-vbsp-wine.sh"
+vvis = "../wrappers/source-vvis-wine.sh"
+vrad = "../wrappers/source-vrad-wine.sh"
+game = "/home/USER/.steam/steam/steamapps/common/Half-Life 2/hl2"
+
+[compile]
+steps = ["vbsp", "vvis", "vrad"]
+log_dir = "../../target/sourceweaver-compile-logs/hl2-wine"
+timeout_seconds = 900
