@@ -131,7 +131,7 @@ The CLI may run a user-selected BSPSource launcher, BSPSource jar, or generic BS
 
 ## Compile profile stance
 
-Source Weaver must help users create and validate compile profiles without requiring hand-written TOML. Missing VBSP/VVIS/VRAD paths, invalid game directories, and unusable tool paths must produce actionable reports. Wine/Proton/native wrapper examples must remain external-tool examples and must not imply that Source Weaver ships Valve tools or requires Hammer for normal Linux VMF merge/edit use.
+Source Weaver must help users create and validate compile profiles without requiring hand-written TOML. Missing VBSP/VVIS/VRAD paths, invalid game directories, and unusable tool paths must produce actionable reports. Wine/Proton/native wrapper examples must remain external-tool examples and must not imply that Source Weaver ships Valve tools or requires Hammer for normal Linux VMF merge/edit use. Desktop compile launch must remain optional, use the same external-tool profile boundary, keep the UI responsive, and report compile results separately from VMF export success.
 
 ## BSP packing stance
 

@@ -89,6 +89,10 @@ examples/wrappers/proton-source-tool.sh -game "/path/to/game" stitched.vmf
 
 Create one small wrapper per tool or set `SOURCE_TOOL_EXE` in the environment that launches Source Weaver.
 
+## Desktop use
+
+After creating and validating a profile, open the desktop app and use **Optional external compile**. Select the same profile, choose logs/report paths, and enable **Run compile after successful Merge selected VMFs** when you want a post-export compile. Set `SOURCEWEAVER_CLI` before launching the desktop app if the CLI executable is not next to the desktop executable.
+
 ## Troubleshooting
 
 ### Missing tool path

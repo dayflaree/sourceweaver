@@ -15,6 +15,7 @@
 - First-class BSPSource CLI/jar decompile runner with version/provenance reporting while keeping generic wrapper support.
 - Optional BSP content packing command for user-provided `bspzip`-compatible tools, generated file lists, and JSON reports.
 - Compile profile create/validate/discover command plus Linux/Wine/Proton wrapper examples and setup docs.
+- Optional desktop compile panel that launches the CLI compile pipeline after export or on demand without blocking the UI.
 
 ### Changed
 

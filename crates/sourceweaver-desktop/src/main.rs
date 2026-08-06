@@ -14,6 +14,9 @@ use sourceweaver_core::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 
 fn main() -> eframe::Result {
     let native_options = eframe::NativeOptions {
@@ -71,6 +74,14 @@ struct SourceWeaverApp {
     bsp_derived_vmfs: BTreeSet<String>,
     recent_vmfs: Vec<PathBuf>,
     recent_projects: Vec<PathBuf>,
+    compile_profile_path: String,
+    compile_steps: String,
+    compile_log_dir: String,
+    compile_report_path: String,
+    compile_timeout_seconds: String,
+    compile_run_after_merge: bool,
+    compile_status: DesktopCompileStatus,
+    compile_receiver: Option<Receiver<DesktopCompileMessage>>,
     last_error_dialog: Option<String>,
     use_dark_theme: bool,
     preview_panel_height: f32,
@@ -124,6 +135,37 @@ struct PendingDeletionReview {
     maps_checked: usize,
     failures: usize,
     label: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DesktopCompileStatus {
+    running: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopCompileRequest {
+    cli_path: PathBuf,
+    map_path: PathBuf,
+    profile_path: PathBuf,
+    steps: Option<String>,
+    log_dir: Option<PathBuf>,
+    report_path: PathBuf,
+    timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopCompileMessage {
+    ok: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -378,6 +420,17 @@ impl SourceWeaverApp {
             bsp_derived_vmfs: BTreeSet::new(),
             recent_vmfs: Vec::new(),
             recent_projects: Vec::new(),
+            compile_profile_path: String::new(),
+            compile_steps: "vbsp,vvis,vrad".to_string(),
+            compile_log_dir: String::new(),
+            compile_report_path: String::new(),
+            compile_timeout_seconds: "900".to_string(),
+            compile_run_after_merge: false,
+            compile_status: DesktopCompileStatus {
+                summary: "Compile runner idle. External Source tools are required.".to_string(),
+                ..Default::default()
+            },
+            compile_receiver: None,
             last_error_dialog: None,
             use_dark_theme: true,
             preview_panel_height: 560.0,
@@ -1463,6 +1516,9 @@ impl SourceWeaverApp {
                         for (label, offset) in report.applied_offsets {
                             self.add_status(format!("Offset {label}: {offset}"));
                         }
+                        if self.compile_run_after_merge {
+                            self.launch_compile_for_path(output_path.clone());
+                        }
                         self.pending_deletion_review = None;
                         self.cleanup_export_confirmed = false;
                     }
@@ -1470,6 +1526,147 @@ impl SourceWeaverApp {
                 }
             }
             Err(error) => self.add_status(format!("Merge failed: {error}")),
+        }
+    }
+    fn choose_compile_profile_path(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select Source Weaver compile profile")
+            .add_filter("TOML", &["toml"])
+            .pick_file()
+        {
+            self.compile_profile_path = display_path(&path);
+            self.remember_recent_project(path);
+        }
+    }
+
+    fn choose_compile_log_dir(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select compile log directory")
+            .pick_folder()
+        {
+            self.compile_log_dir = display_path(&path);
+        }
+    }
+
+    fn choose_compile_report_path(&mut self) {
+        let default_name = default_compile_report_path(&self.output_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("sourceweaver-compile-report.json")
+            .to_string();
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Save compile report")
+            .add_filter("JSON", &["json"])
+            .set_file_name(&default_name)
+            .save_file()
+        {
+            self.compile_report_path = display_path(&path);
+        }
+    }
+
+    fn launch_compile_for_current_output(&mut self) {
+        if self.output_path.trim().is_empty() {
+            self.add_status("Choose or export an output VMF before launching compile.");
+            return;
+        }
+        self.launch_compile_for_path(PathBuf::from(self.output_path.trim()));
+    }
+
+    fn launch_compile_for_path(&mut self, map_path: PathBuf) {
+        if self.compile_status.running {
+            self.add_status("A compile run is already in progress.");
+            return;
+        }
+        if self.compile_profile_path.trim().is_empty() {
+            self.add_status("Select a compile profile before launching external Source tools.");
+            return;
+        }
+        if !map_path.exists() {
+            self.add_status(format!(
+                "Compile input VMF does not exist yet: {}",
+                display_path(&map_path)
+            ));
+            return;
+        }
+        let profile_path = PathBuf::from(self.compile_profile_path.trim());
+        if !profile_path.exists() {
+            self.add_status(format!(
+                "Compile profile does not exist: {}",
+                display_path(&profile_path)
+            ));
+            return;
+        }
+        let timeout_seconds = match blank_to_none(&self.compile_timeout_seconds) {
+            Some(value) => match value.parse::<u64>() {
+                Ok(seconds) if seconds > 0 => Some(seconds),
+                _ => {
+                    self.add_status(
+                        "Compile timeout must be a positive integer number of seconds.",
+                    );
+                    return;
+                }
+            },
+            None => None,
+        };
+        let report_path = blank_to_none(&self.compile_report_path)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_compile_report_path_for_map(&map_path));
+        let request = DesktopCompileRequest {
+            cli_path: sourceweaver_cli_executable(),
+            map_path,
+            profile_path,
+            steps: blank_to_none(&self.compile_steps),
+            log_dir: blank_to_none(&self.compile_log_dir).map(PathBuf::from),
+            report_path,
+            timeout_seconds,
+        };
+        let command_preview = desktop_compile_command_preview(&request);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let message = run_desktop_compile_request(request);
+            let _ = sender.send(message);
+        });
+        self.compile_receiver = Some(receiver);
+        self.compile_status = DesktopCompileStatus {
+            running: true,
+            summary: "Compile running in background. Merge/export success remains separate from external tool results.".to_string(),
+            command: command_preview.clone(),
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        };
+        self.add_status(format!(
+            "Started external compile: {}",
+            command_preview.join(" ")
+        ));
+    }
+
+    fn poll_compile_status(&mut self) {
+        let Some(receiver) = self.compile_receiver.take() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(message) => {
+                self.compile_status.running = false;
+                self.compile_status.summary = message.summary.clone();
+                self.compile_status.command = message.command;
+                self.compile_status.report_json = message.report_json;
+                self.compile_status.stdout_tail = message.stdout_tail;
+                self.compile_status.stderr_tail = message.stderr_tail;
+                self.add_status(message.summary);
+                if !message.ok {
+                    self.last_error_dialog = Some("External compile failed. Review the compile panel JSON/log details; VMF export may still have succeeded.".to_string());
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                self.compile_receiver = Some(receiver);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.compile_status.running = false;
+                self.compile_status.summary =
+                    "Compile worker disconnected before reporting a result.".to_string();
+                self.add_status("Compile worker disconnected before reporting a result.");
+            }
         }
     }
 }
@@ -1482,6 +1679,7 @@ impl eframe::App for SourceWeaverApp {
             ctx.set_visuals(egui::Visuals::light());
         }
         self.handle_dropped_files(ctx);
+        self.poll_compile_status();
 
         if let Some(error) = self.last_error_dialog.clone() {
             egui::Window::new("Source Weaver needs attention")
@@ -1611,6 +1809,8 @@ impl eframe::App for SourceWeaverApp {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 self.merge_panel(ui);
                 ui.separator();
+                self.compile_panel(ui);
+                ui.separator();
                 self.cleanup_panel(ui);
                 ui.separator();
                 self.inspection_panel(ui);
@@ -1711,6 +1911,94 @@ impl SourceWeaverApp {
             ui.weak("Preview builds the same merge in memory without writing an output VMF.");
         });
         ui.weak("World solids, skybox brushes, point entities, and brush entities are appended from incoming maps.");
+    }
+
+    fn compile_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Optional external compile");
+        ui.label("This runs user-provided VBSP/VVIS/VRAD tools through a Source Weaver compile profile. Hammer and Valve tools are not bundled or required for normal VMF merge/edit use.");
+        ui.horizontal(|ui| {
+            ui.label("Compile profile:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.compile_profile_path)
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.button("Browse...").clicked() {
+                self.choose_compile_profile_path();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Steps:");
+            ui.text_edit_singleline(&mut self.compile_steps)
+                .on_hover_text("Comma-separated steps passed to sourceweaver compile, for example vbsp,vvis,vrad or vbsp only.");
+            ui.label("Timeout seconds:");
+            ui.text_edit_singleline(&mut self.compile_timeout_seconds);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Log directory:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.compile_log_dir).desired_width(f32::INFINITY),
+            );
+            if ui.button("Choose logs...").clicked() {
+                self.choose_compile_log_dir();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Report JSON:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.compile_report_path)
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.button("Choose report...").clicked() {
+                self.choose_compile_report_path();
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(
+                &mut self.compile_run_after_merge,
+                "Run compile after successful Merge selected VMFs",
+            );
+            if ui
+                .add_enabled(
+                    !self.compile_status.running,
+                    egui::Button::new("Run compile for output VMF"),
+                )
+                .clicked()
+            {
+                self.launch_compile_for_current_output();
+            }
+        });
+        ui.weak("Compile runs in a background worker. A compile failure is reported separately from VMF export success.");
+        ui.separator();
+        if self.compile_status.running {
+            ui.add(egui::Spinner::new());
+        }
+        ui.label(&self.compile_status.summary);
+        if !self.compile_status.command.is_empty() {
+            ui.collapsing("Compile command", |ui| {
+                ui.monospace(self.compile_status.command.join(" "));
+            });
+        }
+        if let Some(report_json) = &self.compile_status.report_json {
+            ui.collapsing("Compile report JSON", |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut report_json.clone())
+                        .desired_rows(12)
+                        .code_editor(),
+                );
+            });
+        }
+        if !self.compile_status.stdout_tail.is_empty()
+            || !self.compile_status.stderr_tail.is_empty()
+        {
+            ui.collapsing("Compile output tail", |ui| {
+                for line in &self.compile_status.stdout_tail {
+                    ui.small(format!("stdout: {line}"));
+                }
+                for line in &self.compile_status.stderr_tail {
+                    ui.colored_label(egui::Color32::YELLOW, format!("stderr: {line}"));
+                }
+            });
+        }
     }
 
     fn cleanup_panel(&mut self, ui: &mut egui::Ui) {
@@ -2361,6 +2649,159 @@ fn build_source_colored_preview(inputs: &[MergeInput], report: &MergeReport) -> 
         })
         .collect::<Vec<_>>();
     combine_preview_documents(previews)
+}
+
+fn default_compile_report_path(output_path: &str) -> PathBuf {
+    if output_path.trim().is_empty() {
+        PathBuf::from("sourceweaver-compile-report.json")
+    } else {
+        default_compile_report_path_for_map(&PathBuf::from(output_path.trim()))
+    }
+}
+
+fn default_compile_report_path_for_map(map_path: &Path) -> PathBuf {
+    let stem = map_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("sourceweaver");
+    map_path.with_file_name(format!("{stem}-compile-report.json"))
+}
+
+fn sourceweaver_cli_executable() -> PathBuf {
+    if let Ok(path) = std::env::var("SOURCEWEAVER_CLI") {
+        return PathBuf::from(path);
+    }
+    let Ok(current) = std::env::current_exe() else {
+        return PathBuf::from("sourceweaver");
+    };
+    let Some(dir) = current.parent() else {
+        return PathBuf::from("sourceweaver");
+    };
+    for name in sourceweaver_cli_candidate_names() {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    PathBuf::from("sourceweaver")
+}
+
+fn sourceweaver_cli_candidate_names() -> Vec<&'static str> {
+    if cfg!(windows) {
+        vec!["sourceweaver.exe", "sourceweaver-cli.exe"]
+    } else {
+        vec!["sourceweaver", "sourceweaver-cli"]
+    }
+}
+
+fn desktop_compile_command_preview(request: &DesktopCompileRequest) -> Vec<String> {
+    let mut parts = vec![
+        request.cli_path.display().to_string(),
+        "compile".to_string(),
+        request.map_path.display().to_string(),
+        "--profile".to_string(),
+        request.profile_path.display().to_string(),
+        "--report".to_string(),
+        request.report_path.display().to_string(),
+        "--json".to_string(),
+    ];
+    if let Some(steps) = &request.steps {
+        parts.push("--steps".to_string());
+        parts.push(steps.clone());
+    }
+    if let Some(log_dir) = &request.log_dir {
+        parts.push("--log-dir".to_string());
+        parts.push(log_dir.display().to_string());
+    }
+    if let Some(timeout) = request.timeout_seconds {
+        parts.push("--timeout-seconds".to_string());
+        parts.push(timeout.to_string());
+    }
+    parts
+}
+
+fn run_desktop_compile_request(request: DesktopCompileRequest) -> DesktopCompileMessage {
+    let command_preview = desktop_compile_command_preview(&request);
+    let mut command = Command::new(&request.cli_path);
+    command
+        .arg("compile")
+        .arg(&request.map_path)
+        .arg("--profile")
+        .arg(&request.profile_path)
+        .arg("--report")
+        .arg(&request.report_path)
+        .arg("--json");
+    if let Some(steps) = &request.steps {
+        command.arg("--steps").arg(steps);
+    }
+    if let Some(log_dir) = &request.log_dir {
+        command.arg("--log-dir").arg(log_dir);
+    }
+    if let Some(timeout) = request.timeout_seconds {
+        command.arg("--timeout-seconds").arg(timeout.to_string());
+    }
+
+    match command.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let report_json = if stdout.trim_start().starts_with('{') {
+                Some(stdout.clone())
+            } else {
+                fs::read_to_string(&request.report_path).ok()
+            };
+            let parsed_ok = report_json
+                .as_ref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false);
+            let ok = output.status.success() && parsed_ok;
+            let summary = if ok {
+                format!(
+                    "External compile completed successfully. Report: {}",
+                    display_path(&request.report_path)
+                )
+            } else {
+                format!(
+                    "External compile failed or reported errors. Exit code: {:?}. Report: {}",
+                    output.status.code(),
+                    display_path(&request.report_path)
+                )
+            };
+            DesktopCompileMessage {
+                ok,
+                summary,
+                command: command_preview,
+                report_json,
+                stdout_tail: tail_lines(&stdout, 40),
+                stderr_tail: tail_lines(&stderr, 40),
+            }
+        }
+        Err(error) => DesktopCompileMessage {
+            ok: false,
+            summary: format!(
+                "Failed to start Source Weaver CLI compile command `{}`: {error}. Set SOURCEWEAVER_CLI to the CLI executable if needed.",
+                request.cli_path.display()
+            ),
+            command: command_preview,
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        },
+    }
+}
+
+fn tail_lines(text: &str, limit: usize) -> Vec<String> {
+    let mut lines = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    if lines.len() > limit {
+        lines.drain(0..lines.len() - limit);
+    }
+    lines
 }
 
 impl MapEntry {

@@ -77,6 +77,22 @@ sourceweaver compile stitched.vmf --profile hl2-tools.toml --report compile-repo
 
 Command-line paths override profile paths, so a profile can define defaults while a one-off run changes one tool path or the step list.
 
+
+## Desktop compile runner
+
+The desktop app includes an **Optional external compile** panel below the merge controls. It can:
+
+- select a compile profile TOML;
+- choose step order, log directory, report JSON path, and timeout;
+- run the compile after a successful **Merge selected VMFs** export;
+- run compile manually for the current output VMF;
+- keep the UI responsive by launching the compile command in a background worker;
+- show the command, summary, report JSON, and stdout/stderr tails when the run finishes.
+
+The desktop runner calls the Source Weaver CLI `compile` workflow. Packaged installs should include the CLI next to the desktop executable. Development or custom installs can set `SOURCEWEAVER_CLI=/path/to/sourceweaver` before launching the desktop app.
+
+A compile failure is reported separately from merge/export success. The exported VMF can still be valid even when VBSP, VVIS, VRAD, Wine, Proton, game content, or a timeout causes compile failure.
+
 ## Report contents
 
 The compile report includes:
