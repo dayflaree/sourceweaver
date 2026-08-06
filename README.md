@@ -41,6 +41,7 @@ Current capabilities:
 - Pan and zoom the preview viewport.
 - Draw brush bounds, face-plane triangles, entity origin markers, grid lines, and role-colored overlays.
 - Reconstruct and draw closed convex brush face polygons for more accurate 2D preview shapes.
+- Switch to a lightweight 3D isometric preview with yaw/pitch camera controls.
 - Draw `info_landmark` diamond markers with targetname labels, selected-landmark highlighting, and merged-preview offset arrows.
 - Detect brush roles such as triggers, clips, areaportals, occluders, skybox, hint, skip, nodraw, and water.
 - Preview bulk deletion rules.
@@ -230,7 +231,7 @@ Source Weaver is still early in the rebuild.
 
 Known limitations:
 
-- The current map preview is a 2D orthographic preview based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer 3D viewport. See `docs/preview-geometry.md`.
+- The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
 - No BSP decompilation.
 - FGD support is class-level metadata only; it does not parse all property labels yet.
 - No automatic compile pipeline yet.

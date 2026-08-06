@@ -104,6 +104,8 @@ Merged-preview source coloring is preview-only metadata. It does not write synth
 
 For closed convex brushes, the preview extractor reconstructs real face polygons by clipping each side plane against the other side planes. Bounds rendering remains as a fallback for malformed/open solids. See `docs/preview-geometry.md`.
 
+The preview UI also offers a 3D isometric camera mode with yaw/pitch controls. It reuses the same reconstructed polygons, entity markers, landmark markers, source colors, deletion overlays, and selection outlines as the 2D views. See `docs/3d-preview.md`.
+
 Landmark markers are extracted as explicit preview metadata from `info_landmark` entities. The selected merge landmark is drawn with a stronger marker/label. Merged previews also render per-source offset arrows using the same offset values reported by `merge_maps`.
 
 ## Merge model

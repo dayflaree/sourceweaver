@@ -93,6 +93,8 @@ Merged previews must visually distinguish the base VMF and incoming VMFs. Source
 
 The 2D preview should render closed convex brush solids using reconstructed face polygons rather than only bounding rectangles. Axis-aligned boxes must project as expected in top/front/side views, wedge or angled solids must render more accurately than their bounds, and malformed/open solids may fall back to bounds without blocking the preview.
 
+The preview UI must include a 3D geometry view that does not replace the faster 2D top/front/side views. Users must be able to pan, zoom, and adjust the 3D camera angle. Tool brushes, entity origins, landmarks, deletion overlays, and selection outlines must remain visible in the 3D preview.
+
 Preview views must show `info_landmark` markers with targetname labels in top, front, and side views. The currently selected merge landmark must be visually distinguished, and merged previews must show offset arrows/labels whose values match the merge report/status output.
 
 Entity-table row selection must support multiple selected rows through checkboxes, select-all and clear controls, and a visible selected count. Selection keys must include the VMF path and row identity data so later deletion actions can target selected rows without confusing rows from different maps.

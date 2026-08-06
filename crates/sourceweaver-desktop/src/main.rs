@@ -52,6 +52,8 @@ struct SourceWeaverApp {
     preview_view: PreviewView,
     preview_zoom: f32,
     preview_pan: egui::Vec2,
+    preview_3d_yaw: f32,
+    preview_3d_pitch: f32,
     preview_show_solids: bool,
     preview_show_entities: bool,
     preview_show_grid: bool,
@@ -162,6 +164,7 @@ enum PreviewView {
     Top,
     Front,
     Side,
+    ThreeD,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,6 +350,8 @@ impl SourceWeaverApp {
             preview_view: PreviewView::Top,
             preview_zoom: 1.0,
             preview_pan: egui::Vec2::ZERO,
+            preview_3d_yaw: 45.0,
+            preview_3d_pitch: 35.264,
             preview_show_solids: true,
             preview_show_entities: true,
             preview_show_grid: true,
@@ -1967,6 +1972,7 @@ impl SourceWeaverApp {
             ui.radio_value(&mut self.preview_view, PreviewView::Top, "Top X/Y");
             ui.radio_value(&mut self.preview_view, PreviewView::Front, "Front X/Z");
             ui.radio_value(&mut self.preview_view, PreviewView::Side, "Side Y/Z");
+            ui.radio_value(&mut self.preview_view, PreviewView::ThreeD, "3D iso");
             ui.separator();
             ui.checkbox(&mut self.preview_show_grid, "Grid");
             ui.checkbox(&mut self.preview_show_solids, "Solids");
@@ -1976,6 +1982,19 @@ impl SourceWeaverApp {
                 self.preview_pan = egui::Vec2::ZERO;
             }
         });
+
+        if self.preview_view == PreviewView::ThreeD {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("3D camera:");
+                ui.add(egui::Slider::new(&mut self.preview_3d_yaw, -180.0..=180.0).text("Yaw"));
+                ui.add(egui::Slider::new(&mut self.preview_3d_pitch, -85.0..=85.0).text("Pitch"));
+                if ui.button("Reset 3D camera").clicked() {
+                    self.preview_3d_yaw = 45.0;
+                    self.preview_3d_pitch = 35.264;
+                }
+                ui.weak("Pan, zoom, and click selection work in 3D too.");
+            });
+        }
 
         ui.horizontal_wrapped(|ui| {
             ui.label("Deletion preview:");
@@ -2103,6 +2122,8 @@ impl SourceWeaverApp {
             self.preview_view,
             self.preview_zoom,
             self.preview_pan,
+            self.preview_3d_yaw,
+            self.preview_3d_pitch,
         );
         let selected_owner_indices = selection_context
             .map(|(path, records)| {
@@ -2312,6 +2333,8 @@ struct PreviewTransform {
     center_u: f64,
     center_v: f64,
     pan: egui::Vec2,
+    yaw: f32,
+    pitch: f32,
 }
 
 impl PreviewTransform {
@@ -2321,9 +2344,10 @@ impl PreviewTransform {
         view: PreviewView,
         zoom: f32,
         pan: egui::Vec2,
+        yaw: f32,
+        pitch: f32,
     ) -> Self {
-        let (min_u, min_v) = project_vec(bounds.min, view);
-        let (max_u, max_v) = project_vec(bounds.max, view);
+        let (min_u, min_v, max_u, max_v) = projected_bounds(bounds, view, yaw, pitch);
         let extent_u = (max_u - min_u).abs().max(1.0);
         let extent_v = (max_v - min_v).abs().max(1.0);
         let fit_scale = ((rect.width() * 0.88) as f64 / extent_u)
@@ -2337,12 +2361,18 @@ impl PreviewTransform {
             center_u: (min_u + max_u) * 0.5,
             center_v: (min_v + max_v) * 0.5,
             pan,
+            yaw,
+            pitch,
         }
     }
 
     fn world_to_screen(&self, point: sourceweaver_core::Vec3) -> egui::Pos2 {
-        let (u, v) = project_vec(point, self.view);
+        let (u, v) = self.project_vec(point);
         self.uv_to_screen(u, v)
+    }
+
+    fn project_vec(&self, point: sourceweaver_core::Vec3) -> (f64, f64) {
+        project_vec(point, self.view, self.yaw, self.pitch)
     }
 
     fn uv_to_screen(&self, u: f64, v: f64) -> egui::Pos2 {
@@ -2866,8 +2896,12 @@ fn classname_sort_column_label(column: ClassnameSortColumn) -> &'static str {
 }
 
 fn draw_preview_grid(painter: &egui::Painter, rect: egui::Rect, transform: &PreviewTransform) {
-    let (min_u, min_v) = project_vec(transform.bounds.min, transform.view);
-    let (max_u, max_v) = project_vec(transform.bounds.max, transform.view);
+    let (min_u, min_v, max_u, max_v) = projected_bounds(
+        transform.bounds,
+        transform.view,
+        transform.yaw,
+        transform.pitch,
+    );
     let pad_u = ((max_u - min_u).abs() * 0.25).max(512.0);
     let pad_v = ((max_v - min_v).abs() * 0.25).max(512.0);
     let step = nice_grid_step(transform.scale);
@@ -2990,7 +3024,7 @@ fn draw_offset_arrows(
 
     for (index, (label, offset)) in non_zero_offsets {
         let color = source_color(index);
-        let direction = offset_vector_to_screen_delta(*offset, transform.view);
+        let direction = offset_vector_to_screen_delta(*offset, transform);
         let length = direction.length().clamp(24.0, 72.0);
         let unit = if direction.length() > f32::EPSILON {
             direction / direction.length()
@@ -3015,8 +3049,11 @@ fn draw_offset_arrows(
     }
 }
 
-fn offset_vector_to_screen_delta(offset: sourceweaver_core::Vec3, view: PreviewView) -> egui::Vec2 {
-    let (u, v) = project_vec(offset, view);
+fn offset_vector_to_screen_delta(
+    offset: sourceweaver_core::Vec3,
+    transform: &PreviewTransform,
+) -> egui::Vec2 {
+    let (u, v) = transform.project_vec(offset);
     egui::vec2(u as f32, -(v as f32))
 }
 
@@ -3028,8 +3065,8 @@ fn draw_preview_solid(
     removed: bool,
     selected: bool,
 ) {
-    let (min_u, min_v) = project_vec(solid.bounds.min, transform.view);
-    let (max_u, max_v) = project_vec(solid.bounds.max, transform.view);
+    let (min_u, min_v) = transform.project_vec(solid.bounds.min);
+    let (max_u, max_v) = transform.project_vec(solid.bounds.max);
     let a = transform.uv_to_screen(min_u, min_v);
     let b = transform.uv_to_screen(max_u, max_v);
     let rect = egui::Rect::from_two_pos(a, b);
@@ -3233,6 +3270,7 @@ fn draw_axes_label(painter: &egui::Painter, rect: egui::Rect, view: PreviewView)
         PreviewView::Top => "Top view: X / Y",
         PreviewView::Front => "Front view: X / Z",
         PreviewView::Side => "Side view: Y / Z",
+        PreviewView::ThreeD => "3D isometric preview",
     };
     painter.text(
         rect.right_top() + egui::vec2(-12.0, 12.0),
@@ -3250,12 +3288,61 @@ fn draw_rect_outline(painter: &egui::Painter, rect: egui::Rect, stroke: egui::St
     painter.line_segment([rect.left_bottom(), rect.left_top()], stroke);
 }
 
-fn project_vec(point: sourceweaver_core::Vec3, view: PreviewView) -> (f64, f64) {
+fn project_vec(
+    point: sourceweaver_core::Vec3,
+    view: PreviewView,
+    yaw: f32,
+    pitch: f32,
+) -> (f64, f64) {
     match view {
         PreviewView::Top => (point.x, point.y),
         PreviewView::Front => (point.x, point.z),
         PreviewView::Side => (point.y, point.z),
+        PreviewView::ThreeD => project_vec_isometric(point, yaw, pitch),
     }
+}
+
+fn projected_bounds(
+    bounds: PreviewBounds,
+    view: PreviewView,
+    yaw: f32,
+    pitch: f32,
+) -> (f64, f64, f64, f64) {
+    let corners = [
+        sourceweaver_core::Vec3::new(bounds.min.x, bounds.min.y, bounds.min.z),
+        sourceweaver_core::Vec3::new(bounds.min.x, bounds.min.y, bounds.max.z),
+        sourceweaver_core::Vec3::new(bounds.min.x, bounds.max.y, bounds.min.z),
+        sourceweaver_core::Vec3::new(bounds.min.x, bounds.max.y, bounds.max.z),
+        sourceweaver_core::Vec3::new(bounds.max.x, bounds.min.y, bounds.min.z),
+        sourceweaver_core::Vec3::new(bounds.max.x, bounds.min.y, bounds.max.z),
+        sourceweaver_core::Vec3::new(bounds.max.x, bounds.max.y, bounds.min.z),
+        sourceweaver_core::Vec3::new(bounds.max.x, bounds.max.y, bounds.max.z),
+    ];
+    let mut min_u = f64::INFINITY;
+    let mut min_v = f64::INFINITY;
+    let mut max_u = f64::NEG_INFINITY;
+    let mut max_v = f64::NEG_INFINITY;
+    for corner in corners {
+        let (u, v) = project_vec(corner, view, yaw, pitch);
+        min_u = min_u.min(u);
+        min_v = min_v.min(v);
+        max_u = max_u.max(u);
+        max_v = max_v.max(v);
+    }
+    (min_u, min_v, max_u, max_v)
+}
+
+fn project_vec_isometric(point: sourceweaver_core::Vec3, yaw: f32, pitch: f32) -> (f64, f64) {
+    let yaw = (yaw as f64).to_radians();
+    let pitch = (pitch as f64).to_radians();
+    let cos_yaw = yaw.cos();
+    let sin_yaw = yaw.sin();
+    let cos_pitch = pitch.cos();
+    let sin_pitch = pitch.sin();
+    let x = point.x * cos_yaw - point.y * sin_yaw;
+    let y = point.x * sin_yaw + point.y * cos_yaw;
+    let z = point.z;
+    (x, y * cos_pitch - z * sin_pitch)
 }
 
 fn preview_hit_owner_index(
@@ -3298,8 +3385,8 @@ fn preview_hit_owner_index(
 }
 
 fn preview_solid_screen_rect(solid: &PreviewSolid, transform: &PreviewTransform) -> egui::Rect {
-    let (min_u, min_v) = project_vec(solid.bounds.min, transform.view);
-    let (max_u, max_v) = project_vec(solid.bounds.max, transform.view);
+    let (min_u, min_v) = transform.project_vec(solid.bounds.min);
+    let (max_u, max_v) = transform.project_vec(solid.bounds.max);
     egui::Rect::from_two_pos(
         transform.uv_to_screen(min_u, min_v),
         transform.uv_to_screen(max_u, max_v),
