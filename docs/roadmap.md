@@ -34,8 +34,9 @@ Status: implemented.
 - Add search, filtering, and sortable columns for entities and classnames.
 - Add safe deletion modes for brush entities and world solids.
 - Add deletion presets and protected critical entities.
+- Add desktop project save/load using CLI-compatible TOML job files.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, and deletion presets implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, and project save/load implemented.
 
 ## Milestone 3: Source/Hammer validation
 

@@ -1,8 +1,10 @@
 # Source Weaver requirements
 
-## Product statement
+## User workflow
 
 Source Weaver automatically merges selected Source Engine VMF campaign maps into a single map while giving users full visibility and deletion control over entities, Hammer classnames, and brush categories.
+
+Desktop-created project files must remain compatible with the CLI job format where possible. Saving a project must include selected VMFs, base map, landmark, output path, deletion rules, deletion safety settings, and predictable relative paths. Loading a project must resolve relative VMF/output paths from the project file directory and restore the UI setup.
 
 ## Supported platforms
 

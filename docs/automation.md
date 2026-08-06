@@ -29,7 +29,7 @@ brush_entity_mode = "whole-entity"
 protect_critical_entities = true
 ```
 
-Relative paths are resolved from the directory containing the job file. This makes jobs portable inside project folders.
+Relative paths are resolved from the directory containing the job file. This makes jobs portable inside project folders. The desktop app can save and load the same project/job shape: UI-created files include `base`, `inputs`, `output`, `landmark`, and `[delete]` fields that are compatible with `sourceweaver run --job` where possible.
 
 ## Run a job
 

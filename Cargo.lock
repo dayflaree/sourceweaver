@@ -2911,7 +2911,9 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "rfd",
+ "serde",
  "sourceweaver-core",
+ "toml",
 ]
 
 [[package]]

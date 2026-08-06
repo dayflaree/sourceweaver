@@ -23,6 +23,7 @@ The core crate stays dependency-light and UI-agnostic so every interface shares 
 The desktop app is a native egui/eframe application for Linux and Windows. It calls directly into `sourceweaver-core` and provides:
 
 - VMF file selection through native file dialogs
+- project/job TOML save/load for repeatable setups
 - base-map selection
 - discovered-landmark dropdown plus manual landmark targetname input
 - per-map landmark status warnings before preview/export
@@ -57,7 +58,7 @@ Current commands:
 - `run` / `batch` / `job` for non-interactive TOML job execution
 - `job-template` for generating a starter automation file
 
-The job runner resolves relative paths from the job file directory, can dry-run the operation, and emits a JSON report for machine parsing.
+The job runner resolves relative paths from the job file directory, can dry-run the operation, and emits a JSON report for machine parsing. The desktop app writes and reads the same TOML shape where possible, with relative paths anchored to the project file directory.
 
 ## VMF model
 

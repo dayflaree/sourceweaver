@@ -1,4 +1,5 @@
 use eframe::egui;
+use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord,
     IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions,
@@ -165,6 +166,95 @@ struct DeletionPresetSpec {
     description: &'static str,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectFile {
+    base: String,
+    #[serde(default)]
+    inputs: Vec<String>,
+    #[serde(default)]
+    output: Option<String>,
+    #[serde(default)]
+    landmark: Option<String>,
+    #[serde(default)]
+    delete: ProjectDeleteConfig,
+    #[serde(default)]
+    dry_run: bool,
+    #[serde(default)]
+    report: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectDeleteConfig {
+    #[serde(default)]
+    classnames: Vec<String>,
+    #[serde(default)]
+    targetnames: Vec<String>,
+    #[serde(default)]
+    roles: Vec<String>,
+    #[serde(default)]
+    all_entities: bool,
+    #[serde(default)]
+    brush_entity_mode: Option<String>,
+    #[serde(default = "default_project_protect_critical_entities")]
+    protect_critical_entities: bool,
+}
+
+impl Default for ProjectDeleteConfig {
+    fn default() -> Self {
+        Self {
+            classnames: Vec::new(),
+            targetnames: Vec::new(),
+            roles: Vec::new(),
+            all_entities: false,
+            brush_entity_mode: Some(BrushEntityDeletionMode::WholeEntity.to_string()),
+            protect_critical_entities: true,
+        }
+    }
+}
+
+impl ProjectDeleteConfig {
+    fn from_criteria(criteria: &DeletionCriteria) -> Self {
+        Self {
+            classnames: criteria.classnames.iter().cloned().collect(),
+            targetnames: criteria.targetnames.iter().cloned().collect(),
+            roles: criteria
+                .brush_roles
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            all_entities: criteria.drop_all_entities,
+            brush_entity_mode: Some(criteria.brush_entity_mode.to_string()),
+            protect_critical_entities: criteria.protect_critical_entities,
+        }
+    }
+
+    fn to_criteria(&self) -> Result<DeletionCriteria, String> {
+        let mut criteria = DeletionCriteria::default();
+        criteria.classnames.extend(self.classnames.iter().cloned());
+        criteria
+            .targetnames
+            .extend(self.targetnames.iter().cloned());
+        criteria.drop_all_entities = self.all_entities;
+        criteria.protect_critical_entities = self.protect_critical_entities;
+        if let Some(mode) = &self.brush_entity_mode {
+            criteria.brush_entity_mode = BrushEntityDeletionMode::parse(mode)
+                .ok_or_else(|| format!("unknown delete.brush_entity_mode `{mode}`"))?;
+        }
+        for role in &self.roles {
+            let parsed = BrushRole::parse_filter(role)
+                .ok_or_else(|| format!("unknown delete role `{role}`"))?;
+            criteria.brush_roles.insert(parsed);
+        }
+        Ok(criteria)
+    }
+}
+
+fn default_project_protect_critical_entities() -> bool {
+    true
+}
+
 #[derive(Debug, Clone)]
 struct RoleOption {
     label: &'static str,
@@ -234,6 +324,114 @@ impl SourceWeaverApp {
             let overflow = self.status.len() - 12;
             self.status.drain(0..overflow);
         }
+    }
+
+    fn save_project_dialog(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Save Source Weaver project")
+            .add_filter("Source Weaver project", &["toml"])
+            .set_file_name("project.sourceweaver.toml")
+            .save_file()
+        else {
+            return;
+        };
+
+        match self.project_file_for_path(&path).and_then(|project| {
+            toml::to_string_pretty(&project)
+                .map_err(|error| format!("failed to serialize project: {error}"))
+        }) {
+            Ok(toml) => match fs::write(&path, toml) {
+                Ok(()) => self.add_status(format!("Saved project {}.", display_path(&path))),
+                Err(error) => self.add_status(format!(
+                    "Failed to save project {}: {error}",
+                    display_path(&path)
+                )),
+            },
+            Err(error) => self.add_status(error),
+        }
+    }
+
+    fn load_project_dialog(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Load Source Weaver project or job")
+            .add_filter("TOML project/job", &["toml"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        match fs::read_to_string(&path)
+            .map_err(|error| format!("failed to read project {}: {error}", display_path(&path)))
+            .and_then(|text| {
+                toml::from_str::<ProjectFile>(&text).map_err(|error| {
+                    format!("failed to parse project {}: {error}", display_path(&path))
+                })
+            }) {
+            Ok(project) => match self.load_project_file(&path, project) {
+                Ok(()) => self.add_status(format!("Loaded project {}.", display_path(&path))),
+                Err(error) => self.add_status(error),
+            },
+            Err(error) => self.add_status(error),
+        }
+    }
+
+    fn project_file_for_path(&self, project_path: &Path) -> Result<ProjectFile, String> {
+        let base_dir = project_path.parent().unwrap_or_else(|| Path::new("."));
+        let base = self
+            .maps
+            .get(self.base_index)
+            .ok_or("Add at least one VMF before saving a project.")?;
+        let inputs = self
+            .maps
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != self.base_index)
+            .map(|(_, entry)| project_relative_path(&entry.path, base_dir))
+            .collect::<Vec<_>>();
+        let criteria = self.build_deletion_criteria();
+
+        Ok(ProjectFile {
+            base: project_relative_path(&base.path, base_dir),
+            inputs,
+            output: blank_to_none(&self.output_path)
+                .map(|_| project_relative_path(&PathBuf::from(self.output_path.trim()), base_dir)),
+            landmark: blank_to_none(&self.landmark),
+            delete: ProjectDeleteConfig::from_criteria(&criteria),
+            dry_run: false,
+            report: None,
+        })
+    }
+
+    fn load_project_file(
+        &mut self,
+        project_path: &Path,
+        project: ProjectFile,
+    ) -> Result<(), String> {
+        let base_dir = project_path.parent().unwrap_or_else(|| Path::new("."));
+        let mut paths = Vec::with_capacity(project.inputs.len() + 1);
+        paths.push(resolve_project_path(base_dir, &project.base));
+        paths.extend(
+            project
+                .inputs
+                .iter()
+                .map(|input| resolve_project_path(base_dir, input)),
+        );
+
+        let criteria = project.delete.to_criteria()?;
+        self.maps = paths.into_iter().map(MapEntry::load).collect();
+        self.selected_map = (!self.maps.is_empty()).then_some(0);
+        self.base_index = 0;
+        self.landmark = project.landmark.unwrap_or_default();
+        self.output_path = project
+            .output
+            .map(|output| display_path(&resolve_project_path(base_dir, &output)))
+            .unwrap_or_default();
+        self.apply_deletion_criteria_to_controls(criteria);
+        self.selected_entity_rows.clear();
+        self.preview_pan = egui::Vec2::ZERO;
+        self.preview_zoom = 1.0;
+        self.active_table = TableMode::Preview;
+        Ok(())
     }
 
     fn add_vmf_files(&mut self) {
@@ -947,6 +1145,15 @@ impl eframe::App for SourceWeaverApp {
 impl SourceWeaverApp {
     fn merge_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Merge setup");
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Load project/job...").clicked() {
+                self.load_project_dialog();
+            }
+            if ui.button("Save project...").clicked() {
+                self.save_project_dialog();
+            }
+            ui.weak("Project files use the CLI job TOML shape where possible.");
+        });
         ui.horizontal(|ui| {
             ui.label("Base map:");
             let selected_text = self
@@ -2197,6 +2404,26 @@ fn landmark_status_label(status: &LandmarkTargetStatus) -> (String, egui::Color3
 
 fn display_path(path: &Path) -> String {
     path.display().to_string()
+}
+
+fn project_relative_path(path: &Path, base_dir: &Path) -> String {
+    if path.is_absolute() {
+        if let Ok(relative) = path.strip_prefix(base_dir) {
+            if !relative.as_os_str().is_empty() {
+                return display_path(relative);
+            }
+        }
+    }
+    display_path(path)
+}
+
+fn resolve_project_path(base_dir: &Path, value: &str) -> PathBuf {
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        path
+    } else {
+        base_dir.join(path)
+    }
 }
 
 fn file_name_or_path(path: &Path) -> String {

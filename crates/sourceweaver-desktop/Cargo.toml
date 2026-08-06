@@ -12,4 +12,6 @@ path = "src/main.rs"
 [dependencies]
 eframe = "0.31"
 rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
 sourceweaver-core = { path = "../sourceweaver-core" }
+toml = "0.8"
