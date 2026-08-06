@@ -24,6 +24,7 @@ Current capabilities:
 - Validate generated VMFs for Source-tool readiness and parse captured VBSP logs.
 - Run optional user-configured VBSP/VVIS/VRAD compile pipelines, create/validate compile profiles, and capture parsed JSON reports.
 - Run optional BSP content packing with user-provided `bspzip`-compatible tools and JSON reports.
+- Inspect basic MDL model headers and run user-provided StudioMDL-compatible model compile tools.
 - Run optional user-selected BSPSource decompile commands or generic wrappers and validate generated VMFs before import.
 - Preserve incoming world brushes, including skybox brushes.
 - Preserve incoming point entities and brush entities.
@@ -218,6 +219,22 @@ cargo run -p sourceweaver-cli -- pack map.bsp \
 
 See `docs/bsp-packing.md` for generated file lists, version/provenance report fields, and legal/asset ownership notes.
 
+Inspect a model header or run a user-provided StudioMDL-compatible wrapper:
+
+```bash
+cargo run -p sourceweaver-cli -- model-inspect models/props/example.mdl --json
+
+cargo run -p sourceweaver-cli -- model-compile model.qc \
+  --studiomdl /path/to/studiomdl-or-wrapper \
+  --game /path/to/game/content-dir \
+  --tool-arg -nop4 \
+  --log model-compile.log \
+  --report model-compile-report.json \
+  --json
+```
+
+See `docs/model-tooling.md` for Crowbar research, licensing notes, and model-tooling boundaries.
+
 ## CLI usage
 
 The CLI remains available for scripting and regression testing.
@@ -305,7 +322,7 @@ Known limitations:
 - The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
 - No bundled/internal BSP decompilation. BSP import can run user-selected BSPSource launchers/jars or generic external wrappers and imports the generated VMF; Source Weaver remains VMF-first. See `docs/bsp-import.md`.
 - FGD support is class-level metadata only; it does not parse all property labels yet.
-- Compile and BSP packing integrations require user-provided Source tool paths; Source tools, Hammer, game content, and custom assets are not bundled. Desktop compile launch uses the Source Weaver CLI compile pipeline and remains separate from VMF export success.
+- Compile, BSP packing, BSP decompile, and model compile integrations require user-provided Source tool paths; Source tools, Hammer, Crowbar, StudioMDL, game content, model assets, and custom assets are not bundled. Desktop compile launch uses the Source Weaver CLI compile pipeline and remains separate from VMF export success.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 - Incoming IDs are renumbered during merge and known reference fields are remapped; see `docs/id-renumbering.md`.
 - Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.

@@ -38,6 +38,8 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "validate" => validate_command(&args[1..]),
         "compile" => compile_command(&args[1..]),
         "compile-profile" | "profile" => compile_profile_command(&args[1..]),
+        "model-inspect" => model_inspect_command(&args[1..]),
+        "model-compile" => model_compile_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
@@ -1489,6 +1491,294 @@ fn print_compile_tool_discovery_report(report: &CompileToolDiscoveryReport) {
     }
 }
 
+fn model_inspect_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_model_inspect_help();
+        return Ok(());
+    }
+    let mut input = None;
+    let mut json = false;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown model-inspect flag `{value}`"));
+            }
+            value => {
+                if input.is_some() {
+                    return Err("model-inspect accepts one MDL path".to_string());
+                }
+                input = Some(PathBuf::from(value));
+            }
+        }
+    }
+    let input = input.ok_or("usage: sourceweaver model-inspect <model.mdl> [--json]")?;
+    let report = inspect_mdl_header(&input)?;
+    let encoded = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode model inspect report: {error}"))?;
+    if json {
+        println!("{encoded}");
+    } else {
+        println!("model inspect: {}", if report.ok { "ok" } else { "failed" });
+        println!("path: {}", report.path);
+        println!("size: {}", report.file_size);
+        if let Some(header) = &report.header {
+            println!("magic: {}", header.magic);
+            println!("version: {}", header.version);
+            println!("name: {}", header.name);
+            println!("data length: {}", header.data_length);
+        }
+        for warning in &report.warnings {
+            println!("warning\t{warning}");
+        }
+        for error in &report.errors {
+            println!("error\t{error}");
+        }
+    }
+    if !report.ok {
+        return Err("model inspect failed".to_string());
+    }
+    Ok(())
+}
+
+fn model_compile_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_model_compile_help();
+        return Ok(());
+    }
+    let config = parse_model_compile_args(args)?;
+    let input_qc = config.input_qc.as_ref().ok_or("usage: sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
+    let studiomdl = config
+        .studiomdl
+        .as_ref()
+        .ok_or("model-compile needs --studiomdl <path>")?;
+    if !input_qc.exists() {
+        return Err(format!("QC file does not exist: {}", input_qc.display()));
+    }
+    let invocation = resolve_model_compile_invocation(&config, input_qc, studiomdl);
+    let output = run_model_compile_tool(
+        &invocation,
+        Duration::from_secs(tool_timeout_seconds(config.timeout_seconds)),
+    )?;
+    let log_text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if let Some(log_path) = &config.log {
+        create_parent_dir(log_path, "model compile log")?;
+        fs::write(log_path, &log_text).map_err(|error| {
+            format!(
+                "failed to write model compile log {}: {error}",
+                log_path.display()
+            )
+        })?;
+    }
+    let summary = parse_compile_log(&log_text);
+    let log_snapshot = CompileLogSnapshot {
+        ok: summary.errors.is_empty() && !summary.leak_detected,
+        errors: summary.errors.len(),
+        warnings: summary.warnings.len(),
+        leak_detected: summary.leak_detected,
+        error_lines: summary.errors,
+        warning_lines: summary.warnings,
+    };
+    let ok = output.status.success() && log_snapshot.errors == 0 && !log_snapshot.leak_detected;
+    let report = ModelCompileReport {
+        ok,
+        tool: invocation.executable.display().to_string(),
+        command_shape: invocation.command_shape.to_string(),
+        command_args: invocation.args,
+        input_qc: input_qc.display().to_string(),
+        game: config.game.as_ref().map(|path| path.display().to_string()),
+        exit_code: output.status.code(),
+        log_path: config.log.as_ref().map(|path| path.display().to_string()),
+        log_summary: log_snapshot,
+    };
+    finish_model_compile_report(&config, report)
+}
+
+fn parse_model_compile_args(args: &[String]) -> Result<ModelCompileConfig, String> {
+    let mut config = ModelCompileConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--studiomdl" => {
+                cursor += 1;
+                config.studiomdl = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--studiomdl needs a path")?,
+                ));
+            }
+            "--game" => {
+                cursor += 1;
+                config.game = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game needs a path")?,
+                ));
+            }
+            "--tool-arg" => {
+                cursor += 1;
+                config
+                    .tool_args
+                    .push(args.get(cursor).ok_or("--tool-arg needs a value")?.clone());
+            }
+            "--log" => {
+                cursor += 1;
+                config.log = Some(PathBuf::from(args.get(cursor).ok_or("--log needs a path")?));
+            }
+            "--report" => {
+                cursor += 1;
+                config.report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--report needs a path")?,
+                ));
+            }
+            "--timeout-seconds" => {
+                cursor += 1;
+                config.timeout_seconds = Some(parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?);
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown model-compile flag `{value}`"));
+            }
+            value => {
+                if config.input_qc.is_some() {
+                    return Err("model-compile accepts one QC path".to_string());
+                }
+                config.input_qc = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
+    let data = fs::read(path)
+        .map_err(|error| format!("failed to read model {}: {error}", path.display()))?;
+    let file_size = data.len();
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let header = if data.len() < 80 {
+        errors
+            .push("file is too small to contain a Source/GoldSource MDL header prefix".to_string());
+        None
+    } else {
+        let magic = String::from_utf8_lossy(&data[0..4]).to_string();
+        if !matches!(magic.as_str(), "IDST" | "IDSQ") {
+            errors.push(format!(
+                "unexpected MDL magic `{magic}`; expected IDST or IDSQ"
+            ));
+        }
+        let version = read_i32_le(&data, 4);
+        let checksum = read_i32_le(&data, 8);
+        let name = trim_nul_utf8(&data[12..76]);
+        let data_length = read_i32_le(&data, 76);
+        if data_length <= 0 {
+            warnings.push(format!("header data length is non-positive: {data_length}"));
+        } else if data_length as usize > file_size {
+            warnings.push(format!(
+                "header data length {data_length} exceeds file size {file_size}"
+            ));
+        }
+        Some(MdlHeaderSnapshot {
+            magic,
+            version,
+            checksum,
+            name,
+            data_length,
+            supported_magic: matches!(&data[0..4], b"IDST" | b"IDSQ"),
+        })
+    };
+    Ok(ModelInspectReport {
+        ok: errors.is_empty(),
+        path: path.display().to_string(),
+        file_size,
+        header,
+        warnings,
+        errors,
+    })
+}
+
+fn read_i32_le(data: &[u8], offset: usize) -> i32 {
+    let mut bytes = [0_u8; 4];
+    bytes.copy_from_slice(&data[offset..offset + 4]);
+    i32::from_le_bytes(bytes)
+}
+
+fn trim_nul_utf8(data: &[u8]) -> String {
+    let end = data
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(data.len());
+    String::from_utf8_lossy(&data[..end]).trim().to_string()
+}
+
+fn resolve_model_compile_invocation(
+    config: &ModelCompileConfig,
+    input_qc: &Path,
+    studiomdl: &Path,
+) -> ModelCompileInvocation {
+    let mut args = config.tool_args.clone();
+    if let Some(game) = &config.game {
+        args.push("-game".to_string());
+        args.push(game.display().to_string());
+    }
+    args.push(input_qc.display().to_string());
+    ModelCompileInvocation {
+        executable: studiomdl.to_path_buf(),
+        args,
+        command_shape: "studiomdl [tool-args] [-game <game-dir>] <model.qc>",
+    }
+}
+
+fn run_model_compile_tool(
+    invocation: &ModelCompileInvocation,
+    timeout: Duration,
+) -> Result<Output, String> {
+    let mut command = Command::new(&invocation.executable);
+    command.args(&invocation.args);
+    run_command_with_timeout(
+        &mut command,
+        &format!("StudioMDL tool {}", invocation.executable.display()),
+        timeout,
+    )
+}
+
+fn finish_model_compile_report(
+    config: &ModelCompileConfig,
+    report: ModelCompileReport,
+) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode model compile report: {error}"))?;
+    if let Some(report_path) = &config.report {
+        create_parent_dir(report_path, "model compile report")?;
+        fs::write(report_path, &json).map_err(|error| {
+            format!(
+                "failed to write model compile report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+    if config.json {
+        println!("{json}");
+    } else {
+        println!("model compile: {}", if report.ok { "ok" } else { "failed" });
+        println!("tool: {}", report.tool);
+        println!("input qc: {}", report.input_qc);
+        if let Some(game) = &report.game {
+            println!("game: {game}");
+        }
+        println!("exit code: {:?}", report.exit_code);
+        println!("log errors: {}", report.log_summary.errors);
+        println!("log warnings: {}", report.log_summary.warnings);
+    }
+    if !report.ok {
+        return Err("model compile reported errors".to_string());
+    }
+    Ok(())
+}
+
 fn bsp_import_command(args: &[String]) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_bsp_import_help();
@@ -2580,6 +2870,58 @@ struct CompileStepReport {
     compile_log: CompileLogSnapshot,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ModelInspectReport {
+    ok: bool,
+    path: String,
+    file_size: usize,
+    header: Option<MdlHeaderSnapshot>,
+    warnings: Vec<String>,
+    errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlHeaderSnapshot {
+    magic: String,
+    version: i32,
+    checksum: i32,
+    name: String,
+    data_length: i32,
+    supported_magic: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ModelCompileConfig {
+    input_qc: Option<PathBuf>,
+    studiomdl: Option<PathBuf>,
+    game: Option<PathBuf>,
+    tool_args: Vec<String>,
+    log: Option<PathBuf>,
+    report: Option<PathBuf>,
+    timeout_seconds: Option<u64>,
+    json: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ModelCompileInvocation {
+    executable: PathBuf,
+    args: Vec<String>,
+    command_shape: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelCompileReport {
+    ok: bool,
+    tool: String,
+    command_shape: String,
+    command_args: Vec<String>,
+    input_qc: String,
+    game: Option<String>,
+    exit_code: Option<i32>,
+    log_path: Option<String>,
+    log_summary: CompileLogSnapshot,
+}
+
 #[derive(Debug, Clone, Default)]
 struct BspImportConfig {
     input: Option<PathBuf>,
@@ -3105,6 +3447,8 @@ Usage:
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver compile-profile create|validate|discover [options]
+  sourceweaver model-inspect <model.mdl> [--json]
+  sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
@@ -3230,6 +3574,33 @@ fn print_compile_profile_discover_help() {
 
 Searches explicit --search-dir paths plus PATH for vbsp/vvis/vrad executables.
 When --output is set, writes a profile using the first discovered candidate per step.
+"#
+    );
+}
+
+fn print_model_inspect_help() {
+    println!(
+        r#"Usage:
+  sourceweaver model-inspect <model.mdl> [--json]
+
+Reads a small Source/GoldSource MDL header prefix without decompiling assets.
+This is a native metadata check only; it does not replace Crowbar or other model tools.
+"#
+    );
+}
+
+fn print_model_compile_help() {
+    println!(
+        r#"Usage:
+  sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+
+Runs a user-provided StudioMDL-compatible model compiler or wrapper.
+
+Source Weaver does not bundle StudioMDL, Crowbar, game SDKs, models, or assets.
+Command shape:
+  studiomdl [--tool-arg values...] [-game <game-dir>] <model.qc>
+
+Use --tool-arg once per additional StudioMDL option. External tool runs default to a 900 second timeout.
 "#
     );
 }

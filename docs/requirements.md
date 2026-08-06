@@ -133,6 +133,10 @@ The CLI may run a user-selected BSPSource launcher, BSPSource jar, or generic BS
 
 Source Weaver must help users create and validate compile profiles without requiring hand-written TOML. Missing VBSP/VVIS/VRAD paths, invalid game directories, and unusable tool paths must produce actionable reports. Wine/Proton/native wrapper examples must remain external-tool examples and must not imply that Source Weaver ships Valve tools or requires Hammer for normal Linux VMF merge/edit use. Desktop compile launch must remain optional, use the same external-tool profile boundary, keep the UI responsive, and report compile results separately from VMF export success.
 
+## Model tooling stance
+
+Model tooling must remain optional and must not complicate VMF workflows. Source Weaver may inspect basic MDL metadata natively and may run user-provided StudioMDL-compatible compiler wrappers with machine-readable reports. Crowbar and other third-party model tools must not be bundled, ported, or copied until licensing, attribution, naming, runtime, and redistribution obligations are reviewed.
+
 ## BSP packing stance
 
 BSP content packing must remain optional and must use user-provided external packer paths. Source Weaver must not bundle packers, BSPs, or custom assets. The CLI may generate BSPZIP-compatible file lists from asset roots and relative include rules or use an existing file list. Reports must include command provenance, tool path, best-effort tool version, input/output BSPs, file-list path, requested files, missing files, warnings, packer exit status, log path, and packed file counts when detectable. Desktop packing UI can be added after compile workflow stabilization.

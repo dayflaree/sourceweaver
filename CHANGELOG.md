@@ -18,6 +18,7 @@
 - Optional desktop compile panel that launches the CLI compile pipeline after export or on demand without blocking the UI.
 - Real Source compiler smoke-test matrix documentation for release evidence and manual validation.
 - Desktop BSP decompile/import panel that runs the CLI BSPSource workflow, validates output VMFs, imports them, and marks them as BSP-derived.
+- Optional model tooling slice with native MDL header inspection, user-provided StudioMDL-compatible compile reports, and Crowbar research/licensing docs.
 
 ### Changed
 

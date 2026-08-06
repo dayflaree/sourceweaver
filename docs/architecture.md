@@ -15,6 +15,7 @@ The core crate owns VMF behavior:
 - Source-tool validation reports and VBSP compile-log parsing
 - optional VBSP/VVIS/VRAD compile pipeline orchestration and compile-profile creation/validation
 - optional user-provided BSP decompiler wrapper and BSP-derived VMF desktop import warning
+- optional model metadata inspection and user-provided StudioMDL compile wrapper/reporting
 - landmark discovery, duplicate checks, selected-landmark status, and origin lookup
 - brush and entity translation
 - merge operations
@@ -161,6 +162,10 @@ The core library provides class-level metadata for common Source entities, infer
 Source Weaver remains VMF-first. BSP import is a decompile-to-VMF workflow using user-selected tools such as BSPSource. Source Weaver does not bundle decompilers or game BSP assets. Managed downloads or bundled decompilers require separate redistribution and update-policy review. See `docs/bsp-import.md`.
 
 The CLI `bsp-import` command can run a BSPSource launcher with `bspsrc -o <out.vmf> <input.bsp>`, run a BSPSource jar through Java, or fall back to a generic wrapper script for unusual tools. It captures logs, probes BSPSource version when possible, validates the generated VMF, and emits JSON with command provenance. The desktop **BSP decompile import** panel runs the same CLI workflow in a background worker, imports successful VMFs, and marks them with decompile-quality warnings. **Add BSP-derived VMF...** remains available for already-generated VMFs.
+
+## Model tooling stance
+
+Model tooling is optional and separate from VMF merge/edit. The CLI can inspect a small MDL header prefix natively and can run a user-provided StudioMDL-compatible compiler/wrapper with logs and JSON reports. Crowbar research is documented in `docs/model-tooling.md`; Source Weaver does not port, bundle, vendor, or copy Crowbar code or binaries.
 
 ## BSP packing stance
 
