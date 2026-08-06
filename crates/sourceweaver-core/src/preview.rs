@@ -20,6 +20,7 @@ pub struct PreviewSolid {
     pub source_label: Option<String>,
     pub roles: Vec<BrushRole>,
     pub points: Vec<Vec3>,
+    pub face_polygons: Vec<Vec<Vec3>>,
     pub bounds: PreviewBounds,
 }
 
@@ -179,6 +180,11 @@ pub fn translate_preview_document(preview: &mut PreviewDocument, offset: Vec3) {
         for point in &mut solid.points {
             *point = *point + offset;
         }
+        for polygon in &mut solid.face_polygons {
+            for point in polygon {
+                *point = *point + offset;
+            }
+        }
         solid.bounds.min = solid.bounds.min + offset;
         solid.bounds.max = solid.bounds.max + offset;
         bounds.include_bounds(solid.bounds);
@@ -249,9 +255,15 @@ fn collect_solids(
 
         if name == "solid" {
             let points = collect_plane_points(node);
+            let face_polygons = reconstruct_face_polygons(node);
             let mut solid_bounds = BoundsBuilder::default();
             for point in &points {
                 solid_bounds.include(*point);
+            }
+            for polygon in &face_polygons {
+                for point in polygon {
+                    solid_bounds.include(*point);
+                }
             }
             if let Some(bounds) = solid_bounds.finish() {
                 document_bounds.include_bounds(bounds);
@@ -268,6 +280,7 @@ fn collect_solids(
                     source_label: owner.source_label.map(ToOwned::to_owned),
                     roles,
                     points,
+                    face_polygons,
                     bounds,
                 });
             }
@@ -311,6 +324,240 @@ fn parse_parenthesized_points(value: &str) -> Vec<Vec3> {
         rest = &after_start[end + 1..];
     }
     points
+}
+
+#[derive(Debug, Copy, Clone)]
+struct RawPlane {
+    points: [Vec3; 3],
+}
+
+#[derive(Debug, Copy, Clone)]
+struct OrientedPlane {
+    point: Vec3,
+    normal: Vec3,
+}
+
+fn reconstruct_face_polygons(solid: &Node) -> Vec<Vec<Vec3>> {
+    let raw_planes = collect_side_planes(solid);
+    if raw_planes.len() < 4 {
+        return Vec::new();
+    }
+
+    let center = average_plane_points(&raw_planes);
+    let planes = raw_planes
+        .iter()
+        .filter_map(|plane| orient_plane(*plane, center))
+        .collect::<Vec<_>>();
+    if planes.len() < 4 {
+        return Vec::new();
+    }
+
+    let size = plane_generation_size(&raw_planes);
+    let mut polygons = Vec::new();
+    for (face_index, plane) in planes.iter().enumerate() {
+        let mut polygon = initial_plane_polygon(*plane, size);
+        for (clip_index, clip_plane) in planes.iter().enumerate() {
+            if face_index == clip_index {
+                continue;
+            }
+            polygon = clip_polygon_to_plane(&polygon, *clip_plane);
+            if polygon.len() < 3 {
+                break;
+            }
+        }
+        dedup_polygon_points(&mut polygon);
+        if polygon.len() >= 3 && polygon_area(&polygon) > 0.01 {
+            polygons.push(polygon);
+        }
+    }
+
+    polygons
+}
+
+fn collect_side_planes(node: &Node) -> Vec<RawPlane> {
+    let mut planes = Vec::new();
+    collect_side_planes_from_node(node, &mut planes);
+    planes
+}
+
+fn collect_side_planes_from_node(node: &Node, planes: &mut Vec<RawPlane>) {
+    let Node::Block { name, body } = node else {
+        return;
+    };
+
+    if name == "side" {
+        if let Some(points) = Node::get_property(body, "plane").and_then(parse_plane_triplet) {
+            planes.push(RawPlane { points });
+        }
+        return;
+    }
+
+    for child in body {
+        collect_side_planes_from_node(child, planes);
+    }
+}
+
+fn parse_plane_triplet(value: &str) -> Option<[Vec3; 3]> {
+    let points = parse_parenthesized_points(value);
+    if points.len() == 3 {
+        Some([points[0], points[1], points[2]])
+    } else {
+        None
+    }
+}
+
+fn average_plane_points(planes: &[RawPlane]) -> Vec3 {
+    let mut sum = Vec3::ZERO;
+    let mut count = 0.0;
+    for plane in planes {
+        for point in plane.points {
+            sum = sum + point;
+            count += 1.0;
+        }
+    }
+    scale(sum, 1.0 / count)
+}
+
+fn orient_plane(plane: RawPlane, solid_center: Vec3) -> Option<OrientedPlane> {
+    let a = plane.points[0];
+    let b = plane.points[1];
+    let c = plane.points[2];
+    let mut normal = normalize(cross(b - a, c - a))?;
+    if dot(normal, solid_center - a) > 0.0 {
+        normal = scale(normal, -1.0);
+    }
+    Some(OrientedPlane { point: a, normal })
+}
+
+fn plane_generation_size(planes: &[RawPlane]) -> f64 {
+    let mut bounds = BoundsBuilder::default();
+    for plane in planes {
+        for point in plane.points {
+            bounds.include(point);
+        }
+    }
+    bounds
+        .finish()
+        .map(|bounds| {
+            bounds
+                .extent_x()
+                .max(bounds.extent_y())
+                .max(bounds.extent_z())
+                .max(64.0)
+                * 4.0
+        })
+        .unwrap_or(256.0)
+}
+
+fn initial_plane_polygon(plane: OrientedPlane, size: f64) -> Vec<Vec3> {
+    let seed = if plane.normal.z.abs() < 0.9 {
+        Vec3::new(0.0, 0.0, 1.0)
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    let u = normalize(cross(seed, plane.normal)).unwrap_or(Vec3::new(1.0, 0.0, 0.0));
+    let v = cross(plane.normal, u);
+    vec![
+        plane.point + scale(u, -size) + scale(v, -size),
+        plane.point + scale(u, size) + scale(v, -size),
+        plane.point + scale(u, size) + scale(v, size),
+        plane.point + scale(u, -size) + scale(v, size),
+    ]
+}
+
+fn clip_polygon_to_plane(polygon: &[Vec3], plane: OrientedPlane) -> Vec<Vec3> {
+    if polygon.is_empty() {
+        return Vec::new();
+    }
+
+    let mut clipped = Vec::new();
+    let mut previous = *polygon.last().unwrap();
+    let mut previous_distance = signed_distance(previous, plane);
+    let mut previous_inside = previous_distance <= 0.001;
+
+    for current in polygon {
+        let current_distance = signed_distance(*current, plane);
+        let current_inside = current_distance <= 0.001;
+
+        if current_inside != previous_inside {
+            let denominator = previous_distance - current_distance;
+            if denominator.abs() > 0.000001 {
+                let t = previous_distance / denominator;
+                clipped.push(previous + scale(*current - previous, t));
+            }
+        }
+        if current_inside {
+            clipped.push(*current);
+        }
+
+        previous = *current;
+        previous_distance = current_distance;
+        previous_inside = current_inside;
+    }
+
+    clipped
+}
+
+fn dedup_polygon_points(polygon: &mut Vec<Vec3>) {
+    let mut deduped = Vec::new();
+    for point in polygon.iter().copied() {
+        if deduped
+            .last()
+            .map(|previous| distance(*previous, point) > 0.001)
+            .unwrap_or(true)
+        {
+            deduped.push(point);
+        }
+    }
+    if deduped.len() > 1 && distance(deduped[0], *deduped.last().unwrap()) <= 0.001 {
+        deduped.pop();
+    }
+    *polygon = deduped;
+}
+
+fn polygon_area(polygon: &[Vec3]) -> f64 {
+    if polygon.len() < 3 {
+        return 0.0;
+    }
+    let origin = polygon[0];
+    let mut area = 0.0;
+    for index in 1..polygon.len() - 1 {
+        area += length(cross(polygon[index] - origin, polygon[index + 1] - origin)) * 0.5;
+    }
+    area
+}
+
+fn signed_distance(point: Vec3, plane: OrientedPlane) -> f64 {
+    dot(plane.normal, point - plane.point)
+}
+
+fn dot(lhs: Vec3, rhs: Vec3) -> f64 {
+    lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z
+}
+
+fn cross(lhs: Vec3, rhs: Vec3) -> Vec3 {
+    Vec3::new(
+        lhs.y * rhs.z - lhs.z * rhs.y,
+        lhs.z * rhs.x - lhs.x * rhs.z,
+        lhs.x * rhs.y - lhs.y * rhs.x,
+    )
+}
+
+fn length(value: Vec3) -> f64 {
+    dot(value, value).sqrt()
+}
+
+fn normalize(value: Vec3) -> Option<Vec3> {
+    let length = length(value);
+    (length > 0.000001).then(|| scale(value, 1.0 / length))
+}
+
+fn scale(value: Vec3, scalar: f64) -> Vec3 {
+    Vec3::new(value.x * scalar, value.y * scalar, value.z * scalar)
+}
+
+fn distance(lhs: Vec3, rhs: Vec3) -> f64 {
+    length(lhs - rhs)
 }
 
 #[derive(Debug, Default)]
@@ -391,5 +638,108 @@ entity { "id" "3" "classname" "info_landmark" "targetname" "map_transition" "ori
         assert_eq!(combined.entities.len(), 4);
         assert_eq!(combined.landmarks.len(), 2);
         assert_eq!(combined.bounds.unwrap().max.x, 180.0);
+    }
+
+    #[test]
+    fn reconstructs_axis_aligned_box_faces() {
+        let document = parse_document(
+            r#"
+world { "id" "1" solid {
+  side { "plane" "(0 0 0) (64 0 0) (64 64 0)" }
+  side { "plane" "(0 0 64) (64 64 64) (64 0 64)" }
+  side { "plane" "(0 0 0) (0 64 0) (0 64 64)" }
+  side { "plane" "(64 0 0) (64 0 64) (64 64 64)" }
+  side { "plane" "(0 0 0) (0 0 64) (64 0 64)" }
+  side { "plane" "(0 64 0) (64 64 64) (0 64 64)" }
+} }
+"#,
+        )
+        .unwrap();
+
+        let preview = preview_document(&document);
+        let solid = &preview.solids[0];
+
+        assert_eq!(solid.face_polygons.len(), 6);
+        assert!(solid.face_polygons.iter().all(|polygon| polygon.len() == 4));
+        assert_vec3_close(solid.bounds.min, Vec3::new(0.0, 0.0, 0.0));
+        assert_vec3_close(solid.bounds.max, Vec3::new(64.0, 64.0, 64.0));
+        for polygon in &solid.face_polygons {
+            for point in polygon {
+                assert!((0.0..=64.0).contains(&point.x), "{point:?}");
+                assert!((0.0..=64.0).contains(&point.y), "{point:?}");
+                assert!((0.0..=64.0).contains(&point.z), "{point:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn reconstructs_wedge_with_triangular_faces() {
+        let document = parse_document(
+            r#"
+world { "id" "1" solid {
+  side { "plane" "(0 0 0) (64 0 0) (64 64 0)" }
+  side { "plane" "(0 0 0) (0 64 0) (0 0 64)" }
+  side { "plane" "(64 0 0) (64 0 64) (64 64 0)" }
+  side { "plane" "(0 0 0) (0 0 64) (64 0 64)" }
+  side { "plane" "(0 64 0) (64 64 0) (64 0 64)" }
+} }
+"#,
+        )
+        .unwrap();
+
+        let preview = preview_document(&document);
+        let solid = &preview.solids[0];
+
+        assert_eq!(solid.face_polygons.len(), 5);
+        assert!(solid.face_polygons.iter().any(|polygon| polygon.len() == 3));
+        assert!(solid.face_polygons.iter().any(|polygon| polygon.len() == 4));
+        assert_vec3_close(solid.bounds.min, Vec3::new(0.0, 0.0, 0.0));
+        assert_vec3_close(solid.bounds.max, Vec3::new(64.0, 64.0, 64.0));
+    }
+
+    #[test]
+    fn translates_reconstructed_face_polygons() {
+        let document = parse_document(
+            r#"
+world { "id" "1" solid {
+  side { "plane" "(0 0 0) (16 0 0) (16 16 0)" }
+  side { "plane" "(0 0 16) (16 16 16) (16 0 16)" }
+  side { "plane" "(0 0 0) (0 16 0) (0 16 16)" }
+  side { "plane" "(16 0 0) (16 0 16) (16 16 16)" }
+  side { "plane" "(0 0 0) (0 0 16) (16 0 16)" }
+  side { "plane" "(0 16 0) (16 16 16) (0 16 16)" }
+} }
+"#,
+        )
+        .unwrap();
+
+        let mut preview = preview_document(&document);
+        translate_preview_document(&mut preview, Vec3::new(10.0, -5.0, 2.0));
+
+        let solid = &preview.solids[0];
+        assert_vec3_close(solid.bounds.min, Vec3::new(10.0, -5.0, 2.0));
+        assert_vec3_close(solid.bounds.max, Vec3::new(26.0, 11.0, 18.0));
+        assert!(
+            solid
+                .face_polygons
+                .iter()
+                .flatten()
+                .any(|point| *point == Vec3::new(10.0, -5.0, 2.0))
+        );
+    }
+
+    fn assert_vec3_close(actual: Vec3, expected: Vec3) {
+        assert!(
+            (actual.x - expected.x).abs() < 0.0001,
+            "actual={actual:?} expected={expected:?}"
+        );
+        assert!(
+            (actual.y - expected.y).abs() < 0.0001,
+            "actual={actual:?} expected={expected:?}"
+        );
+        assert!(
+            (actual.z - expected.z).abs() < 0.0001,
+            "actual={actual:?} expected={expected:?}"
+        );
     }
 }

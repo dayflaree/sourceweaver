@@ -102,6 +102,8 @@ This gives a Hammer-style 2D map overview for verifying rough layout and landmar
 
 Merged-preview source coloring is preview-only metadata. It does not write synthetic source keys into exported VMFs. The desktop preview builds a source-tagged preview from the same pruned input documents and the merge report's computed offsets, so selected map order gives stable source colors for the current selection.
 
+For closed convex brushes, the preview extractor reconstructs real face polygons by clipping each side plane against the other side planes. Bounds rendering remains as a fallback for malformed/open solids. See `docs/preview-geometry.md`.
+
 Landmark markers are extracted as explicit preview metadata from `info_landmark` entities. The selected merge landmark is drawn with a stronger marker/label. Merged previews also render per-source offset arrows using the same offset values reported by `merge_maps`.
 
 ## Merge model

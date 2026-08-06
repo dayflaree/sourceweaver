@@ -3049,30 +3049,36 @@ fn draw_preview_solid(
         }
     }
 
-    if rect.intersects(transform.rect) {
+    let stroke = egui::Stroke::new(
+        if selected {
+            2.5_f32
+        } else if removed {
+            2.0_f32
+        } else {
+            1.25_f32
+        },
+        if selected {
+            egui::Color32::YELLOW
+        } else {
+            role_color
+        },
+    );
+
+    let drew_reconstructed_faces = draw_reconstructed_faces(
+        painter,
+        transform,
+        solid,
+        fill_color.gamma_multiply(if removed { 0.32 } else { 0.22 }),
+        stroke,
+    );
+
+    if !drew_reconstructed_faces && rect.intersects(transform.rect) {
         painter.rect_filled(
             rect,
             0.0,
             fill_color.gamma_multiply(if removed { 0.32 } else { 0.22 }),
         );
-        draw_rect_outline(
-            painter,
-            rect,
-            egui::Stroke::new(
-                if selected {
-                    2.5_f32
-                } else if removed {
-                    2.0_f32
-                } else {
-                    1.25_f32
-                },
-                if selected {
-                    egui::Color32::YELLOW
-                } else {
-                    role_color
-                },
-            ),
-        );
+        draw_rect_outline(painter, rect, stroke);
     }
 
     for chunk in solid.points.chunks(3) {
@@ -3094,6 +3100,50 @@ fn draw_preview_solid(
             );
         }
     }
+}
+
+fn draw_reconstructed_faces(
+    painter: &egui::Painter,
+    transform: &PreviewTransform,
+    solid: &PreviewSolid,
+    fill: egui::Color32,
+    stroke: egui::Stroke,
+) -> bool {
+    let mut drew_any = false;
+    for polygon in &solid.face_polygons {
+        if polygon.len() < 3 {
+            continue;
+        }
+        let screen_points = polygon
+            .iter()
+            .map(|point| transform.world_to_screen(*point))
+            .collect::<Vec<_>>();
+        if projected_polygon_area(&screen_points) < 0.75 {
+            continue;
+        }
+        let rect = screen_points.iter().fold(
+            egui::Rect::from_min_size(screen_points[0], egui::Vec2::ZERO),
+            |rect, point| rect.union(egui::Rect::from_min_size(*point, egui::Vec2::ZERO)),
+        );
+        if !rect.intersects(transform.rect) {
+            continue;
+        }
+        painter.add(egui::Shape::convex_polygon(screen_points, fill, stroke));
+        drew_any = true;
+    }
+    drew_any
+}
+
+fn projected_polygon_area(points: &[egui::Pos2]) -> f32 {
+    if points.len() < 3 {
+        return 0.0;
+    }
+    let mut area = 0.0_f32;
+    for index in 0..points.len() {
+        let next = (index + 1) % points.len();
+        area += points[index].x * points[next].y - points[next].x * points[index].y;
+    }
+    area.abs() * 0.5
 }
 
 fn draw_preview_legend(
