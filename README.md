@@ -41,6 +41,7 @@ Current capabilities:
 - Detect brush roles such as triggers, clips, areaportals, occluders, skybox, hint, skip, nodraw, and water.
 - Preview bulk deletion rules.
 - Visualize deletion rules in the selected-map preview by highlighting, dimming, or hiding matched content.
+- Review pending deletion counts, undo the pending review, and explicitly confirm cleanup export before writing destructive changes.
 - Apply transparent deletion presets for triggers, clips, areaportals, gameplay logic, world-only cleanup, and world-plus-skybox cleanup.
 - Choose safe brush-entity deletion behavior and protect critical transition/player/logic entities by default.
 - Save a cleaned copy of a selected VMF.
@@ -95,8 +96,9 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 12. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, selected with checkboxes, or selected by clicking preview markers/solids; selections persist while switching tabs and view projections.
 13. Optionally apply a deletion preset, then inspect the generated deletion rules.
 14. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
-15. Use **Deletion preview** in the preview toolbar to highlight, dim, or hide content matched by current cleanup rules. Click **Preview deletion** to see exact in-memory removal counts without writing a file.
-16. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
+15. Use **Deletion preview** in the preview toolbar to highlight, dim, or hide content matched by current cleanup rules. Click **Preview deletion** to create a pending cleanup review with exact in-memory removal counts.
+16. Review **Pending cleanup review**, then click **Confirm cleanup export**. Use **Undo pending review** to clear the pending destructive action.
+17. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the confirmed rules during merge.
 
 
 ## Non-interactive automation

@@ -42,6 +42,8 @@ struct SourceWeaverApp {
     drop_all_entities: bool,
     brush_entity_mode: BrushEntityDeletionMode,
     protect_critical_entities: bool,
+    pending_deletion_review: Option<PendingDeletionReview>,
+    cleanup_export_confirmed: bool,
     status: Vec<String>,
     active_table: TableMode,
     preview_scope: PreviewScope,
@@ -102,6 +104,15 @@ struct MergedPreviewSummary {
 struct PreviewDeletionCounts {
     solids: usize,
     entities: usize,
+}
+
+#[derive(Debug, Clone)]
+struct PendingDeletionReview {
+    criteria: DeletionCriteria,
+    report: DeletionReport,
+    maps_checked: usize,
+    failures: usize,
+    label: String,
 }
 
 #[derive(Debug, Clone)]
@@ -319,6 +330,8 @@ impl SourceWeaverApp {
             drop_all_entities: false,
             brush_entity_mode: BrushEntityDeletionMode::WholeEntity,
             protect_critical_entities: true,
+            pending_deletion_review: None,
+            cleanup_export_confirmed: false,
             status: vec!["Ready. Add VMF files to inspect or merge.".to_string()],
             active_table: TableMode::Preview,
             preview_scope: PreviewScope::SelectedMap,
@@ -571,7 +584,46 @@ impl SourceWeaverApp {
         self.drop_all_entities = criteria.drop_all_entities;
         self.brush_entity_mode = criteria.brush_entity_mode;
         self.protect_critical_entities = criteria.protect_critical_entities;
+        self.pending_deletion_review = None;
+        self.cleanup_export_confirmed = false;
         self.clear_merged_preview();
+    }
+
+    fn require_cleanup_confirmation(&mut self, criteria: &DeletionCriteria) -> bool {
+        if criteria.is_empty() {
+            return true;
+        }
+
+        let Some(review) = &self.pending_deletion_review else {
+            self.cleanup_export_confirmed = false;
+            self.add_status(
+                "Destructive cleanup requires Preview deletion, then Confirm cleanup export before writing.",
+            );
+            return false;
+        };
+
+        if review.criteria != *criteria {
+            self.cleanup_export_confirmed = false;
+            self.add_status(
+                "Cleanup rules changed after the pending review. Preview deletion again before export.",
+            );
+            return false;
+        }
+
+        if !self.cleanup_export_confirmed {
+            self.add_status(
+                "Pending deletion review is ready. Click Confirm cleanup export before writing.",
+            );
+            return false;
+        }
+
+        true
+    }
+
+    fn clear_pending_cleanup_review(&mut self) {
+        self.pending_deletion_review = None;
+        self.cleanup_export_confirmed = false;
+        self.add_status("Cleared pending cleanup review. No cleanup export is confirmed.");
     }
 
     fn clear_merged_preview(&mut self) {
@@ -1037,6 +1089,8 @@ impl SourceWeaverApp {
 
     fn preview_deletion_with_criteria(&mut self, criteria: DeletionCriteria, label: &str) {
         if criteria.is_empty() {
+            self.pending_deletion_review = None;
+            self.cleanup_export_confirmed = false;
             self.add_status("No deletion rules selected.");
             return;
         }
@@ -1054,6 +1108,15 @@ impl SourceWeaverApp {
                 Err(_) => failures += 1,
             }
         }
+
+        self.pending_deletion_review = Some(PendingDeletionReview {
+            criteria: criteria.clone(),
+            report: total.clone(),
+            maps_checked: self.maps.len().saturating_sub(failures),
+            failures,
+            label: label.to_string(),
+        });
+        self.cleanup_export_confirmed = false;
 
         self.add_status(format!(
             "{label}: would remove {} entities, {} world solids, and {} brush-entity solids across {} map(s).{}",
@@ -1078,14 +1141,17 @@ impl SourceWeaverApp {
             self.add_status("Selected VMF is no longer available.");
             return;
         };
+        let entry_path = entry.path.clone();
         let criteria = self.build_deletion_criteria();
         if criteria.is_empty() {
             self.add_status("No deletion rules selected.");
             return;
         }
+        if !self.require_cleanup_confirmation(&criteria) {
+            return;
+        }
 
-        let default_name = entry
-            .path
+        let default_name = entry_path
             .file_stem()
             .and_then(|stem| stem.to_str())
             .map(|stem| format!("{stem}_cleaned.vmf"))
@@ -1100,7 +1166,7 @@ impl SourceWeaverApp {
             return;
         };
 
-        match load_document(&entry.path) {
+        match load_document(&entry_path) {
             Ok(mut document) => {
                 let report = prune_document(&mut document, &criteria);
                 let integrity = validate_document_integrity(&document, "cleaned output");
@@ -1112,13 +1178,17 @@ impl SourceWeaverApp {
                     return;
                 }
                 match write_document(&output_path, &document) {
-                    Ok(()) => self.add_status(format!(
-                        "Wrote cleaned VMF: {}. Removed {} entities, {} world solids, and {} brush-entity solids.",
-                        display_path(&output_path),
-                        report.removed_entities,
-                        report.removed_world_solids,
-                        report.removed_brush_entity_solids
-                    )),
+                    Ok(()) => {
+                        self.add_status(format!(
+                            "Wrote cleaned VMF: {}. Removed {} entities, {} world solids, and {} brush-entity solids.",
+                            display_path(&output_path),
+                            report.removed_entities,
+                            report.removed_world_solids,
+                            report.removed_brush_entity_solids
+                        ));
+                        self.pending_deletion_review = None;
+                        self.cleanup_export_confirmed = false;
+                    }
                     Err(error) => self.add_status(error),
                 }
             }
@@ -1129,6 +1199,11 @@ impl SourceWeaverApp {
     fn merge_selected_maps(&mut self) {
         if self.output_path.trim().is_empty() {
             self.add_status("Choose an output VMF path before merging.");
+            return;
+        }
+
+        let criteria = self.build_deletion_criteria();
+        if !self.require_cleanup_confirmation(&criteria) {
             return;
         }
 
@@ -1177,6 +1252,8 @@ impl SourceWeaverApp {
                         for (label, offset) in report.applied_offsets {
                             self.add_status(format!("Offset {label}: {offset}"));
                         }
+                        self.pending_deletion_review = None;
+                        self.cleanup_export_confirmed = false;
                     }
                     Err(error) => self.add_status(error),
                 }
@@ -1461,6 +1538,60 @@ impl SourceWeaverApp {
                 "Protect critical transition/player/logic entities",
             );
             ui.weak("Default safety preserves existing brush-role behavior by deleting whole matching brush entities, while protecting critical classnames unless this box is cleared.");
+        });
+
+        let current_criteria = self.build_deletion_criteria();
+        ui.group(|ui| {
+            ui.label("Pending cleanup review");
+            if current_criteria.is_empty() {
+                ui.weak("No cleanup rules are active.");
+            } else if let Some(review) = self.pending_deletion_review.clone() {
+                let stale = review.criteria != current_criteria;
+                ui.label(format!(
+                    "{}: would remove {} entities, {} world solids, and {} brush-entity solids across {} map(s).{}",
+                    review.label,
+                    review.report.removed_entities,
+                    review.report.removed_world_solids,
+                    review.report.removed_brush_entity_solids,
+                    review.maps_checked,
+                    if review.failures == 0 {
+                        String::new()
+                    } else {
+                        format!(" {} map(s) failed to parse.", review.failures)
+                    }
+                ));
+                if stale {
+                    self.cleanup_export_confirmed = false;
+                    ui.colored_label(
+                        egui::Color32::YELLOW,
+                        "Cleanup rules changed after this review. Preview deletion again before export.",
+                    );
+                } else if self.cleanup_export_confirmed {
+                    ui.colored_label(
+                        egui::Color32::LIGHT_GREEN,
+                        "Cleanup export confirmed. The next cleaned/merge export may write these removals.",
+                    );
+                } else {
+                    ui.colored_label(
+                        egui::Color32::YELLOW,
+                        "Review these pending removals, then confirm before export.",
+                    );
+                }
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(!stale, egui::Button::new("Confirm cleanup export"))
+                        .clicked()
+                    {
+                        self.cleanup_export_confirmed = true;
+                        self.add_status("Confirmed pending cleanup export.");
+                    }
+                    if ui.button("Undo pending review").clicked() {
+                        self.clear_pending_cleanup_review();
+                    }
+                });
+            } else {
+                ui.weak("Click Preview deletion to create a pending cleanup review before export.");
+            }
         });
 
         ui.horizontal(|ui| {

@@ -83,6 +83,8 @@ Desktop deletion presets must generate transparent deletion criteria that users 
 
 The desktop preview must visualize current deletion criteria without writing output. Users must be able to distinguish kept and removed content through at least highlight, dim, and hide modes. Exact removal counts must continue to come from the same in-memory pruning path used by export and merge preview.
 
+Desktop cleanup exports must be gated by pending review and confirmation. A deletion preview must create a pending review with exact counts. Users must be able to undo/clear the pending review before export. If deletion criteria change after review, confirmation must be revoked and export must require a fresh preview. Destructive cleaned-copy and merge exports must refuse to write until the current criteria have been reviewed and confirmed.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.

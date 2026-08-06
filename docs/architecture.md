@@ -47,6 +47,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - deletion preview
 - visual deletion overlay modes in the selected-map preview
 - preview click selection synchronized with entity table rows
+- pending cleanup review, undo, and confirmation state
 - cleaned-copy export
 - merge/export action
 - status log
@@ -137,6 +138,8 @@ Deletion presets live in the desktop layer and produce ordinary `DeletionCriteri
 The selected-map preview also computes a non-destructive visual overlay from the current deletion criteria. Users can highlight, dim, hide, or disable matched preview solids/entity markers. Merged preview remains the already-pruned in-memory result and reports exact removal counts from the core prune path.
 
 Preview click selection is scoped to the selected VMF. Entity markers and solid bounds resolve to the owning world/entity record, toggle the same selection key used by the entity table, and switch the inspection table to the entity view. Selection outlines remain visible across top/front/side projections because selection keys are stored independently of the active projection.
+
+Cleanup exports are gated by a pending-review state. Running deletion preview stores the criteria and exact prune counts. If criteria change, the review is stale and confirmation is revoked. Cleaned-copy and merge export only write destructive cleanup when the current criteria match the pending review and the user has clicked **Confirm cleanup export**. Undo clears the pending review and confirmation.
 
 ## Cross-platform strategy
 

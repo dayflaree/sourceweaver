@@ -42,8 +42,9 @@ Status: implemented.
 - Suggest campaign order and landmark pairs from transition entities.
 - Add visual deletion-rule overlays in preview.
 - Add preview click selection and entity-table synchronization.
+- Add pending cleanup review, undo, and confirmation before destructive export.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, visual deletion overlays, preview/table click synchronization, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, and compiler-log validation implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, visual deletion overlays, preview/table click synchronization, pending cleanup confirmation, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, and compiler-log validation implemented.
 
 ## Milestone 3: Source/Hammer validation
 
