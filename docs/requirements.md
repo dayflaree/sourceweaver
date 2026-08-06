@@ -121,6 +121,10 @@ The desktop app must support common workflows with minimal manual steps. Users s
 
 Linux users must be able to download a release tarball containing the desktop app, CLI, desktop entry, icon, docs, README, and license. Windows users must be able to download a release zip containing the desktop app, CLI, icon asset, docs, README, and license. Tagging a `v*` version must build both packages, upload workflow artifacts, and publish a GitHub Release with release notes. Required Linux runtime libraries and Windows runtime expectations must be documented.
 
+## BSP import stance
+
+Source Weaver must remain VMF-first. BSP input support, if added later, must rely on user-provided external decompiler paths and must not bundle third-party decompilers, game BSPs, or decompiled content. Documentation must explain legal responsibilities, decompile quality limitations, and the recommended external workflow.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.

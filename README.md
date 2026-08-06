@@ -247,6 +247,7 @@ Known limitations:
 
 - The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
 - No BSP decompilation.
+- BSP import is documented as an external BSPSource-to-VMF workflow; Source Weaver remains VMF-first. See `docs/bsp-import.md`.
 - FGD support is class-level metadata only; it does not parse all property labels yet.
 - Compile pipeline integration requires user-provided Source tool paths; Source tools are not bundled.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.

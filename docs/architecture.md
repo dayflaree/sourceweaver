@@ -155,6 +155,10 @@ The base VMF supplies top-level editor metadata such as `versioninfo`, `viewsett
 
 The core library provides class-level metadata for common Source entities, infers broad categories from unknown classname prefixes, and can parse lightweight FGD class declarations for class descriptions. Desktop inspection tables display category, friendly name, and description without hiding unknown classnames. See `docs/entity-metadata.md`.
 
+## BSP import stance
+
+Source Weaver remains VMF-first. BSP import is documented as an external decompile-to-VMF workflow using user-provided tools such as BSPSource. Source Weaver should not bundle decompilers or game BSP assets. Any future integration should be a thin user-configured wrapper with explicit legal/quality warnings. See `docs/bsp-import.md`.
+
 ## Deletion model
 
 Deletion is criteria-based. The UI builds a `DeletionCriteria` object from selected filters, then calls the same prune function as the CLI.
