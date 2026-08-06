@@ -184,6 +184,10 @@ fn pack_generates_bspzip_filelist_and_report() {
     let fake_bspzip = temp_dir.join("bspzip.sh");
     let script = r#"#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  echo "Fake BSPZIP 1.0"
+  exit 0
+fi
 if [[ "$#" -ne 4 || "$1" != "-addlist" ]]; then
   echo "unexpected args: $*" >&2
   exit 64
@@ -254,6 +258,7 @@ echo "BSPZIP finished"
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["ok"], true);
     assert_eq!(report["tool_kind"], "bspzip-addlist");
+    assert_eq!(report["tool_version"], "Fake BSPZIP 1.0");
     assert_eq!(
         report["command_shape"],
         "bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>"

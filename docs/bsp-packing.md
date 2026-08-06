@@ -73,7 +73,7 @@ Paths outside those roots can still be listed, but the report warns that they ar
 
 The JSON report includes:
 
-- tool path and tool kind
+- tool path, tool kind, and best-effort version probe
 - command shape and exact command arguments
 - input BSP and output BSP
 - whether the output BSP exists after the run

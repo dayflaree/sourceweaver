@@ -203,7 +203,7 @@ cargo run -p sourceweaver-cli -- pack map.bsp \
   --json
 ```
 
-See `docs/bsp-packing.md` for generated file lists, report fields, and legal/asset ownership notes.
+See `docs/bsp-packing.md` for generated file lists, version/provenance report fields, and legal/asset ownership notes.
 
 ## CLI usage
 

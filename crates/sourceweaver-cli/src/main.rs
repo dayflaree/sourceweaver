@@ -1177,11 +1177,13 @@ fn pack_command(args: &[String]) -> Result<(), String> {
     create_parent_dir(output_bsp, "output BSP")?;
 
     let list = prepare_pack_filelist(&config)?;
+    let tool_version = probe_bsp_packer_version(tool);
     if !list.missing_files.is_empty() {
         let report = PackReport {
             ok: false,
             tool: tool.display().to_string(),
             tool_kind: "bspzip-addlist".to_string(),
+            tool_version,
             command_shape: "bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>".to_string(),
             command_args: Vec::new(),
             input_bsp: input.display().to_string(),
@@ -1251,6 +1253,7 @@ fn pack_command(args: &[String]) -> Result<(), String> {
         ok,
         tool: invocation.executable.display().to_string(),
         tool_kind: "bspzip-addlist".to_string(),
+        tool_version,
         command_shape: invocation.command_shape.to_string(),
         command_args: invocation.args,
         input_bsp: input.display().to_string(),
@@ -1478,6 +1481,22 @@ fn run_bsp_packer(invocation: &BspPackInvocation, timeout: Duration) -> Result<O
     )
 }
 
+fn probe_bsp_packer_version(tool: &Path) -> Option<String> {
+    let mut command = Command::new(tool);
+    command.arg("--version");
+    match run_command_with_timeout(
+        &mut command,
+        "BSP packer version probe",
+        Duration::from_secs(30),
+    ) {
+        Ok(output) if output.status.success() => {
+            let text = trimmed_tool_output(&output);
+            if text.is_empty() { None } else { Some(text) }
+        }
+        _ => None,
+    }
+}
+
 fn count_bspzip_added_files(log: &str) -> Option<usize> {
     let count = log
         .lines()
@@ -1518,6 +1537,9 @@ fn finish_pack_report(config: &PackConfig, report: PackReport) -> Result<(), Str
     } else {
         println!("bsp pack: {}", if report.ok { "ok" } else { "failed" });
         println!("tool: {}", report.tool);
+        if let Some(version) = &report.tool_version {
+            println!("tool version: {version}");
+        }
         println!("input bsp: {}", report.input_bsp);
         println!("output bsp: {}", report.output_bsp);
         println!("filelist: {}", report.filelist_path);
@@ -1877,6 +1899,7 @@ struct PackReport {
     ok: bool,
     tool: String,
     tool_kind: String,
+    tool_version: Option<String>,
     command_shape: String,
     command_args: Vec<String>,
     input_bsp: String,
@@ -2441,7 +2464,7 @@ Source Weaver remains VMF-first:
   - BSP packers, compiled maps, and custom assets are not bundled.
   - Packing is optional and separate from VMF editing, merging, and compiling.
   - Generated file lists use BSPZIP's internal/external path-pair format.
-  - JSON reports include tool path, command arguments, input/output BSP, file list, requested assets, missing files, detected packed file count, log path, warnings/errors, and exit status.
+  - JSON reports include tool path, best-effort version probe, command arguments, input/output BSP, file list, requested assets, missing files, detected packed file count, log path, warnings/errors, and exit status.
 
 Generated file-list command shape:
   bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>
