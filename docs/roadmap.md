@@ -25,6 +25,7 @@ Status: implemented.
 - Add merge/export action.
 - Add status log.
 - Add Hammer-style 2D orthographic preview.
+- Add merged-output preview before export.
 - Add preview pan and zoom.
 - Add role-colored brush overlays and entity origin markers.
 

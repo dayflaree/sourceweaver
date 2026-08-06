@@ -1,8 +1,8 @@
 use eframe::egui;
 use sourceweaver_core::{
     BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord, MergeInput, MergeOptions,
-    PreviewBounds, PreviewDocument, PreviewSolid, inspect_entities, merge_maps, preview_document,
-    prune_document, summarize_entity_types,
+    MergeReport, PreviewBounds, PreviewDocument, PreviewSolid, inspect_entities, merge_maps,
+    preview_document, prune_document, summarize_entity_types,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -35,6 +35,8 @@ struct SourceWeaverApp {
     role_options: Vec<RoleOption>,
     status: Vec<String>,
     active_table: TableMode,
+    preview_scope: PreviewScope,
+    merged_preview: Option<MergedPreview>,
     preview_view: PreviewView,
     preview_zoom: f32,
     preview_pan: egui::Vec2,
@@ -54,6 +56,28 @@ struct MapAnalysis {
     entity_records: Vec<EntityRecord>,
     type_counts: BTreeMap<String, usize>,
     preview: PreviewDocument,
+}
+
+#[derive(Debug, Clone)]
+struct MergedPreview {
+    preview: PreviewDocument,
+    summary: MergedPreviewSummary,
+}
+
+#[derive(Debug, Clone)]
+struct MergedPreviewSummary {
+    merged_maps: usize,
+    appended_world_solids: usize,
+    appended_entities: usize,
+    removed_entities: usize,
+    removed_world_solids: usize,
+    offsets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreviewScope {
+    SelectedMap,
+    MergedResult,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +126,8 @@ impl SourceWeaverApp {
             ],
             status: vec!["Ready. Add VMF files to inspect or merge.".to_string()],
             active_table: TableMode::Preview,
+            preview_scope: PreviewScope::SelectedMap,
+            merged_preview: None,
             preview_view: PreviewView::Top,
             preview_zoom: 1.0,
             preview_pan: egui::Vec2::ZERO,
@@ -137,6 +163,7 @@ impl SourceWeaverApp {
                 self.selected_map = Some(0);
             }
             self.base_index = self.base_index.min(self.maps.len().saturating_sub(1));
+            self.clear_merged_preview();
             self.add_status(format!("Added {added} VMF file(s)."));
         }
     }
@@ -146,6 +173,7 @@ impl SourceWeaverApp {
             let path = map.path.clone();
             *map = MapEntry::load(path);
         }
+        self.clear_merged_preview();
         self.add_status("Re-scanned selected VMFs from disk.");
     }
 
@@ -155,6 +183,7 @@ impl SourceWeaverApp {
         self.base_index = 0;
         self.preview_pan = egui::Vec2::ZERO;
         self.preview_zoom = 1.0;
+        self.clear_merged_preview();
         self.add_status("Cleared selected VMFs.");
     }
 
@@ -172,6 +201,7 @@ impl SourceWeaverApp {
                 self.selected_map = Some(index.min(self.maps.len() - 1));
                 self.base_index = self.base_index.min(self.maps.len() - 1);
             }
+            self.clear_merged_preview();
         }
     }
 
@@ -201,6 +231,84 @@ impl SourceWeaverApp {
                 .map(|option| option.role.clone()),
         );
         criteria
+    }
+
+    fn clear_merged_preview(&mut self) {
+        self.merged_preview = None;
+        if self.preview_scope == PreviewScope::MergedResult {
+            self.preview_scope = PreviewScope::SelectedMap;
+        }
+    }
+
+    fn prepare_merge_inputs(&self) -> Result<(Vec<MergeInput>, DeletionReport), String> {
+        if self.maps.len() < 2 {
+            return Err("Merge preview needs at least two VMF files.".to_string());
+        }
+        if self.base_index >= self.maps.len() {
+            return Err("Base map selection is invalid.".to_string());
+        }
+
+        let criteria = self.build_deletion_criteria();
+        let mut ordered_indices = vec![self.base_index];
+        ordered_indices.extend((0..self.maps.len()).filter(|index| *index != self.base_index));
+
+        let mut merge_inputs = Vec::new();
+        let mut removed_total = DeletionReport::default();
+        for index in ordered_indices {
+            let entry = &self.maps[index];
+            let mut document = load_document(&entry.path)?;
+            if !criteria.is_empty() {
+                let report = prune_document(&mut document, &criteria);
+                removed_total.removed_entities += report.removed_entities;
+                removed_total.removed_world_solids += report.removed_world_solids;
+            }
+            merge_inputs.push(MergeInput {
+                label: display_path(&entry.path),
+                document,
+            });
+        }
+
+        Ok((merge_inputs, removed_total))
+    }
+
+    fn build_merged_preview(&mut self) {
+        let (merge_inputs, removed_total) = match self.prepare_merge_inputs() {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.add_status(error);
+                return;
+            }
+        };
+
+        let landmark = blank_to_none(&self.landmark);
+        match merge_maps(merge_inputs, &MergeOptions { landmark }) {
+            Ok((document, report)) => {
+                let preview = preview_document(&document);
+                let summary = MergedPreviewSummary::from_reports(&report, &removed_total);
+                self.merged_preview = Some(MergedPreview { preview, summary });
+                self.preview_scope = PreviewScope::MergedResult;
+                self.active_table = TableMode::Preview;
+                self.preview_pan = egui::Vec2::ZERO;
+                self.preview_zoom = 1.0;
+                self.add_status(format!(
+                    "Built merged preview for {} map(s): {} solids, {} entity origins.",
+                    report.merged_maps,
+                    self.merged_preview
+                        .as_ref()
+                        .map(|preview| preview.preview.solids.len())
+                        .unwrap_or(0),
+                    self.merged_preview
+                        .as_ref()
+                        .map(|preview| preview.preview.entities.len())
+                        .unwrap_or(0)
+                ));
+                self.add_status(format!(
+                    "Preview cleanup removed {} entities and {} world solids in memory; no VMF was written.",
+                    removed_total.removed_entities, removed_total.removed_world_solids
+                ));
+            }
+            Err(error) => self.add_status(format!("Merge preview failed: {error}")),
+        }
     }
 
     fn preview_deletion(&mut self) {
@@ -285,45 +393,18 @@ impl SourceWeaverApp {
     }
 
     fn merge_selected_maps(&mut self) {
-        if self.maps.len() < 2 {
-            self.add_status("Merge needs at least two VMF files.");
-            return;
-        }
         if self.output_path.trim().is_empty() {
             self.add_status("Choose an output VMF path before merging.");
             return;
         }
-        if self.base_index >= self.maps.len() {
-            self.add_status("Base map selection is invalid.");
-            return;
-        }
 
-        let criteria = self.build_deletion_criteria();
-        let mut ordered_indices = vec![self.base_index];
-        ordered_indices.extend((0..self.maps.len()).filter(|index| *index != self.base_index));
-
-        let mut merge_inputs = Vec::new();
-        let mut removed_total = DeletionReport::default();
-        for index in ordered_indices {
-            let entry = &self.maps[index];
-            match load_document(&entry.path) {
-                Ok(mut document) => {
-                    if !criteria.is_empty() {
-                        let report = prune_document(&mut document, &criteria);
-                        removed_total.removed_entities += report.removed_entities;
-                        removed_total.removed_world_solids += report.removed_world_solids;
-                    }
-                    merge_inputs.push(MergeInput {
-                        label: display_path(&entry.path),
-                        document,
-                    });
-                }
-                Err(error) => {
-                    self.add_status(error);
-                    return;
-                }
+        let (merge_inputs, removed_total) = match self.prepare_merge_inputs() {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.add_status(error);
+                return;
             }
-        }
+        };
 
         let landmark = blank_to_none(&self.landmark);
         match merge_maps(merge_inputs, &MergeOptions { landmark }) {
@@ -490,11 +571,15 @@ impl SourceWeaverApp {
         });
 
         ui.horizontal(|ui| {
+            if ui.button("Preview selected merge").clicked() {
+                self.build_merged_preview();
+            }
             if ui.button("Merge selected VMFs").clicked() {
                 self.merge_selected_maps();
             }
-            ui.weak("World solids, skybox brushes, point entities, and brush entities are appended from incoming maps.");
+            ui.weak("Preview builds the same merge in memory without writing an output VMF.");
         });
+        ui.weak("World solids, skybox brushes, point entities, and brush entities are appended from incoming maps.");
     }
 
     fn cleanup_panel(&mut self, ui: &mut egui::Ui) {
@@ -557,20 +642,80 @@ impl SourceWeaverApp {
 
         let path = display_path(&entry.path);
         let analysis = entry.analysis.clone();
-        ui.label(&path);
         match analysis {
             Ok(analysis) => match self.active_table {
-                TableMode::Preview => self.draw_preview_panel(ui, &analysis.preview),
-                TableMode::Entities => draw_entity_table(ui, &analysis.entity_records),
-                TableMode::Classnames => draw_classname_table(ui, &analysis.type_counts),
+                TableMode::Preview => {
+                    self.draw_preview_scope_controls(ui, &path);
+                    match self.preview_scope {
+                        PreviewScope::SelectedMap => {
+                            ui.label(format!("Selected VMF preview: {path}"));
+                            self.draw_preview_panel(ui, &analysis.preview, None);
+                        }
+                        PreviewScope::MergedResult => {
+                            if let Some(merged_preview) = self.merged_preview.clone() {
+                                ui.label("Merged-output preview: current in-memory result");
+                                self.draw_preview_panel(
+                                    ui,
+                                    &merged_preview.preview,
+                                    Some(&merged_preview.summary),
+                                );
+                            } else {
+                                ui.colored_label(
+                                    egui::Color32::YELLOW,
+                                    "No merged preview has been built yet. Click Preview selected merge.",
+                                );
+                                self.preview_scope = PreviewScope::SelectedMap;
+                                self.draw_preview_panel(ui, &analysis.preview, None);
+                            }
+                        }
+                    }
+                }
+                TableMode::Entities => {
+                    ui.label(&path);
+                    draw_entity_table(ui, &analysis.entity_records);
+                }
+                TableMode::Classnames => {
+                    ui.label(&path);
+                    draw_classname_table(ui, &analysis.type_counts);
+                }
             },
             Err(error) => {
+                ui.label(&path);
                 ui.colored_label(egui::Color32::LIGHT_RED, error);
             }
         }
     }
 
-    fn draw_preview_panel(&mut self, ui: &mut egui::Ui, preview: &PreviewDocument) {
+    fn draw_preview_scope_controls(&mut self, ui: &mut egui::Ui, selected_path: &str) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Preview source:");
+            ui.radio_value(
+                &mut self.preview_scope,
+                PreviewScope::SelectedMap,
+                "Selected VMF",
+            );
+            let merged_enabled = self.merged_preview.is_some();
+            ui.add_enabled_ui(merged_enabled, |ui| {
+                ui.radio_value(
+                    &mut self.preview_scope,
+                    PreviewScope::MergedResult,
+                    "Merged result",
+                );
+            });
+            if !merged_enabled {
+                ui.weak("Click Preview selected merge to build a merged result.");
+            }
+            ui.separator();
+            ui.weak(format!("Selected: {selected_path}"));
+        });
+    }
+
+    fn draw_preview_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        preview: &PreviewDocument,
+        merged_summary: Option<&MergedPreviewSummary>,
+    ) {
         ui.horizontal_wrapped(|ui| {
             ui.label("View:");
             ui.radio_value(&mut self.preview_view, PreviewView::Top, "Top X/Y");
@@ -594,6 +739,22 @@ impl SourceWeaverApp {
             ui.add(egui::Slider::new(&mut self.preview_zoom, 0.1..=12.0).text("Zoom"));
             ui.weak("Mouse wheel zooms. Drag the preview to pan.");
         });
+
+        if let Some(summary) = merged_summary {
+            ui.group(|ui| {
+                ui.label(format!(
+                    "Merged preview: {} map(s), appended {} world solids and {} entities.",
+                    summary.merged_maps, summary.appended_world_solids, summary.appended_entities
+                ));
+                ui.label(format!(
+                    "Cleanup applied in memory: removed {} entities and {} world solids. No output VMF was written.",
+                    summary.removed_entities, summary.removed_world_solids
+                ));
+                for offset in &summary.offsets {
+                    ui.small(offset);
+                }
+            });
+        }
 
         let desired_height = 560.0_f32.max(ui.available_height().min(720.0));
         let desired_size = egui::vec2(ui.available_width().max(360.0), desired_height);
@@ -675,6 +836,23 @@ impl SourceWeaverApp {
         }
 
         draw_preview_legend(&painter, rect);
+    }
+}
+
+impl MergedPreviewSummary {
+    fn from_reports(report: &MergeReport, deletion: &DeletionReport) -> Self {
+        Self {
+            merged_maps: report.merged_maps,
+            appended_world_solids: report.appended_world_solids,
+            appended_entities: report.appended_entities,
+            removed_entities: deletion.removed_entities,
+            removed_world_solids: deletion.removed_world_solids,
+            offsets: report
+                .applied_offsets
+                .iter()
+                .map(|(label, offset)| format!("Offset {label}: {offset}"))
+                .collect(),
+        }
     }
 }
 

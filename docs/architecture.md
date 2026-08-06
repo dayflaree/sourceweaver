@@ -26,6 +26,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - landmark targetname input
 - output VMF picker
 - Hammer-style 2D orthographic VMF preview
+- in-memory merged-output preview before export
 - top, front, and side preview projections
 - entity inspection table
 - classname summary table
@@ -75,7 +76,7 @@ The desktop app renders this data in three orthographic projections:
 - front: X/Z
 - side: Y/Z
 
-This gives a Hammer-style 2D map overview for verifying rough layout and landmark alignment. It is not yet a full textured 3D renderer.
+This gives a Hammer-style 2D map overview for verifying rough layout and landmark alignment. The desktop app can render either the selected source VMF or an in-memory merged result generated from the current base map, landmark, and deletion rules. It is not yet a full textured 3D renderer.
 
 ## Merge model
 
