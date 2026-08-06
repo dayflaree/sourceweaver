@@ -5,6 +5,7 @@
 //! share the same VMF behavior.
 
 pub mod classify;
+pub mod integrity;
 pub mod landmark;
 pub mod merge;
 pub mod preview;
@@ -13,6 +14,10 @@ pub mod transform;
 pub mod vmf;
 
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
+pub use integrity::{
+    IntegrityIssue, IntegrityReport, IntegritySeverity, format_integrity_issue,
+    validate_document_integrity, validate_merge_inputs,
+};
 pub use landmark::{
     DiscoveredLandmark, LandmarkDiscovery, LandmarkDuplicate, LandmarkTargetStatus,
     discover_landmarks, landmark_status,

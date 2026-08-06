@@ -1,3 +1,4 @@
+use crate::integrity::validate_merge_inputs;
 use crate::transform::{Vec3, find_landmark_origin, translate_block};
 use crate::vmf::{Document, Node};
 use std::collections::BTreeSet;
@@ -25,8 +26,13 @@ pub fn merge_maps(
     inputs: Vec<MergeInput>,
     options: &MergeOptions,
 ) -> Result<(Document, MergeReport), String> {
-    if inputs.is_empty() {
-        return Err("merge needs at least one VMF".to_string());
+    let input_refs = inputs
+        .iter()
+        .map(|input| (input.label.as_str(), &input.document))
+        .collect::<Vec<_>>();
+    let integrity = validate_merge_inputs(&input_refs);
+    if let Some(message) = integrity.error_message() {
+        return Err(message);
     }
 
     let mut iter = inputs.into_iter();

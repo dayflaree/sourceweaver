@@ -19,6 +19,7 @@ Current capabilities:
 - Align incoming maps to a shared `info_landmark` targetname.
 - Discover `info_landmark` targetnames from selected VMFs and choose one from a dropdown.
 - Show missing, duplicate, and invalid landmark status before preview or export.
+- Show VMF integrity status before preview/export, including missing common sections, duplicate IDs, and invalid world blocks.
 - Preserve incoming world brushes, including skybox brushes.
 - Preserve incoming point entities and brush entities.
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
@@ -72,14 +73,15 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 2. Select the base map in the left panel or in the **Base map** dropdown.
 3. Choose a discovered `info_landmark` targetname from the dropdown, or type one manually. Leave it blank to append maps without alignment.
 4. Review the **Landmark status** table. It shows which selected VMFs contain the chosen landmark and warns about missing, duplicate, or invalid landmarks before preview/export.
-5. Browse for an output `.vmf` path.
-6. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
-7. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
-8. Switch **Preview source** between the selected VMF and the merged result.
-9. Inspect the selected map's entities and classnames in the inspection tables.
-10. Optionally add deletion rules by classname, targetname, or brush role.
-11. Click **Preview deletion** to see how much content the cleanup rules would remove.
-12. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
+5. Review the **VMF integrity status** table for structural errors and warnings before preview/export.
+6. Browse for an output `.vmf` path.
+7. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
+8. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
+9. Switch **Preview source** between the selected VMF and the merged result.
+10. Inspect the selected map's entities and classnames in the inspection tables.
+11. Optionally add deletion rules by classname, targetname, or brush role.
+12. Click **Preview deletion** to see how much content the cleanup rules would remove.
+13. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
 
 
 ## Non-interactive automation

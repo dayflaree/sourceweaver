@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
-    BrushRole, DeletionCriteria, DeletionReport, Document, MergeInput, MergeOptions, MergeReport,
-    inspect_entities, merge_maps, prune_document, summarize_entity_types,
+    BrushRole, DeletionCriteria, DeletionReport, Document, IntegrityReport, MergeInput,
+    MergeOptions, MergeReport, format_integrity_issue, inspect_entities, merge_maps,
+    prune_document, summarize_entity_types, validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
@@ -170,10 +171,16 @@ fn merge_command(args: &[String]) -> Result<(), String> {
 
     let mut merge_inputs = Vec::new();
     for path in inputs {
-        merge_inputs.push(MergeInput {
-            label: path.display().to_string(),
-            document: load_document(&path)?,
-        });
+        let label = path.display().to_string();
+        let document = load_document(&path)?;
+        let integrity = validate_document_integrity(&document, &label);
+        for issue in integrity.warnings() {
+            eprintln!("{}", format_integrity_issue(issue));
+        }
+        if let Some(message) = integrity.error_message() {
+            return Err(message);
+        }
+        merge_inputs.push(MergeInput { label, document });
     }
 
     let (document, report) = merge_maps(merge_inputs, &MergeOptions { landmark })?;
@@ -300,9 +307,24 @@ struct AutomationReport {
     landmark: Option<String>,
     deletion: DeletionSnapshot,
     per_map: Vec<MapJobReport>,
+    integrity: IntegritySnapshot,
     merge: Option<MergeSnapshot>,
     result_entity_types: BTreeMap<String, usize>,
     result_entity_records: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct IntegritySnapshot {
+    errors: usize,
+    warnings: usize,
+    issues: Vec<IntegrityIssueSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct IntegrityIssueSnapshot {
+    severity: String,
+    map: String,
+    message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -318,6 +340,8 @@ struct DeletionSnapshot {
 struct MapJobReport {
     path: String,
     role: String,
+    integrity_errors: usize,
+    integrity_warnings: usize,
     entity_records_before: usize,
     entity_records_after: usize,
     entity_types_before: BTreeMap<String, usize>,
@@ -362,10 +386,23 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
     let mut per_map = Vec::new();
     let mut prepared_documents = Vec::new();
     let mut removed_total = DeletionReport::default();
+    let mut integrity_report = IntegrityReport::default();
 
     for (index, path) in map_paths.iter().enumerate() {
         let role = if index == 0 { "base" } else { "input" };
         let mut document = load_document(path)?;
+        let label = path.display().to_string();
+        let map_integrity = validate_document_integrity(&document, &label);
+        for issue in map_integrity.warnings() {
+            eprintln!("{}", format_integrity_issue(issue));
+        }
+        if let Some(message) = map_integrity.error_message() {
+            return Err(message);
+        }
+        let integrity_errors = map_integrity.error_count();
+        let integrity_warnings = map_integrity.warning_count();
+        integrity_report.extend(map_integrity);
+
         let before_records = inspect_entities(&document).len();
         let before_types = summarize_entity_types(&document);
         let deletion_report = prune_document(&mut document, &criteria);
@@ -377,6 +414,8 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         per_map.push(MapJobReport {
             path: path.display().to_string(),
             role: role.to_string(),
+            integrity_errors,
+            integrity_warnings,
             entity_records_before: before_records,
             entity_records_after: after_records,
             entity_types_before: before_types,
@@ -385,7 +424,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
             removed_world_solids: deletion_report.removed_world_solids,
         });
 
-        prepared_documents.push((path.display().to_string(), document));
+        prepared_documents.push((label, document));
     }
 
     let (result_document, merge_snapshot, operation) = if prepared_documents.len() == 1 {
@@ -417,6 +456,14 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
 
     let result_entity_types = summarize_entity_types(&result_document);
     let result_entity_records = inspect_entities(&result_document).len();
+    let result_integrity = validate_document_integrity(&result_document, "result");
+    for issue in result_integrity.warnings() {
+        eprintln!("{}", format_integrity_issue(issue));
+    }
+    if let Some(message) = result_integrity.error_message() {
+        return Err(message);
+    }
+    integrity_report.extend(result_integrity);
 
     let output_written = if job.dry_run {
         false
@@ -455,6 +502,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
             removed_world_solids: removed_total.removed_world_solids,
         },
         per_map,
+        integrity: snapshot_integrity_report(&integrity_report),
         merge: merge_snapshot,
         result_entity_types,
         result_entity_records,
@@ -498,6 +546,22 @@ fn snapshot_merge_report(report: MergeReport) -> MergeSnapshot {
             .map(|(map, offset)| OffsetSnapshot {
                 map,
                 offset: offset.to_string(),
+            })
+            .collect(),
+    }
+}
+
+fn snapshot_integrity_report(report: &IntegrityReport) -> IntegritySnapshot {
+    IntegritySnapshot {
+        errors: report.error_count(),
+        warnings: report.warning_count(),
+        issues: report
+            .issues
+            .iter()
+            .map(|issue| IntegrityIssueSnapshot {
+                severity: issue.severity.to_string(),
+                map: issue.label.clone(),
+                message: issue.message.clone(),
             })
             .collect(),
     }

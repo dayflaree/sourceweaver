@@ -10,6 +10,7 @@ The core crate owns VMF behavior:
 - VMF serialization
 - entity and brush inspection
 - preview geometry extraction for orthographic UI views
+- VMF integrity validation for pre-write safety checks
 - landmark discovery, duplicate checks, selected-landmark status, and origin lookup
 - brush and entity translation
 - merge operations
@@ -25,6 +26,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - base-map selection
 - discovered-landmark dropdown plus manual landmark targetname input
 - per-map landmark status warnings before preview/export
+- per-map VMF integrity status warnings before preview/export
 - output VMF picker
 - Hammer-style 2D orthographic VMF preview
 - in-memory merged-output preview before export
@@ -96,6 +98,8 @@ The first selected VMF is the base document. For each additional VMF:
 11. Append incoming top-level entities after existing base nodes.
 
 Landmark discovery records top-level `entity` blocks with `classname` `info_landmark` and a non-empty `targetname`. A landmark needs a parseable `origin` before it can drive alignment. The desktop UI still shows duplicate and invalid-origin status so users can fix ambiguous maps before merging.
+
+Integrity validation runs before preview/export write paths. The core validator reports structural errors such as missing or duplicate top-level `world` blocks and warnings such as missing common VMF sections, missing IDs, duplicate numeric IDs, multiple ID fields, or non-numeric IDs on blocks where Hammer normally expects stable IDs.
 
 ## Deletion model
 

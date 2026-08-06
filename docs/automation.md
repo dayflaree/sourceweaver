@@ -34,7 +34,7 @@ Relative paths are resolved from the directory containing the job file. This mak
 cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml
 ```
 
-The command prints a JSON report to stdout. If the job contains `report = "..."` or the command uses `--report`, the same report is written to disk.
+The command prints a JSON report to stdout. If the job contains `report = "..."` or the command uses `--report`, the same report is written to disk. Reports include VMF integrity counts and issue details so missing common sections, duplicate IDs, invalid IDs, and world-block errors are visible to automation.
 
 ```bash
 cargo run -p sourceweaver-cli -- run \
@@ -50,7 +50,7 @@ Use dry runs for inspection and planning without writing the output VMF:
 cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml --dry-run
 ```
 
-Dry-run mode still parses every VMF, applies deletion rules in memory, performs the merge in memory, and reports what would happen.
+Dry-run mode still parses every VMF, applies deletion rules in memory, performs the merge in memory, runs integrity checks, and reports what would happen.
 
 ## Clean a single VMF
 

@@ -1,9 +1,10 @@
 use eframe::egui;
 use sourceweaver_core::{
-    BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord, LandmarkDiscovery,
-    LandmarkTargetStatus, MergeInput, MergeOptions, MergeReport, PreviewBounds, PreviewDocument,
-    PreviewSolid, discover_landmarks, inspect_entities, merge_maps, preview_document,
-    prune_document, summarize_entity_types,
+    BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord, IntegrityReport,
+    LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions, MergeReport, PreviewBounds,
+    PreviewDocument, PreviewSolid, discover_landmarks, format_integrity_issue, inspect_entities,
+    merge_maps, preview_document, prune_document, summarize_entity_types,
+    validate_document_integrity,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -58,6 +59,7 @@ struct MapAnalysis {
     type_counts: BTreeMap<String, usize>,
     preview: PreviewDocument,
     landmarks: LandmarkDiscovery,
+    integrity: IntegrityReport,
 }
 
 #[derive(Debug, Clone)]
@@ -414,6 +416,82 @@ impl SourceWeaverApp {
         });
     }
 
+    fn integrity_status_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        for entry in &self.maps {
+            match &entry.analysis {
+                Ok(analysis) => {
+                    for issue in &analysis.integrity.issues {
+                        lines.push(format!("Integrity {}", format_integrity_issue(issue)));
+                    }
+                }
+                Err(error) => lines.push(format!(
+                    "Integrity error: {}: parse/load failed: {error}",
+                    display_path(&entry.path)
+                )),
+            }
+        }
+        lines
+    }
+
+    fn draw_integrity_status(&self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("VMF integrity status");
+            if self.maps.is_empty() {
+                ui.weak("Add VMFs to run integrity checks.");
+                return;
+            }
+
+            egui::Grid::new("integrity_status_grid")
+                .num_columns(2)
+                .spacing([12.0, 4.0])
+                .show(ui, |ui| {
+                    ui.strong("Map");
+                    ui.strong("Status");
+                    ui.end_row();
+
+                    for entry in &self.maps {
+                        ui.label(file_name_or_path(&entry.path));
+                        match &entry.analysis {
+                            Ok(analysis) => {
+                                let errors = analysis.integrity.error_count();
+                                let warnings = analysis.integrity.warning_count();
+                                if errors > 0 {
+                                    ui.colored_label(
+                                        egui::Color32::LIGHT_RED,
+                                        format!("{errors} error(s), {warnings} warning(s)"),
+                                    );
+                                } else if warnings > 0 {
+                                    ui.colored_label(
+                                        egui::Color32::YELLOW,
+                                        format!("{warnings} warning(s)"),
+                                    );
+                                } else {
+                                    ui.colored_label(egui::Color32::LIGHT_GREEN, "OK");
+                                }
+                            }
+                            Err(error) => {
+                                ui.colored_label(
+                                    egui::Color32::LIGHT_RED,
+                                    format!("Parse/load failed: {error}"),
+                                );
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+
+            let detail_lines = self.integrity_status_lines();
+            if !detail_lines.is_empty() {
+                ui.collapsing("Integrity details", |ui| {
+                    for line in detail_lines {
+                        ui.small(line);
+                    }
+                });
+            }
+        });
+    }
+
     fn prepare_merge_inputs(&self) -> Result<(Vec<MergeInput>, DeletionReport), String> {
         if self.maps.len() < 2 {
             return Err("Merge preview needs at least two VMF files.".to_string());
@@ -456,6 +534,9 @@ impl SourceWeaverApp {
 
         for warning in self.landmark_warning_lines() {
             self.add_status(warning);
+        }
+        for line in self.integrity_status_lines() {
+            self.add_status(line);
         }
 
         let landmark = blank_to_none(&self.landmark);
@@ -556,6 +637,14 @@ impl SourceWeaverApp {
         match load_document(&entry.path) {
             Ok(mut document) => {
                 let report = prune_document(&mut document, &criteria);
+                let integrity = validate_document_integrity(&document, "cleaned output");
+                for issue in integrity.warnings() {
+                    self.add_status(format!("Integrity {}", format_integrity_issue(issue)));
+                }
+                if let Some(message) = integrity.error_message() {
+                    self.add_status(format!("Cleaned output failed integrity checks: {message}"));
+                    return;
+                }
                 match write_document(&output_path, &document) {
                     Ok(()) => self.add_status(format!(
                         "Wrote cleaned VMF: {}. Removed {} entities and {} world solids.",
@@ -587,10 +676,21 @@ impl SourceWeaverApp {
         for warning in self.landmark_warning_lines() {
             self.add_status(warning);
         }
+        for line in self.integrity_status_lines() {
+            self.add_status(line);
+        }
 
         let landmark = blank_to_none(&self.landmark);
         match merge_maps(merge_inputs, &MergeOptions { landmark }) {
             Ok((document, report)) => {
+                let integrity = validate_document_integrity(&document, "merged output");
+                for issue in integrity.warnings() {
+                    self.add_status(format!("Integrity {}", format_integrity_issue(issue)));
+                }
+                if let Some(message) = integrity.error_message() {
+                    self.add_status(format!("Merged output failed integrity checks: {message}"));
+                    return;
+                }
                 let output_path = PathBuf::from(self.output_path.trim());
                 match write_document(&output_path, &document) {
                     Ok(()) => {
@@ -672,11 +772,12 @@ impl eframe::App for SourceWeaverApp {
                             match &entry.analysis {
                                 Ok(analysis) => {
                                     ui.small(format!(
-                                        "{} records, {} classnames, {} landmarks, {} preview solids",
+                                        "{} records, {} classnames, {} landmarks, {} preview solids, {} integrity warning(s)",
                                         analysis.entity_records.len(),
                                         analysis.type_counts.len(),
                                         analysis.landmarks.targetnames.len(),
-                                        analysis.preview.solids.len()
+                                        analysis.preview.solids.len(),
+                                        analysis.integrity.warning_count()
                                     ));
                                 }
                                 Err(error) => {
@@ -771,6 +872,7 @@ impl SourceWeaverApp {
         }
 
         self.draw_landmark_status(ui);
+        self.draw_integrity_status(ui);
 
         ui.horizontal(|ui| {
             ui.label("Output VMF:");
@@ -1069,12 +1171,16 @@ impl MergedPreviewSummary {
 impl MapEntry {
     fn load(path: PathBuf) -> Self {
         let analysis = match load_document(&path) {
-            Ok(document) => Ok(MapAnalysis {
-                entity_records: inspect_entities(&document),
-                type_counts: summarize_entity_types(&document),
-                preview: preview_document(&document),
-                landmarks: discover_landmarks(&document),
-            }),
+            Ok(document) => {
+                let label = display_path(&path);
+                Ok(MapAnalysis {
+                    entity_records: inspect_entities(&document),
+                    type_counts: summarize_entity_types(&document),
+                    preview: preview_document(&document),
+                    landmarks: discover_landmarks(&document),
+                    integrity: validate_document_integrity(&document, &label),
+                })
+            }
             Err(error) => Err(error),
         };
         Self { path, analysis }
