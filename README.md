@@ -23,7 +23,7 @@ Current capabilities:
 - Show VMF integrity status before preview/export, including missing common sections, duplicate IDs, and invalid world blocks.
 - Validate generated VMFs for Source-tool readiness and parse captured VBSP logs.
 - Run optional user-configured VBSP/VVIS/VRAD compile pipelines and capture parsed JSON reports.
-- Run optional user-configured BSP decompile wrappers and validate generated VMFs before import.
+- Run optional user-selected BSPSource decompile commands or generic wrappers and validate generated VMFs before import.
 - Preserve incoming world brushes, including skybox brushes.
 - Preserve incoming point entities and brush entities.
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
@@ -175,11 +175,11 @@ cargo run -p sourceweaver-cli -- compile stitched.vmf \
 
 See `docs/compile-pipeline.md` for profile format, report fields, and Linux-friendly validation notes.
 
-Run a user-provided BSP decompiler wrapper and validate the generated VMF:
+Run a user-selected BSPSource decompiler and validate the generated VMF:
 
 ```bash
 cargo run -p sourceweaver-cli -- bsp-import map.bsp \
-  --tool ./run-bspsource-wrapper.sh \
+  --bspsource /path/to/bspsrc.sh \
   --output decompiled_map.vmf \
   --log decompile.log \
   --timeout-seconds 900 \
@@ -187,7 +187,7 @@ cargo run -p sourceweaver-cli -- bsp-import map.bsp \
   --json
 ```
 
-In the desktop app, use **Add BSP-derived VMF...** after decompiling externally. The generated VMF remains a normal VMF input but is marked with decompile-quality warnings.
+For jar-only BSPSource distributions, use `--bspsource-jar /path/to/bspsrc.jar` and optionally `--java /path/to/java`. `--tool ./custom-wrapper.sh` remains available for unusual decompilers or argument orders. In the desktop app, use **Add BSP-derived VMF...** after decompiling externally. The generated VMF remains a normal VMF input but is marked with decompile-quality warnings.
 
 ## CLI usage
 
@@ -274,7 +274,7 @@ Source Weaver is still early in the rebuild.
 Known limitations:
 
 - The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
-- No bundled/internal BSP decompilation. BSP import uses user-provided external decompiler tools and imports the generated VMF; Source Weaver remains VMF-first. See `docs/bsp-import.md`.
+- No bundled/internal BSP decompilation. BSP import can run user-selected BSPSource launchers/jars or generic external wrappers and imports the generated VMF; Source Weaver remains VMF-first. See `docs/bsp-import.md`.
 - FGD support is class-level metadata only; it does not parse all property labels yet.
 - Compile pipeline integration requires user-provided Source tool paths; Source tools are not bundled.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.

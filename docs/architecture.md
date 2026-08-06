@@ -158,9 +158,9 @@ The core library provides class-level metadata for common Source entities, infer
 
 ## BSP import stance
 
-Source Weaver remains VMF-first. BSP import is documented as an external decompile-to-VMF workflow using user-provided tools such as BSPSource. Source Weaver should not bundle decompilers or game BSP assets. Any future integration should be a thin user-configured wrapper with explicit legal/quality warnings. See `docs/bsp-import.md`.
+Source Weaver remains VMF-first. BSP import is a decompile-to-VMF workflow using user-selected tools such as BSPSource. Source Weaver does not bundle decompilers or game BSP assets. Managed downloads or bundled decompilers require separate redistribution and update-policy review. See `docs/bsp-import.md`.
 
-The CLI `bsp-import` command provides that thin wrapper: it runs a user-provided tool or wrapper script, captures logs, validates the generated VMF, and emits JSON. The desktop **Add BSP-derived VMF...** path imports already-generated VMFs as normal VMF inputs while marking them with decompile-quality warnings.
+The CLI `bsp-import` command can run a BSPSource launcher with `bspsrc -o <out.vmf> <input.bsp>`, run a BSPSource jar through Java, or fall back to a generic wrapper script for unusual tools. It captures logs, probes BSPSource version when possible, validates the generated VMF, and emits JSON with command provenance. The desktop **Add BSP-derived VMF...** path imports already-generated VMFs as normal VMF inputs while marking them with decompile-quality warnings.
 
 ## Deletion model
 
@@ -184,7 +184,7 @@ Desktop release builds run from `.github/workflows/desktop-builds.yml`. Manual d
 
 ## Regression fixtures
 
-Regression tests include representative VMF fixtures and golden snapshots. Core integration tests cover role classification, duplicate landmarks, transition discovery, preview extraction, prune counts, malformed input errors, and merged VMF golden output. CLI integration tests snapshot the job-runner JSON report and verify malformed inputs produce actionable filename/byte-position errors.
+Regression tests include representative VMF fixtures and golden snapshots. Core integration tests cover role classification, duplicate landmarks, transition discovery, preview extraction, prune counts, malformed input errors, and merged VMF golden output. CLI integration tests snapshot the job-runner JSON report, verify malformed inputs produce actionable filename/byte-position errors, and cover the BSPSource CLI argument shape on Unix.
 
 Real-map smoke validation is documented separately because it downloads public VMFs and is not part of normal CI. `scripts/validate-public-vmfs.sh` fetches two adjacent public Source 1 VMFs from a pinned commit, runs inspect/list/merge/validate, and exercises the optional compile-pipeline JSON path with a fake VBSP tool. See `docs/real-vmf-validation.md`.
 

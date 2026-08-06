@@ -819,21 +819,17 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let config = parse_bsp_import_args(args)?;
-    let input = config.input.as_ref().ok_or("usage: sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
-    let tool = config
-        .tool
-        .as_ref()
-        .ok_or("bsp-import needs --tool <decompiler>")?;
+    let input = config.input.as_ref().ok_or("usage: sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
     let output_vmf = config
         .output
         .as_ref()
         .ok_or("bsp-import needs --output <out.vmf>")?;
+    create_parent_dir(output_vmf, "output VMF")?;
 
+    let invocation = resolve_bsp_decompiler_invocation(&config, input, output_vmf)?;
+    let tool_version = probe_bsp_decompiler_version(&config);
     let tool_output = run_bsp_decompiler(
-        tool,
-        &config.tool_args,
-        input,
-        output_vmf,
+        &invocation,
         Duration::from_secs(tool_timeout_seconds(config.timeout_seconds)),
     )?;
     let log_text = format!(
@@ -881,7 +877,11 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
                 };
                 let report = BspImportReport {
                     ok: false,
-                    tool: tool.display().to_string(),
+                    tool: invocation.executable.display().to_string(),
+                    tool_kind: invocation.kind.to_string(),
+                    tool_version,
+                    command_args: invocation.args.clone(),
+                    command_shape: invocation.command_shape.to_string(),
                     input_bsp: input.display().to_string(),
                     output_vmf: output_vmf.display().to_string(),
                     exit_code: tool_output.status.code(),
@@ -915,7 +915,11 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
             .unwrap_or(false);
     let report = BspImportReport {
         ok,
-        tool: tool.display().to_string(),
+        tool: invocation.executable.display().to_string(),
+        tool_kind: invocation.kind.to_string(),
+        tool_version,
+        command_args: invocation.args,
+        command_shape: invocation.command_shape.to_string(),
         input_bsp: input.display().to_string(),
         output_vmf: output_vmf.display().to_string(),
         exit_code: tool_output.status.code(),
@@ -938,6 +942,24 @@ fn parse_bsp_import_args(args: &[String]) -> Result<BspImportConfig, String> {
                 cursor += 1;
                 config.tool = Some(PathBuf::from(
                     args.get(cursor).ok_or("--tool needs a path")?,
+                ));
+            }
+            "--bspsource" | "--bspsrc" => {
+                cursor += 1;
+                config.bspsource = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--bspsource needs a path")?,
+                ));
+            }
+            "--bspsource-jar" | "--bspsrc-jar" => {
+                cursor += 1;
+                config.bspsource_jar = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--bspsource-jar needs a path")?,
+                ));
+            }
+            "--java" => {
+                cursor += 1;
+                config.java = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--java needs a path")?,
                 ));
             }
             "--output" | "-o" => {
@@ -984,22 +1006,118 @@ fn parse_bsp_import_args(args: &[String]) -> Result<BspImportConfig, String> {
     Ok(config)
 }
 
-fn run_bsp_decompiler(
-    tool: &Path,
-    tool_args: &[String],
+fn resolve_bsp_decompiler_invocation(
+    config: &BspImportConfig,
     input: &Path,
     output_vmf: &Path,
+) -> Result<BspDecompilerInvocation, String> {
+    let configured = usize::from(config.tool.is_some())
+        + usize::from(config.bspsource.is_some())
+        + usize::from(config.bspsource_jar.is_some());
+    if configured != 1 {
+        return Err(
+            "bsp-import needs exactly one of --bspsource, --bspsource-jar, or --tool".to_string(),
+        );
+    }
+
+    if let Some(tool) = &config.bspsource {
+        let mut args = config.tool_args.clone();
+        args.push("-o".to_string());
+        args.push(output_vmf.display().to_string());
+        args.push(input.display().to_string());
+        return Ok(BspDecompilerInvocation {
+            kind: "bspsource-cli",
+            executable: tool.clone(),
+            args,
+            command_shape: "bspsrc [tool-args] -o <out.vmf> <input.bsp>",
+        });
+    }
+
+    if let Some(jar) = &config.bspsource_jar {
+        let mut args = vec!["-jar".to_string(), jar.display().to_string()];
+        args.extend(config.tool_args.clone());
+        args.push("-o".to_string());
+        args.push(output_vmf.display().to_string());
+        args.push(input.display().to_string());
+        return Ok(BspDecompilerInvocation {
+            kind: "bspsource-jar",
+            executable: config.java.clone().unwrap_or_else(|| PathBuf::from("java")),
+            args,
+            command_shape: "java -jar <bspsrc.jar> [tool-args] -o <out.vmf> <input.bsp>",
+        });
+    }
+
+    let tool = config
+        .tool
+        .as_ref()
+        .expect("generic wrapper path exists when configured count is one");
+    let mut args = config.tool_args.clone();
+    args.push(input.display().to_string());
+    args.push(output_vmf.display().to_string());
+    Ok(BspDecompilerInvocation {
+        kind: "generic-wrapper",
+        executable: tool.clone(),
+        args,
+        command_shape: "<wrapper> [tool-args] <input.bsp> <out.vmf>",
+    })
+}
+
+fn run_bsp_decompiler(
+    invocation: &BspDecompilerInvocation,
     timeout: Duration,
 ) -> Result<Output, String> {
-    let mut command = Command::new(tool);
-    command.args(tool_args);
-    command.arg(input);
-    command.arg(output_vmf);
+    let mut command = Command::new(&invocation.executable);
+    command.args(&invocation.args);
     run_command_with_timeout(
         &mut command,
-        &format!("BSP decompiler {}", tool.display()),
+        &format!("BSP decompiler {}", invocation.executable.display()),
         timeout,
     )
+}
+
+fn probe_bsp_decompiler_version(config: &BspImportConfig) -> Option<String> {
+    let (executable, args) = if let Some(tool) = &config.bspsource {
+        (tool.clone(), vec!["--version".to_string()])
+    } else if let Some(jar) = &config.bspsource_jar {
+        (
+            config.java.clone().unwrap_or_else(|| PathBuf::from("java")),
+            vec![
+                "-jar".to_string(),
+                jar.display().to_string(),
+                "--version".to_string(),
+            ],
+        )
+    } else {
+        return None;
+    };
+
+    let mut command = Command::new(&executable);
+    command.args(args);
+    match run_command_with_timeout(
+        &mut command,
+        "BSP decompiler version probe",
+        Duration::from_secs(30),
+    ) {
+        Ok(output) => {
+            let text = trimmed_tool_output(&output);
+            if text.is_empty() { None } else { Some(text) }
+        }
+        Err(error) => Some(format!("version probe failed: {error}")),
+    }
+}
+
+fn trimmed_tool_output(output: &Output) -> String {
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(20)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn finish_bsp_import_report(
@@ -1021,6 +1139,11 @@ fn finish_bsp_import_report(
         println!("{json}");
     } else {
         println!("bsp import: {}", if report.ok { "ok" } else { "failed" });
+        println!("tool kind: {}", report.tool_kind);
+        println!("tool: {}", report.tool);
+        if let Some(version) = &report.tool_version {
+            println!("tool version: {version}");
+        }
         println!("input bsp: {}", report.input_bsp);
         println!("output vmf: {}", report.output_vmf);
         println!("exit code: {:?}", report.exit_code);
@@ -1306,6 +1429,9 @@ struct CompileStepReport {
 struct BspImportConfig {
     input: Option<PathBuf>,
     tool: Option<PathBuf>,
+    bspsource: Option<PathBuf>,
+    bspsource_jar: Option<PathBuf>,
+    java: Option<PathBuf>,
     output: Option<PathBuf>,
     log: Option<PathBuf>,
     report: Option<PathBuf>,
@@ -1314,10 +1440,22 @@ struct BspImportConfig {
     json: bool,
 }
 
+#[derive(Debug, Clone)]
+struct BspDecompilerInvocation {
+    kind: &'static str,
+    executable: PathBuf,
+    args: Vec<String>,
+    command_shape: &'static str,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct BspImportReport {
     ok: bool,
     tool: String,
+    tool_kind: String,
+    tool_version: Option<String>,
+    command_args: Vec<String>,
+    command_shape: String,
     input_bsp: String,
     output_vmf: String,
     exit_code: Option<i32>,
@@ -1753,7 +1891,7 @@ Usage:
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
-  sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
@@ -1835,20 +1973,24 @@ External tool runs default to a 900 second timeout. Override with --timeout-seco
 fn print_bsp_import_help() {
     println!(
         r#"Usage:
-  sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
 
-Runs a user-provided external BSP decompiler and validates the generated VMF.
+Runs a user-provided BSP decompiler and validates the generated VMF.
 
 Source Weaver remains VMF-first:
   - BSPSource/VMEX/game BSPs are not bundled.
-  - The decompiler path is supplied by the user.
+  - BSPSource launchers and jar files are selected by the user.
   - The generated VMF is parsed, inspected, and integrity-checked before use.
-  - JSON reports include tool path, input BSP, output VMF, exit code, log path, warnings/errors, and validation status.
+  - JSON reports include tool kind, tool path, version probe, command arguments, input BSP, output VMF, exit code, log path, warnings/errors, and validation status.
+
+BSPSource command shapes:
+  bspsrc [--tool-arg values...] -o <out.vmf> <input.bsp>
+  java -jar <bspsrc.jar> [--tool-arg values...] -o <out.vmf> <input.bsp>
 
 Generic wrapper command shape:
-  <decompiler> [--tool-arg values...] <input.bsp> <output.vmf>
+  <wrapper> [--tool-arg values...] <input.bsp> <output.vmf>
 
-If a decompiler needs a different argument order, create a small wrapper script and pass that script as --tool.
+Use --tool only as an escape hatch for unusual decompilers or argument orders.
 External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );

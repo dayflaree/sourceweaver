@@ -12,6 +12,7 @@
 - Desktop project save/load, drag-and-drop import, recent files, FGD metadata loading, and cleanup confirmation.
 - Campaign transition detection, campaign order suggestions, and landmark-pair suggestions.
 - Fixture/golden regression coverage for parser, merge, prune, preview, and automation reports.
+- First-class BSPSource CLI/jar decompile runner with version/provenance reporting while keeping generic wrapper support.
 
 ### Changed
 

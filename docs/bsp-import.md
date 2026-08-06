@@ -6,17 +6,17 @@ Source Weaver is VMF-first. BSP files are compiled game artifacts, while Source 
 
 Use BSPSource or another trusted external decompiler to generate a VMF, then import that VMF into Source Weaver.
 
-BSPSource is the most viable current option because it is an actively maintained Source-engine BSP-to-VMF decompiler. Its project README describes it as a Java Source engine map decompiler that converts `.bsp` maps back to `.vmf` files for Hammer. The Valve Developer Union tool page also describes BSPSource as Java-based, graphical, based on VMEX, and able to decompile Source BSPs into editable VMFs.
+BSPSource is the most viable current option because it is an actively maintained Source-engine BSP-to-VMF decompiler. Its project README describes it as a Java Source engine map decompiler that converts `.bsp` maps back to `.vmf` files for Hammer. BSPSource 1.4.8 was checked on 2026-08-06; its CLI accepts `-o <path>` to choose the VMF output path.
 
-Source Weaver does not bundle BSPSource, VMEX, game BSPs, or decompiled content. Integration is a thin wrapper around a user-provided executable or wrapper script.
+Source Weaver does not bundle BSPSource, VMEX, game BSPs, or decompiled content. The current implementation is first-class user-selected BSPSource execution plus a generic wrapper escape hatch. Managed downloads or bundled binaries remain deferred until dependency redistribution, checksums, update policy, and support expectations are reviewed for a release.
 
-## CLI wrapper
+## CLI decompiler runner
 
-Use `sourceweaver bsp-import` when you want Source Weaver to run an external decompiler, capture the log, and validate the generated VMF:
+Use `sourceweaver bsp-import` when you want Source Weaver to run a user-selected decompiler, capture the log, and validate the generated VMF. A BSPSource launcher from the Linux/Windows bundle no longer needs a wrapper script:
 
 ```bash
 sourceweaver bsp-import map.bsp \
-  --tool /path/to/bspsource-or-wrapper \
+  --bspsource /path/to/bspsrc.sh \
   --output decompiled_map.vmf \
   --log decompile.log \
   --timeout-seconds 900 \
@@ -24,17 +24,41 @@ sourceweaver bsp-import map.bsp \
   --json
 ```
 
-The generic command shape is:
+The BSPSource launcher command shape is:
 
 ```text
-<decompiler> [--tool-arg values...] <input.bsp> <output.vmf>
+bspsrc [--tool-arg values...] -o <out.vmf> <input.bsp>
 ```
 
-If BSPSource or another tool needs a different command-line shape, create a small wrapper script and pass that script as `--tool`. The JSON report includes the tool path, input BSP, output VMF, exit code, log path, warning/error counts, entity count, classname count, and VMF integrity status. External decompiler runs default to a 900-second timeout; override with `--timeout-seconds` for slower maps or short failure tests.
+For jar-only BSPSource distributions, provide the jar and optionally the Java executable:
+
+```bash
+sourceweaver bsp-import map.bsp \
+  --bspsource-jar /path/to/bspsrc.jar \
+  --java /path/to/java \
+  --output decompiled_map.vmf \
+  --json
+```
+
+The jar command shape is:
+
+```text
+java -jar <bspsrc.jar> [--tool-arg values...] -o <out.vmf> <input.bsp>
+```
+
+`--tool-arg` forwards one argument at a time before `-o`. Use it for BSPSource options such as `--unpack_embedded`, `--no_smart_unpack`, `--appid`, or `--format`.
+
+The generic wrapper escape hatch remains available for unusual decompilers or argument orders:
+
+```text
+<wrapper> [--tool-arg values...] <input.bsp> <output.vmf>
+```
+
+The JSON report includes tool kind, tool path, BSPSource version probe when available, command arguments, input BSP, output VMF, exit code, log path, warning/error counts, entity count, classname count, and VMF integrity status. External decompiler runs default to a 900-second timeout; override with `--timeout-seconds` for slower maps or short failure tests.
 
 ## Desktop workflow
 
-The desktop app provides **Add BSP-derived VMF...**. Use it after an external decompiler has produced a VMF. Source Weaver adds the generated VMF as a normal VMF input while marking it as BSP-derived in the map list. The UI warns users to review decompile limitations, parse/integrity warnings, broken solids, areaportals, materials, overlays, and missing editor metadata before merging.
+The desktop app provides **Add BSP-derived VMF...**. Use it after a decompiler has produced a VMF. Source Weaver adds the generated VMF as a normal VMF input while marking it as BSP-derived in the map list. The UI warns users to review decompile limitations, parse/integrity warnings, broken solids, areaportals, materials, overlays, and missing editor metadata before merging. A desktop `.bsp` picker/decompile runner is still future #82 work.
 
 ## Manual external workflow
 
@@ -78,11 +102,15 @@ Expected limitations include:
 
 Source Weaver does not ship game BSPs, decompiled maps, or third-party decompilers. Users are responsible for only decompiling maps they are legally allowed to inspect or modify. Decompilation can implicate game EULAs, mod licenses, server/community map licenses, and asset copyrights. BSP import is for legitimate modding, recovery, interoperability, or user-owned workflows.
 
+BSPSource licensing was checked live on 2026-08-06. The upstream repo contains `LICENSE.md` with Unlicense/public-domain text for BSPSource itself and notes Apache-2.0 dependencies for Log4j 2, Apache Commons Compress, picocli, FlatLaf, and jSystemThemeDetector plus BSD-3-Clause MigLayout. GitHub repository metadata still reports `NOASSERTION`/Other, so Source Weaver records the finding but does not bundle BSPSource in this slice.
+
 ## Future work
 
-Future improvements can add richer decompile-warning parsers, known BSPSource argument presets, or legally committable tiny BSP-derived VMF fixtures. The VMF-first boundary should remain unchanged.
+Future improvements can add a desktop `.bsp` picker/decompile runner, managed BSPSource download with checksum/provenance review, richer decompile-warning parsers, known BSPSource argument presets, or legally committable tiny BSP-derived VMF fixtures. The VMF-first boundary should remain unchanged.
 
 ## Sources checked
 
 - BSPSource upstream project: https://github.com/ata4/bspsrc
+- BSPSource `LICENSE.md`: https://github.com/ata4/bspsrc/blob/master/LICENSE.md
+- BSPSource v1.4.8 release: https://github.com/ata4/bspsrc/releases/tag/v1.4.8
 - Valve Developer Union BSPSource page: https://valvedev.info/tools/bspsource/
