@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 
 from sourceweaver.compiler import (
+    CompilerArtifactBlockerCode,
+    CompilerArtifactStatus,
     CompilerInvocationBlockerCode,
     CompilerInvocationStatus,
     CompilerLogMessageCode,
@@ -18,6 +20,8 @@ from sourceweaver.compiler import (
     discover_gmod_root,
     executable_format,
     host_compatibility,
+    inspect_bsp_artifact,
+    inspect_prt_artifact,
     parse_compiler_log,
     parse_steam_library_paths,
 )
@@ -401,3 +405,73 @@ def test_compiler_log_parser_blocks_unknown_error_like_lines() -> None:
             "unexpected frobnicator error near portal 12",
         )
     ]
+
+
+def test_bsp_artifact_inspection_accepts_valid_header_and_lump_lengths(tmp_path: Path) -> None:
+    bsp = tmp_path / "generated.bsp"
+    bsp.write_bytes(_bsp_header(version=21, lump_lengths={0: 128, 1: 256}))
+
+    report = inspect_bsp_artifact(bsp)
+
+    assert report.status is CompilerArtifactStatus.VALID
+    assert report.blockers == ()
+    assert report.bsp_version == 21
+    assert report.lump_lengths[0] == 128
+    assert report.lump_lengths[1] == 256
+
+
+def test_bsp_artifact_inspection_blocks_missing_short_and_bad_magic(tmp_path: Path) -> None:
+    missing = inspect_bsp_artifact(tmp_path / "missing.bsp")
+    assert missing.status is CompilerArtifactStatus.BLOCKED
+    assert [blocker.code for blocker in missing.blockers] == [
+        CompilerArtifactBlockerCode.BSP_MISSING
+    ]
+
+    short = tmp_path / "short.bsp"
+    short.write_bytes(b"VBSP")
+    short_report = inspect_bsp_artifact(short)
+    assert [blocker.code for blocker in short_report.blockers] == [
+        CompilerArtifactBlockerCode.BSP_HEADER_TRUNCATED
+    ]
+
+    bad_magic = tmp_path / "bad.bsp"
+    bad_magic.write_bytes(b"NOPE" + b"\x00" * 1032)
+    bad_magic_report = inspect_bsp_artifact(bad_magic)
+    assert [blocker.code for blocker in bad_magic_report.blockers] == [
+        CompilerArtifactBlockerCode.BSP_BAD_MAGIC
+    ]
+
+
+def test_prt_artifact_inspection_reads_portal_and_leaf_counts(tmp_path: Path) -> None:
+    prt = tmp_path / "generated.prt"
+    prt.write_text("PRT1\n4\n128\n", encoding="ascii")
+
+    report = inspect_prt_artifact(prt)
+
+    assert report.status is CompilerArtifactStatus.VALID
+    assert report.blockers == ()
+    assert report.portal_count == 128
+    assert report.leaf_count == 4
+
+
+def test_prt_artifact_inspection_blocks_missing_or_malformed_files(tmp_path: Path) -> None:
+    missing = inspect_prt_artifact(tmp_path / "missing.prt")
+    assert [blocker.code for blocker in missing.blockers] == [
+        CompilerArtifactBlockerCode.PRT_MISSING
+    ]
+
+    malformed = tmp_path / "generated.prt"
+    malformed.write_text("PRT1\nnot-a-number\n", encoding="ascii")
+    malformed_report = inspect_prt_artifact(malformed)
+    assert [blocker.code for blocker in malformed_report.blockers] == [
+        CompilerArtifactBlockerCode.PRT_MALFORMED
+    ]
+
+
+def _bsp_header(version: int, lump_lengths: dict[int, int]) -> bytes:
+    import struct
+
+    lumps = bytearray()
+    for index in range(64):
+        lumps.extend(struct.pack("<iii4s", 0, lump_lengths.get(index, 0), 0, b"\x00" * 4))
+    return b"VBSP" + struct.pack("<i", version) + bytes(lumps) + struct.pack("<i", 1)
