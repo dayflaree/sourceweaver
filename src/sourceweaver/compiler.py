@@ -11,6 +11,7 @@ import os
 import platform
 import re
 import shutil
+import struct
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -33,6 +34,7 @@ _VDF_LEGACY_LIBRARY_RE: Final[re.Pattern[str]] = re.compile(
 )
 _REQUIRED_COMPILE_ROLES: Final[tuple[str, ...]] = ("vbsp", "vvis", "vrad")
 _COMPATIBILITY_RUNNERS: Final[tuple[str, ...]] = ("wine64", "wine")
+_SOURCE_BSP_HEADER_SIZE: Final[int] = 4 + 4 + (64 * 16) + 4
 
 
 class CompilerRunStatus(StrEnum):
@@ -83,6 +85,23 @@ class CompilerLogMessageCode(StrEnum):
     UNKNOWN_ERROR_LIKE_OUTPUT = "unknown_error_like_output"
     PORTAL_STATISTIC = "portal_statistic"
     AREA_STATISTIC = "area_statistic"
+
+
+class CompilerArtifactStatus(StrEnum):
+    """Final status for compiler artifact inspection."""
+
+    VALID = "valid"
+    BLOCKED = "blocked"
+
+
+class CompilerArtifactBlockerCode(StrEnum):
+    """Deterministic blockers for compiler artifact inspection."""
+
+    BSP_MISSING = "bsp_missing"
+    BSP_HEADER_TRUNCATED = "bsp_header_truncated"
+    BSP_BAD_MAGIC = "bsp_bad_magic"
+    PRT_MISSING = "prt_missing"
+    PRT_MALFORMED = "prt_malformed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +212,37 @@ class CompilerLogReport:
     status: CompilerLogStatus
     messages: tuple[CompilerLogMessage, ...]
     blocking_message_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerArtifactBlocker:
+    """A reason compiler artifact inspection failed."""
+
+    code: CompilerArtifactBlockerCode
+    message: str
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class BspArtifactReport:
+    """Minimal Source BSP artifact inspection report."""
+
+    status: CompilerArtifactStatus
+    path: Path
+    bsp_version: int | None
+    lump_lengths: tuple[int, ...]
+    blockers: tuple[CompilerArtifactBlocker, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PrtArtifactReport:
+    """Minimal Source PRT artifact inspection report."""
+
+    status: CompilerArtifactStatus
+    path: Path
+    leaf_count: int | None
+    portal_count: int | None
+    blockers: tuple[CompilerArtifactBlocker, ...]
 
 
 def _decode_vdf_string(value: str) -> str:
@@ -549,6 +599,107 @@ def parse_compiler_log(text: str) -> CompilerLogReport:
         status=CompilerLogStatus.BLOCKED if blocking_message_count else CompilerLogStatus.CLEAN,
         messages=tuple(messages),
         blocking_message_count=blocking_message_count,
+    )
+
+
+def inspect_bsp_artifact(path: Path) -> BspArtifactReport:
+    """Inspect the Source BSP header without trusting compiler exit status."""
+    if not path.is_file():
+        return BspArtifactReport(
+            status=CompilerArtifactStatus.BLOCKED,
+            path=path,
+            bsp_version=None,
+            lump_lengths=(),
+            blockers=(
+                CompilerArtifactBlocker(
+                    code=CompilerArtifactBlockerCode.BSP_MISSING,
+                    message="Compiled BSP artifact is missing.",
+                    path=path,
+                ),
+            ),
+        )
+    data = path.read_bytes()
+    if len(data) < _SOURCE_BSP_HEADER_SIZE:
+        return BspArtifactReport(
+            status=CompilerArtifactStatus.BLOCKED,
+            path=path,
+            bsp_version=None,
+            lump_lengths=(),
+            blockers=(
+                CompilerArtifactBlocker(
+                    code=CompilerArtifactBlockerCode.BSP_HEADER_TRUNCATED,
+                    message="Compiled BSP header is truncated.",
+                    path=path,
+                ),
+            ),
+        )
+    if data[:4] != b"VBSP":
+        return BspArtifactReport(
+            status=CompilerArtifactStatus.BLOCKED,
+            path=path,
+            bsp_version=None,
+            lump_lengths=(),
+            blockers=(
+                CompilerArtifactBlocker(
+                    code=CompilerArtifactBlockerCode.BSP_BAD_MAGIC,
+                    message="Compiled BSP artifact does not start with VBSP magic.",
+                    path=path,
+                ),
+            ),
+        )
+    bsp_version = struct.unpack_from("<i", data, 4)[0]
+    lump_lengths = tuple(
+        struct.unpack_from("<i", data, 8 + (index * 16) + 4)[0] for index in range(64)
+    )
+    return BspArtifactReport(
+        status=CompilerArtifactStatus.VALID,
+        path=path,
+        bsp_version=bsp_version,
+        lump_lengths=lump_lengths,
+        blockers=(),
+    )
+
+
+def inspect_prt_artifact(path: Path) -> PrtArtifactReport:
+    """Inspect a Source PRT portal file's top-level counts."""
+    if not path.is_file():
+        return PrtArtifactReport(
+            status=CompilerArtifactStatus.BLOCKED,
+            path=path,
+            leaf_count=None,
+            portal_count=None,
+            blockers=(
+                CompilerArtifactBlocker(
+                    code=CompilerArtifactBlockerCode.PRT_MISSING,
+                    message="Compiled PRT artifact is missing.",
+                    path=path,
+                ),
+            ),
+        )
+    try:
+        lines = path.read_text(encoding="ascii", errors="strict").splitlines()
+        leaf_count = int(lines[1].strip())
+        portal_count = int(lines[2].strip())
+    except (IndexError, UnicodeDecodeError, ValueError):
+        return PrtArtifactReport(
+            status=CompilerArtifactStatus.BLOCKED,
+            path=path,
+            leaf_count=None,
+            portal_count=None,
+            blockers=(
+                CompilerArtifactBlocker(
+                    code=CompilerArtifactBlockerCode.PRT_MALFORMED,
+                    message="Compiled PRT artifact is malformed.",
+                    path=path,
+                ),
+            ),
+        )
+    return PrtArtifactReport(
+        status=CompilerArtifactStatus.VALID,
+        path=path,
+        leaf_count=leaf_count,
+        portal_count=portal_count,
+        blockers=(),
     )
 
 
