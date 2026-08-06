@@ -73,6 +73,8 @@ Preview views must show `info_landmark` markers with targetname labels in top, f
 
 Entity-table row selection must support multiple selected rows through checkboxes, select-all and clear controls, and a visible selected count. Selection keys must include the VMF path and row identity data so later deletion actions can target selected rows without confusing rows from different maps.
 
+Preview clicks must update entity-table selection for the selected VMF. Clicking an entity marker or solid preview should toggle the owning world/entity row where possible. Selected rows must be visibly highlighted in the entity table and preview, and selection state must survive switching top/front/side projections.
+
 ### Deletion safety modes
 
 Brush-role deletion must distinguish world solids from brush-entity behavior. World solid role matches remove matching world solids. Brush-entity role matches must use an explicit mode: `whole-entity` removes matching brush entities as a unit and preserves the original behavior; `matching-solids` preserves the entity and removes only matching contained solids. Critical transition/player/logic entities must be protected by default from classname, targetname, and brush-role deletion unless protection is explicitly disabled.

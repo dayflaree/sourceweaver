@@ -1511,6 +1511,7 @@ impl SourceWeaverApp {
                                 &analysis.preview,
                                 None,
                                 &selected_landmark,
+                                Some((&entry_path, &analysis.entity_records)),
                             );
                         }
                         PreviewScope::MergedResult => {
@@ -1521,6 +1522,7 @@ impl SourceWeaverApp {
                                     &merged_preview.preview,
                                     Some(&merged_preview.summary),
                                     &selected_landmark,
+                                    None,
                                 );
                             } else {
                                 ui.colored_label(
@@ -1533,6 +1535,7 @@ impl SourceWeaverApp {
                                     &analysis.preview,
                                     None,
                                     &selected_landmark,
+                                    Some((&entry_path, &analysis.entity_records)),
                                 );
                             }
                         }
@@ -1603,6 +1606,7 @@ impl SourceWeaverApp {
         preview: &PreviewDocument,
         merged_summary: Option<&MergedPreviewSummary>,
         selected_landmark: &str,
+        selection_context: Option<(&Path, &[EntityRecord])>,
     ) {
         ui.horizontal_wrapped(|ui| {
             ui.label("View:");
@@ -1702,7 +1706,7 @@ impl SourceWeaverApp {
 
         let desired_height = 560.0_f32.max(ui.available_height().min(720.0));
         let desired_size = egui::vec2(ui.available_width().max(360.0), desired_height);
-        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::drag());
+        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
 
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(21, 24, 28));
@@ -1742,6 +1746,49 @@ impl SourceWeaverApp {
             self.preview_zoom,
             self.preview_pan,
         );
+        let selected_owner_indices = selection_context
+            .map(|(path, records)| {
+                records
+                    .iter()
+                    .filter(|record| {
+                        self.selected_entity_rows
+                            .contains(&entity_selection_key(path, record))
+                    })
+                    .map(|record| record.index)
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+
+        if response.clicked() {
+            if let Some(click_position) = response.interact_pointer_pos() {
+                if let Some((path, records)) = selection_context {
+                    if let Some(owner_index) = preview_hit_owner_index(
+                        preview,
+                        &transform,
+                        click_position,
+                        &deletion_criteria,
+                        deletion_overlay_mode,
+                    ) {
+                        if let Some(key) =
+                            entity_selection_key_for_owner(path, records, owner_index)
+                        {
+                            let selected = if self.selected_entity_rows.contains(&key) {
+                                self.selected_entity_rows.remove(&key);
+                                false
+                            } else {
+                                self.selected_entity_rows.insert(key);
+                                true
+                            };
+                            self.active_table = TableMode::Entities;
+                            self.add_status(format!(
+                                "{} preview owner row #{owner_index}.",
+                                if selected { "Selected" } else { "Cleared" }
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         if self.preview_show_grid {
             draw_preview_grid(&painter, rect, &transform);
         }
@@ -1753,7 +1800,15 @@ impl SourceWeaverApp {
                 if deletion_overlay_mode == DeletionPreviewMode::HideRemoved && removed {
                     continue;
                 }
-                draw_preview_solid(&painter, &transform, solid, deletion_overlay_mode, removed);
+                let selected = selected_owner_indices.contains(&solid.owner_index);
+                draw_preview_solid(
+                    &painter,
+                    &transform,
+                    solid,
+                    deletion_overlay_mode,
+                    removed,
+                    selected,
+                );
             }
         }
 
@@ -1775,7 +1830,18 @@ impl SourceWeaverApp {
                     painter.circle_stroke(
                         position,
                         6.5,
-                        egui::Stroke::new(1.0_f32, egui::Color32::BLACK),
+                        egui::Stroke::new(
+                            if selected_owner_indices.contains(&entity.owner_index) {
+                                2.0_f32
+                            } else {
+                                1.0_f32
+                            },
+                            if selected_owner_indices.contains(&entity.owner_index) {
+                                egui::Color32::YELLOW
+                            } else {
+                                egui::Color32::BLACK
+                            },
+                        ),
                     );
                     let label = entity
                         .targetname
@@ -2075,18 +2141,24 @@ fn draw_entity_table(
                             selected_rows.remove(key);
                         }
                     }
-                    ui.label(record.index.to_string());
-                    ui.label(&record.block_name);
-                    ui.label(record.classname.as_deref().unwrap_or("-"));
-                    ui.label(record.targetname.as_deref().unwrap_or("-"));
-                    ui.label(
+                    let text_color = if selected {
+                        egui::Color32::YELLOW
+                    } else {
+                        ui.visuals().text_color()
+                    };
+                    ui.colored_label(text_color, record.index.to_string());
+                    ui.colored_label(text_color, &record.block_name);
+                    ui.colored_label(text_color, record.classname.as_deref().unwrap_or("-"));
+                    ui.colored_label(text_color, record.targetname.as_deref().unwrap_or("-"));
+                    ui.colored_label(
+                        text_color,
                         record
                             .origin
                             .map(|origin| origin.to_string())
                             .unwrap_or_else(|| "-".to_string()),
                     );
-                    ui.label(record.solid_count.to_string());
-                    ui.label(format_roles(&record.roles));
+                    ui.colored_label(text_color, record.solid_count.to_string());
+                    ui.colored_label(text_color, format_roles(&record.roles));
                     ui.end_row();
                 }
             });
@@ -2101,6 +2173,17 @@ fn entity_selection_key(map_path: &Path, record: &EntityRecord) -> EntitySelecti
         classname: record.classname.clone(),
         targetname: record.targetname.clone(),
     }
+}
+
+fn entity_selection_key_for_owner(
+    map_path: &Path,
+    records: &[EntityRecord],
+    owner_index: usize,
+) -> Option<EntitySelectionKey> {
+    records
+        .iter()
+        .find(|record| record.index == owner_index)
+        .map(|record| entity_selection_key(map_path, record))
 }
 
 fn draw_classname_table(
@@ -2491,6 +2574,7 @@ fn draw_preview_solid(
     solid: &PreviewSolid,
     deletion_mode: DeletionPreviewMode,
     removed: bool,
+    selected: bool,
 ) {
     let (min_u, min_v) = project_vec(solid.bounds.min, transform.view);
     let (max_u, max_v) = project_vec(solid.bounds.max, transform.view);
@@ -2522,7 +2606,20 @@ fn draw_preview_solid(
         draw_rect_outline(
             painter,
             rect,
-            egui::Stroke::new(if removed { 2.0_f32 } else { 1.25_f32 }, role_color),
+            egui::Stroke::new(
+                if selected {
+                    2.5_f32
+                } else if removed {
+                    2.0_f32
+                } else {
+                    1.25_f32
+                },
+                if selected {
+                    egui::Color32::YELLOW
+                } else {
+                    role_color
+                },
+            ),
         );
     }
 
@@ -2657,6 +2754,54 @@ fn project_vec(point: sourceweaver_core::Vec3, view: PreviewView) -> (f64, f64) 
         PreviewView::Front => (point.x, point.z),
         PreviewView::Side => (point.y, point.z),
     }
+}
+
+fn preview_hit_owner_index(
+    preview: &PreviewDocument,
+    transform: &PreviewTransform,
+    click_position: egui::Pos2,
+    criteria: &DeletionCriteria,
+    deletion_mode: DeletionPreviewMode,
+) -> Option<usize> {
+    let mut nearest_entity = None;
+    let mut nearest_distance = f32::MAX;
+    for entity in &preview.entities {
+        if deletion_mode == DeletionPreviewMode::HideRemoved
+            && preview_entity_removed(entity, criteria)
+        {
+            continue;
+        }
+        let position = transform.world_to_screen(entity.origin);
+        let distance = position.distance(click_position);
+        if distance < nearest_distance && distance <= 12.0 {
+            nearest_distance = distance;
+            nearest_entity = Some(entity.owner_index);
+        }
+    }
+    if nearest_entity.is_some() {
+        return nearest_entity;
+    }
+
+    for solid in preview.solids.iter().rev() {
+        if deletion_mode == DeletionPreviewMode::HideRemoved
+            && preview_solid_removed(solid, criteria)
+        {
+            continue;
+        }
+        if preview_solid_screen_rect(solid, transform).contains(click_position) {
+            return Some(solid.owner_index);
+        }
+    }
+    None
+}
+
+fn preview_solid_screen_rect(solid: &PreviewSolid, transform: &PreviewTransform) -> egui::Rect {
+    let (min_u, min_v) = project_vec(solid.bounds.min, transform.view);
+    let (max_u, max_v) = project_vec(solid.bounds.max, transform.view);
+    egui::Rect::from_two_pos(
+        transform.uv_to_screen(min_u, min_v),
+        transform.uv_to_screen(max_u, max_v),
+    )
 }
 
 fn deletion_preview_mode_label(mode: DeletionPreviewMode) -> &'static str {

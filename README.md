@@ -30,6 +30,7 @@ Current capabilities:
 - Suggest campaign map order and landmark pairs from detected transitions.
 - Search, role-filter, and sort large entity/classname tables.
 - Select multiple entity-table rows with checkboxes for future cleanup actions.
+- Click preview entity markers or solid bounds to select matching entity/world table rows.
 - Preview scanned VMFs in Hammer-style 2D orthographic views.
 - Preview the in-memory merged output before writing a VMF.
 - Color merged-preview solids and entity markers by source VMF, with a source-map legend.
@@ -91,7 +92,7 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 9. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
 10. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
 11. Switch **Preview source** between the selected VMF and the merged result.
-12. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, and selected with checkboxes; selections persist while switching tabs.
+12. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, selected with checkboxes, or selected by clicking preview markers/solids; selections persist while switching tabs and view projections.
 13. Optionally apply a deletion preset, then inspect the generated deletion rules.
 14. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
 15. Use **Deletion preview** in the preview toolbar to highlight, dim, or hide content matched by current cleanup rules. Click **Preview deletion** to see exact in-memory removal counts without writing a file.
