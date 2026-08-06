@@ -1,0 +1,25 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+world
+{
+	"id" "1"
+	solid
+	{
+		"id" "2"
+		side
+		{
+			"id" "3"
+			"plane" "(0 0 0) (64 0 0) (64 64 0)"
+			"material" "BRICK/WALL001"
+		}
+	}
+}
+entity
+{
+	"id" "4"
+	"classname" "info_landmark"
+	"targetname" "map_transition"
+	"origin" "0 0 0"
+}

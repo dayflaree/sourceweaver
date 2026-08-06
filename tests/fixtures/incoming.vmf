@@ -1,0 +1,42 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+world
+{
+	"id" "1"
+	solid
+	{
+		"id" "2"
+		side
+		{
+			"id" "3"
+			"plane" "(100 0 0) (164 0 0) (164 64 0)"
+			"material" "TOOLS/TOOLSSKYBOX"
+		}
+	}
+}
+entity
+{
+	"id" "4"
+	"classname" "info_landmark"
+	"targetname" "map_transition"
+	"origin" "100 0 0"
+}
+entity
+{
+	"id" "5"
+	"classname" "trigger_once"
+	"targetname" "cleanup_me"
+	"origin" "128 0 0"
+	solid
+	{
+		"id" "6"
+		side
+		{
+			"id" "7"
+			"plane" "(120 0 0) (140 0 0) (140 20 0)"
+			"material" "TOOLS/TOOLSTRIGGER"
+		}
+	}
+}

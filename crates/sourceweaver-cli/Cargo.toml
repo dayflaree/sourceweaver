@@ -1,0 +1,13 @@
+[package]
+name = "sourceweaver-cli"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "sourceweaver"
+path = "src/main.rs"
+
+[dependencies]
+sourceweaver-core = { path = "../sourceweaver-core" }

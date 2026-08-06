@@ -1,0 +1,17 @@
+//! Core VMF parsing, inspection, pruning, and merge operations for Source Weaver.
+//!
+//! This crate intentionally has no UI dependencies. The desktop app, CLI, and future
+//! automation layers should all call into this library so Linux and Windows builds
+//! share the same VMF behavior.
+
+pub mod classify;
+pub mod merge;
+pub mod prune;
+pub mod transform;
+pub mod vmf;
+
+pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
+pub use merge::{MergeInput, MergeOptions, MergeReport, merge_maps};
+pub use prune::{DeletionCriteria, DeletionReport, prune_document};
+pub use transform::{Vec3, find_landmark_origin, translate_block};
+pub use vmf::{Document, Node, ParseError, parse_document};
