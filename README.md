@@ -35,6 +35,7 @@ Current capabilities:
 - Switch preview projection between top X/Y, front X/Z, and side Y/Z views.
 - Pan and zoom the preview viewport.
 - Draw brush bounds, face-plane triangles, entity origin markers, grid lines, and role-colored overlays.
+- Draw `info_landmark` diamond markers with targetname labels, selected-landmark highlighting, and merged-preview offset arrows.
 - Detect brush roles such as triggers, clips, areaportals, occluders, skybox, hint, skip, nodraw, and water.
 - Preview bulk deletion rules.
 - Apply transparent deletion presets for triggers, clips, areaportals, gameplay logic, world-only cleanup, and world-plus-skybox cleanup.

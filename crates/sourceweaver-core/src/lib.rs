@@ -29,8 +29,9 @@ pub use landmark::{
 };
 pub use merge::{MergeInput, MergeOptions, MergeReport, merge_maps};
 pub use preview::{
-    PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid, combine_preview_documents,
-    preview_document, preview_document_with_source, translate_preview_document,
+    PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewLandmarkMarker, PreviewSolid,
+    combine_preview_documents, preview_document, preview_document_with_source,
+    translate_preview_document,
 };
 pub use prune::{BrushEntityDeletionMode, DeletionCriteria, DeletionReport, prune_document};
 pub use transform::{Vec3, find_landmark_origin, translate_block};

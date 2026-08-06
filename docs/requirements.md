@@ -67,6 +67,8 @@ Large VMFs must remain manageable in the desktop inspection UI. Entity rows must
 
 Merged previews must visually distinguish the base VMF and incoming VMFs. Source colors must be stable for the current selected-map order, and the preview legend must identify every selected VMF. Role coloring should remain readable when source coloring is active.
 
+Preview views must show `info_landmark` markers with targetname labels in top, front, and side views. The currently selected merge landmark must be visually distinguished, and merged previews must show offset arrows/labels whose values match the merge report/status output.
+
 Entity-table row selection must support multiple selected rows through checkboxes, select-all and clear controls, and a visible selected count. Selection keys must include the VMF path and row identity data so later deletion actions can target selected rows without confusing rows from different maps.
 
 ### Deletion safety modes

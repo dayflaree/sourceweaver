@@ -6,6 +6,7 @@ use crate::vmf::{Document, Node};
 pub struct PreviewDocument {
     pub solids: Vec<PreviewSolid>,
     pub entities: Vec<PreviewEntityMarker>,
+    pub landmarks: Vec<PreviewLandmarkMarker>,
     pub bounds: Option<PreviewBounds>,
 }
 
@@ -30,6 +31,15 @@ pub struct PreviewEntityMarker {
     pub source_index: Option<usize>,
     pub source_label: Option<String>,
     pub origin: Vec3,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewLandmarkMarker {
+    pub owner_index: usize,
+    pub targetname: String,
+    pub origin: Vec3,
+    pub source_index: Option<usize>,
+    pub source_label: Option<String>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -92,6 +102,7 @@ pub fn preview_document_with_source(
 ) -> PreviewDocument {
     let mut solids = Vec::new();
     let mut entities = Vec::new();
+    let mut landmarks = Vec::new();
     let mut bounds = BoundsBuilder::default();
     let mut owner_index = 0;
 
@@ -109,6 +120,20 @@ pub fn preview_document_with_source(
         if name == "entity" {
             if let Some(origin) = Node::get_property(body, "origin").and_then(Vec3::parse) {
                 bounds.include(origin);
+                if classname.as_deref() == Some("info_landmark") {
+                    if let Some(targetname) = Node::get_property(body, "targetname") {
+                        let targetname = targetname.trim();
+                        if !targetname.is_empty() {
+                            landmarks.push(PreviewLandmarkMarker {
+                                owner_index,
+                                targetname: targetname.to_string(),
+                                origin,
+                                source_index,
+                                source_label: source_label.map(ToOwned::to_owned),
+                            });
+                        }
+                    }
+                }
                 entities.push(PreviewEntityMarker {
                     owner_index,
                     classname: classname.clone(),
@@ -139,6 +164,7 @@ pub fn preview_document_with_source(
     PreviewDocument {
         solids,
         entities,
+        landmarks,
         bounds: bounds.finish(),
     }
 }
@@ -161,6 +187,10 @@ pub fn translate_preview_document(preview: &mut PreviewDocument, offset: Vec3) {
         entity.origin = entity.origin + offset;
         bounds.include(entity.origin);
     }
+    for landmark in &mut preview.landmarks {
+        landmark.origin = landmark.origin + offset;
+        bounds.include(landmark.origin);
+    }
     preview.bounds = bounds.finish();
 }
 
@@ -168,6 +198,7 @@ pub fn combine_preview_documents(previews: Vec<PreviewDocument>) -> PreviewDocum
     let mut combined = PreviewDocument {
         solids: Vec::new(),
         entities: Vec::new(),
+        landmarks: Vec::new(),
         bounds: None,
     };
     let mut bounds = BoundsBuilder::default();
@@ -180,6 +211,10 @@ pub fn combine_preview_documents(previews: Vec<PreviewDocument>) -> PreviewDocum
         for entity in preview.entities {
             bounds.include(entity.origin);
             combined.entities.push(entity);
+        }
+        for landmark in preview.landmarks {
+            bounds.include(landmark.origin);
+            combined.landmarks.push(landmark);
         }
     }
 
@@ -330,6 +365,7 @@ entity { "id" "2" "classname" "trigger_once" "targetname" "tr" "origin" "128 0 0
             r#"
 world { "id" "1" solid { side { "plane" "(0 0 0) (32 0 0) (32 32 0)" "material" "BRICK/WALL001" } } }
 entity { "id" "2" "classname" "prop_static" "origin" "64 0 0" }
+entity { "id" "3" "classname" "info_landmark" "targetname" "map_transition" "origin" "80 0 0" }
 "#,
         )
         .unwrap();
@@ -344,11 +380,16 @@ entity { "id" "2" "classname" "prop_static" "origin" "64 0 0" }
         );
         assert_eq!(preview.entities[0].source_index, Some(3));
         assert_eq!(preview.entities[0].origin, Vec3::new(164.0, 0.0, 0.0));
-        assert_eq!(preview.bounds.unwrap().max.x, 164.0);
+        assert_eq!(preview.landmarks.len(), 1);
+        assert_eq!(preview.landmarks[0].targetname, "map_transition");
+        assert_eq!(preview.landmarks[0].origin, Vec3::new(180.0, 0.0, 0.0));
+        assert_eq!(preview.landmarks[0].source_index, Some(3));
+        assert_eq!(preview.bounds.unwrap().max.x, 180.0);
 
         let combined = combine_preview_documents(vec![preview.clone(), preview]);
         assert_eq!(combined.solids.len(), 2);
-        assert_eq!(combined.entities.len(), 2);
-        assert_eq!(combined.bounds.unwrap().max.x, 164.0);
+        assert_eq!(combined.entities.len(), 4);
+        assert_eq!(combined.landmarks.len(), 2);
+        assert_eq!(combined.bounds.unwrap().max.x, 180.0);
     }
 }

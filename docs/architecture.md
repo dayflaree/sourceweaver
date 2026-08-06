@@ -34,6 +34,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - Hammer-style 2D orthographic VMF preview
 - in-memory merged-output preview before export
 - source-colored merged-output preview metadata and legend
+- landmark markers, selected-landmark labels, and merge-offset arrow overlays
 - top, front, and side preview projections
 - entity/classname inspection tables
 - transition table grouping detected `trigger_changelevel` target maps and landmarks
@@ -91,6 +92,8 @@ The desktop app renders this data in three orthographic projections:
 This gives a Hammer-style 2D map overview for verifying rough layout and landmark alignment. The desktop app can render either the selected source VMF or an in-memory merged result generated from the current base map, landmark, and deletion rules. It is not yet a full textured 3D renderer.
 
 Merged-preview source coloring is preview-only metadata. It does not write synthetic source keys into exported VMFs. The desktop preview builds a source-tagged preview from the same pruned input documents and the merge report's computed offsets, so selected map order gives stable source colors for the current selection.
+
+Landmark markers are extracted as explicit preview metadata from `info_landmark` entities. The selected merge landmark is drawn with a stronger marker/label. Merged previews also render per-source offset arrows using the same offset values reported by `merge_maps`.
 
 ## Merge model
 

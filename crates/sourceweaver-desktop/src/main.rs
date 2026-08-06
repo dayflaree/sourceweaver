@@ -91,6 +91,7 @@ struct MergedPreviewSummary {
     removed_world_solids: usize,
     removed_brush_entity_solids: usize,
     source_labels: Vec<String>,
+    source_offsets: Vec<(String, sourceweaver_core::Vec3)>,
     offsets: Vec<String>,
 }
 
@@ -1358,6 +1359,7 @@ impl SourceWeaverApp {
         let entry_path = entry.path.clone();
         let path = display_path(&entry_path);
         let analysis = entry.analysis.clone();
+        let selected_landmark = self.landmark.trim().to_string();
         match analysis {
             Ok(analysis) => match self.active_table {
                 TableMode::Preview => {
@@ -1365,7 +1367,12 @@ impl SourceWeaverApp {
                     match self.preview_scope {
                         PreviewScope::SelectedMap => {
                             ui.label(format!("Selected VMF preview: {path}"));
-                            self.draw_preview_panel(ui, &analysis.preview, None);
+                            self.draw_preview_panel(
+                                ui,
+                                &analysis.preview,
+                                None,
+                                &selected_landmark,
+                            );
                         }
                         PreviewScope::MergedResult => {
                             if let Some(merged_preview) = self.merged_preview.clone() {
@@ -1374,6 +1381,7 @@ impl SourceWeaverApp {
                                     ui,
                                     &merged_preview.preview,
                                     Some(&merged_preview.summary),
+                                    &selected_landmark,
                                 );
                             } else {
                                 ui.colored_label(
@@ -1381,7 +1389,12 @@ impl SourceWeaverApp {
                                     "No merged preview has been built yet. Click Preview selected merge.",
                                 );
                                 self.preview_scope = PreviewScope::SelectedMap;
-                                self.draw_preview_panel(ui, &analysis.preview, None);
+                                self.draw_preview_panel(
+                                    ui,
+                                    &analysis.preview,
+                                    None,
+                                    &selected_landmark,
+                                );
                             }
                         }
                     }
@@ -1450,6 +1463,7 @@ impl SourceWeaverApp {
         ui: &mut egui::Ui,
         preview: &PreviewDocument,
         merged_summary: Option<&MergedPreviewSummary>,
+        selected_landmark: &str,
     ) {
         ui.horizontal_wrapped(|ui| {
             ui.label("View:");
@@ -1470,6 +1484,8 @@ impl SourceWeaverApp {
             ui.label(format!("{} preview solids", preview.solids.len()));
             ui.separator();
             ui.label(format!("{} entity origins", preview.entities.len()));
+            ui.separator();
+            ui.label(format!("{} landmarks", preview.landmarks.len()));
             ui.separator();
             ui.add(egui::Slider::new(&mut self.preview_zoom, 0.1..=12.0).text("Zoom"));
             ui.weak("Mouse wheel zooms. Drag the preview to pan.");
@@ -1576,6 +1592,11 @@ impl SourceWeaverApp {
             }
         }
 
+        draw_landmark_markers(&painter, &transform, preview, selected_landmark);
+        if let Some(summary) = merged_summary {
+            draw_offset_arrows(&painter, rect, &transform, summary);
+        }
+
         draw_preview_legend(&painter, rect, merged_summary);
     }
 }
@@ -1594,6 +1615,7 @@ impl MergedPreviewSummary {
                 .iter()
                 .map(|(label, _)| label.clone())
                 .collect(),
+            source_offsets: report.applied_offsets.clone(),
             offsets: report
                 .applied_offsets
                 .iter()
@@ -2148,6 +2170,120 @@ fn draw_preview_grid(painter: &egui::Painter, rect: egui::Rect, transform: &Prev
     );
 }
 
+fn draw_landmark_markers(
+    painter: &egui::Painter,
+    transform: &PreviewTransform,
+    preview: &PreviewDocument,
+    selected_landmark: &str,
+) {
+    let selected_landmark = selected_landmark.trim();
+    for landmark in &preview.landmarks {
+        let position = transform.world_to_screen(landmark.origin);
+        if !transform.rect.contains(position) {
+            continue;
+        }
+
+        let is_selected = !selected_landmark.is_empty() && landmark.targetname == selected_landmark;
+        let base_color = landmark
+            .source_index
+            .map(source_color)
+            .unwrap_or_else(|| egui::Color32::from_rgb(100, 255, 180));
+        let color = if is_selected {
+            egui::Color32::from_rgb(255, 255, 120)
+        } else {
+            base_color
+        };
+        let radius = if is_selected { 9.0 } else { 7.0 };
+        let points = [
+            position + egui::vec2(0.0, -radius),
+            position + egui::vec2(radius, 0.0),
+            position + egui::vec2(0.0, radius),
+            position + egui::vec2(-radius, 0.0),
+        ];
+
+        painter.add(egui::Shape::convex_polygon(
+            points.to_vec(),
+            color.gamma_multiply(0.85),
+            egui::Stroke::new(
+                if is_selected { 2.0_f32 } else { 1.2_f32 },
+                egui::Color32::BLACK,
+            ),
+        ));
+        painter.text(
+            position + egui::vec2(radius + 5.0, -radius - 2.0),
+            egui::Align2::LEFT_CENTER,
+            if is_selected {
+                format!("★ {}", landmark.targetname)
+            } else {
+                landmark.targetname.clone()
+            },
+            egui::FontId::monospace(if is_selected { 11.0 } else { 10.0 }),
+            if is_selected {
+                egui::Color32::from_rgb(255, 255, 160)
+            } else {
+                egui::Color32::from_rgb(190, 255, 220)
+            },
+        );
+    }
+}
+
+fn draw_offset_arrows(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    transform: &PreviewTransform,
+    summary: &MergedPreviewSummary,
+) {
+    let non_zero_offsets = summary
+        .source_offsets
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, offset))| *offset != sourceweaver_core::Vec3::ZERO)
+        .collect::<Vec<_>>();
+    if non_zero_offsets.is_empty() {
+        return;
+    }
+
+    let mut anchor = rect.right_bottom() + egui::vec2(-250.0, -28.0);
+    painter.text(
+        anchor + egui::vec2(0.0_f32, -16.0_f32),
+        egui::Align2::LEFT_CENTER,
+        "merge offsets",
+        egui::FontId::monospace(10.0),
+        egui::Color32::from_gray(230),
+    );
+
+    for (index, (label, offset)) in non_zero_offsets {
+        let color = source_color(index);
+        let direction = offset_vector_to_screen_delta(*offset, transform.view);
+        let length = direction.length().clamp(24.0, 72.0);
+        let unit = if direction.length() > f32::EPSILON {
+            direction / direction.length()
+        } else {
+            egui::vec2(1.0, 0.0)
+        };
+        let start = anchor;
+        let end = anchor + unit * length;
+        painter.line_segment([start, end], egui::Stroke::new(2.0_f32, color));
+        let left = end - unit * 8.0_f32 + egui::vec2(-unit.y, unit.x) * 4.0_f32;
+        let right = end - unit * 8.0_f32 + egui::vec2(unit.y, -unit.x) * 4.0_f32;
+        painter.line_segment([left, end], egui::Stroke::new(2.0_f32, color));
+        painter.line_segment([right, end], egui::Stroke::new(2.0_f32, color));
+        painter.text(
+            start + egui::vec2(82.0_f32, 0.0_f32),
+            egui::Align2::LEFT_CENTER,
+            format!("{}: {offset}", file_label_for_legend(label)),
+            egui::FontId::monospace(10.0),
+            egui::Color32::from_gray(225),
+        );
+        anchor.y -= 20.0;
+    }
+}
+
+fn offset_vector_to_screen_delta(offset: sourceweaver_core::Vec3, view: PreviewView) -> egui::Vec2 {
+    let (u, v) = project_vec(offset, view);
+    egui::vec2(u as f32, -(v as f32))
+}
+
 fn draw_preview_solid(painter: &egui::Painter, transform: &PreviewTransform, solid: &PreviewSolid) {
     let (min_u, min_v) = project_vec(solid.bounds.min, transform.view);
     let (max_u, max_v) = project_vec(solid.bounds.max, transform.view);
@@ -2196,6 +2332,8 @@ fn draw_preview_legend(
         ("areaportal", egui::Color32::from_rgb(185, 115, 255)),
         ("water", egui::Color32::from_rgb(80, 210, 230)),
         ("entity origin", egui::Color32::from_rgb(255, 232, 128)),
+        ("landmark", egui::Color32::from_rgb(100, 255, 180)),
+        ("selected landmark", egui::Color32::from_rgb(255, 255, 120)),
     ];
     let mut cursor = rect.left_top() + egui::vec2(12.0, 12.0);
     for (label, color) in items {
