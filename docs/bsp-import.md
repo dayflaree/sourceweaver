@@ -106,7 +106,7 @@ BSPSource licensing was checked live on 2026-08-06. The upstream repo contains `
 
 ## Future work
 
-Future improvements can add a desktop `.bsp` picker/decompile runner, managed BSPSource download with checksum/provenance review, richer decompile-warning parsers, known BSPSource argument presets, or legally committable tiny BSP-derived VMF fixtures. The VMF-first boundary should remain unchanged.
+Future improvements can add managed BSPSource download with checksum/provenance review, richer decompile-warning parsers, known BSPSource argument presets, or legally committable tiny BSP-derived VMF fixtures. The VMF-first boundary should remain unchanged.
 
 ## Sources checked
 

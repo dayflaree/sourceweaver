@@ -127,7 +127,7 @@ Linux users must be able to download a release tarball containing the desktop ap
 
 Source Weaver must remain VMF-first. BSP input support must rely on user-selected external decompiler paths and must not bundle third-party decompilers, game BSPs, or decompiled content until redistribution and update-policy review is complete. Documentation must explain legal responsibilities, decompile quality limitations, and the recommended external workflow.
 
-The CLI may run a user-selected BSPSource launcher, BSPSource jar, or generic BSP decompiler wrapper and must validate the generated VMF before reporting success. Reports must include tool kind, tool path, version probe when available, command arguments, input BSP, output VMF, exit code, log path, warnings/errors, entity counts, classname counts, and integrity status. The desktop app must be able to import BSP-derived VMFs with clear warnings while keeping them as normal VMF inputs after import.
+The CLI may run a user-selected BSPSource launcher, BSPSource jar, or generic BSP decompiler wrapper and must validate the generated VMF before reporting success. Reports must include tool kind, tool path, version probe when available, command arguments, input BSP, output VMF, exit code, log path, warnings/errors, entity counts, classname counts, and integrity status. The desktop app must be able to select a BSP, run a user-selected BSPSource launcher/jar or generic wrapper through the same boundary, import the validated VMF with clear warnings, and keep it as a normal VMF input after import.
 
 ## Compile profile stance
 

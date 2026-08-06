@@ -72,6 +72,18 @@ struct SourceWeaverApp {
     classname_sort_ascending: bool,
     fgd_metadata: BTreeMap<String, EntityMetadata>,
     bsp_derived_vmfs: BTreeSet<String>,
+    bsp_decompile_bsp_path: String,
+    bsp_decompile_output_vmf: String,
+    bsp_decompile_bspsource_path: String,
+    bsp_decompile_jar_path: String,
+    bsp_decompile_java_path: String,
+    bsp_decompile_wrapper_path: String,
+    bsp_decompile_tool_args: String,
+    bsp_decompile_log_path: String,
+    bsp_decompile_report_path: String,
+    bsp_decompile_timeout_seconds: String,
+    bsp_decompile_status: DesktopBspDecompileStatus,
+    bsp_decompile_receiver: Option<Receiver<DesktopBspDecompileMessage>>,
     recent_vmfs: Vec<PathBuf>,
     recent_projects: Vec<PathBuf>,
     compile_profile_path: String,
@@ -163,6 +175,43 @@ struct DesktopCompileMessage {
     ok: bool,
     summary: String,
     command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DesktopBspDecompileStatus {
+    running: bool,
+    summary: String,
+    command: Vec<String>,
+    output_vmf: Option<PathBuf>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopBspDecompileRequest {
+    cli_path: PathBuf,
+    input_bsp: PathBuf,
+    output_vmf: PathBuf,
+    bspsource: Option<PathBuf>,
+    bspsource_jar: Option<PathBuf>,
+    java: Option<PathBuf>,
+    wrapper: Option<PathBuf>,
+    tool_args: Vec<String>,
+    log_path: Option<PathBuf>,
+    report_path: PathBuf,
+    timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopBspDecompileMessage {
+    ok: bool,
+    summary: String,
+    command: Vec<String>,
+    output_vmf: Option<PathBuf>,
     report_json: Option<String>,
     stdout_tail: Vec<String>,
     stderr_tail: Vec<String>,
@@ -418,6 +467,23 @@ impl SourceWeaverApp {
             classname_sort_ascending: true,
             fgd_metadata: BTreeMap::new(),
             bsp_derived_vmfs: BTreeSet::new(),
+            bsp_decompile_bsp_path: String::new(),
+            bsp_decompile_output_vmf: String::new(),
+            bsp_decompile_bspsource_path: String::new(),
+            bsp_decompile_jar_path: String::new(),
+            bsp_decompile_java_path: String::new(),
+            bsp_decompile_wrapper_path: String::new(),
+            bsp_decompile_tool_args: String::new(),
+            bsp_decompile_log_path: String::new(),
+            bsp_decompile_report_path: String::new(),
+            bsp_decompile_timeout_seconds: "900".to_string(),
+            bsp_decompile_status: DesktopBspDecompileStatus {
+                summary:
+                    "BSP decompile runner idle. Select a user-provided BSPSource launcher or jar."
+                        .to_string(),
+                ..Default::default()
+            },
+            bsp_decompile_receiver: None,
             recent_vmfs: Vec::new(),
             recent_projects: Vec::new(),
             compile_profile_path: String::new(),
@@ -1528,6 +1594,251 @@ impl SourceWeaverApp {
             Err(error) => self.add_status(format!("Merge failed: {error}")),
         }
     }
+    fn choose_bsp_decompile_input(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select BSP to decompile")
+            .add_filter("Source BSP", &["bsp"])
+            .pick_file()
+        {
+            self.bsp_decompile_bsp_path = display_path(&path);
+            if self.bsp_decompile_output_vmf.trim().is_empty() {
+                self.bsp_decompile_output_vmf =
+                    display_path(&default_bsp_decompile_output_path(&path));
+            }
+            if self.bsp_decompile_report_path.trim().is_empty() {
+                self.bsp_decompile_report_path =
+                    display_path(&default_bsp_decompile_report_path(&path));
+            }
+            if self.bsp_decompile_log_path.trim().is_empty() {
+                self.bsp_decompile_log_path = display_path(&default_bsp_decompile_log_path(&path));
+            }
+        }
+    }
+
+    fn choose_bsp_decompile_output(&mut self) {
+        let default_name = blank_to_none(&self.bsp_decompile_bsp_path)
+            .map(|path| default_bsp_decompile_output_path(&PathBuf::from(path)))
+            .and_then(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(ToOwned::to_owned)
+            })
+            .unwrap_or_else(|| "decompiled_map.vmf".to_string());
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Save decompiled VMF")
+            .add_filter("Valve Map Format", &["vmf"])
+            .set_file_name(&default_name)
+            .save_file()
+        {
+            self.bsp_decompile_output_vmf = display_path(&path);
+        }
+    }
+
+    fn choose_bsp_decompile_bspsource(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select BSPSource launcher")
+            .pick_file()
+        {
+            self.bsp_decompile_bspsource_path = display_path(&path);
+            self.bsp_decompile_jar_path.clear();
+            self.bsp_decompile_wrapper_path.clear();
+        }
+    }
+
+    fn choose_bsp_decompile_jar(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select BSPSource jar")
+            .add_filter("Java archive", &["jar"])
+            .pick_file()
+        {
+            self.bsp_decompile_jar_path = display_path(&path);
+            self.bsp_decompile_bspsource_path.clear();
+            self.bsp_decompile_wrapper_path.clear();
+        }
+    }
+
+    fn choose_bsp_decompile_java(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select Java executable")
+            .pick_file()
+        {
+            self.bsp_decompile_java_path = display_path(&path);
+        }
+    }
+
+    fn choose_bsp_decompile_wrapper(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select generic BSP decompiler wrapper")
+            .pick_file()
+        {
+            self.bsp_decompile_wrapper_path = display_path(&path);
+            self.bsp_decompile_bspsource_path.clear();
+            self.bsp_decompile_jar_path.clear();
+        }
+    }
+
+    fn choose_bsp_decompile_log(&mut self) {
+        let default_name = blank_to_none(&self.bsp_decompile_bsp_path)
+            .map(|path| default_bsp_decompile_log_path(&PathBuf::from(path)))
+            .and_then(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(ToOwned::to_owned)
+            })
+            .unwrap_or_else(|| "bsp-decompile.log".to_string());
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Save BSP decompile log")
+            .add_filter("Log", &["log", "txt"])
+            .set_file_name(&default_name)
+            .save_file()
+        {
+            self.bsp_decompile_log_path = display_path(&path);
+        }
+    }
+
+    fn choose_bsp_decompile_report(&mut self) {
+        let default_name = blank_to_none(&self.bsp_decompile_bsp_path)
+            .map(|path| default_bsp_decompile_report_path(&PathBuf::from(path)))
+            .and_then(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(ToOwned::to_owned)
+            })
+            .unwrap_or_else(|| "bsp-import-report.json".to_string());
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Save BSP decompile report")
+            .add_filter("JSON", &["json"])
+            .set_file_name(&default_name)
+            .save_file()
+        {
+            self.bsp_decompile_report_path = display_path(&path);
+        }
+    }
+
+    fn launch_bsp_decompile(&mut self) {
+        if self.bsp_decompile_status.running {
+            self.add_status("A BSP decompile run is already in progress.");
+            return;
+        }
+        let Some(input_bsp) = blank_to_none(&self.bsp_decompile_bsp_path).map(PathBuf::from) else {
+            self.add_status("Select a BSP before launching decompile.");
+            return;
+        };
+        if !input_bsp.exists() {
+            self.add_status(format!(
+                "Input BSP does not exist: {}",
+                display_path(&input_bsp)
+            ));
+            return;
+        }
+        let Some(output_vmf) = blank_to_none(&self.bsp_decompile_output_vmf).map(PathBuf::from)
+        else {
+            self.add_status("Choose an output VMF path before launching decompile.");
+            return;
+        };
+        let bspsource = blank_to_none(&self.bsp_decompile_bspsource_path).map(PathBuf::from);
+        let bspsource_jar = blank_to_none(&self.bsp_decompile_jar_path).map(PathBuf::from);
+        let wrapper = blank_to_none(&self.bsp_decompile_wrapper_path).map(PathBuf::from);
+        let configured = usize::from(bspsource.is_some())
+            + usize::from(bspsource_jar.is_some())
+            + usize::from(wrapper.is_some());
+        if configured != 1 {
+            self.add_status("Select exactly one BSP decompiler mode: BSPSource launcher, BSPSource jar, or generic wrapper.");
+            return;
+        }
+        let timeout_seconds = match blank_to_none(&self.bsp_decompile_timeout_seconds) {
+            Some(value) => match value.parse::<u64>() {
+                Ok(seconds) if seconds > 0 => Some(seconds),
+                _ => {
+                    self.add_status(
+                        "BSP decompile timeout must be a positive integer number of seconds.",
+                    );
+                    return;
+                }
+            },
+            None => None,
+        };
+        let report_path = blank_to_none(&self.bsp_decompile_report_path)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_bsp_decompile_report_path(&input_bsp));
+        let request = DesktopBspDecompileRequest {
+            cli_path: sourceweaver_cli_executable(),
+            input_bsp,
+            output_vmf,
+            bspsource,
+            bspsource_jar,
+            java: blank_to_none(&self.bsp_decompile_java_path).map(PathBuf::from),
+            wrapper,
+            tool_args: self
+                .bsp_decompile_tool_args
+                .split_whitespace()
+                .map(ToOwned::to_owned)
+                .collect(),
+            log_path: blank_to_none(&self.bsp_decompile_log_path).map(PathBuf::from),
+            report_path,
+            timeout_seconds,
+        };
+        let command_preview = desktop_bsp_decompile_command_preview(&request);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let message = run_desktop_bsp_decompile_request(request);
+            let _ = sender.send(message);
+        });
+        self.bsp_decompile_receiver = Some(receiver);
+        self.bsp_decompile_status = DesktopBspDecompileStatus {
+            running: true,
+            summary: "BSP decompile running in background. Output VMF will be imported and tagged when validation succeeds.".to_string(),
+            command: command_preview.clone(),
+            output_vmf: None,
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        };
+        self.add_status(format!(
+            "Started BSP decompile: {}",
+            command_preview.join(" ")
+        ));
+    }
+
+    fn poll_bsp_decompile_status(&mut self) {
+        let Some(receiver) = self.bsp_decompile_receiver.take() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(message) => {
+                self.bsp_decompile_status.running = false;
+                self.bsp_decompile_status.summary = message.summary.clone();
+                self.bsp_decompile_status.command = message.command;
+                self.bsp_decompile_status.output_vmf = message.output_vmf.clone();
+                self.bsp_decompile_status.report_json = message.report_json;
+                self.bsp_decompile_status.stdout_tail = message.stdout_tail;
+                self.bsp_decompile_status.stderr_tail = message.stderr_tail;
+                self.add_status(message.summary);
+                if message.ok {
+                    if let Some(output_vmf) = message.output_vmf {
+                        self.bsp_derived_vmfs.insert(display_path(&output_vmf));
+                        self.add_vmf_paths(vec![output_vmf]);
+                        self.add_status("Imported BSP-derived VMF. Review decompile warnings before merge; decompiled VMFs are approximate and review-required.");
+                    }
+                } else {
+                    self.last_error_dialog = Some(
+                        "BSP decompile failed. Review the BSP decompile panel JSON/log details."
+                            .to_string(),
+                    );
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                self.bsp_decompile_receiver = Some(receiver);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.bsp_decompile_status.running = false;
+                self.bsp_decompile_status.summary =
+                    "BSP decompile worker disconnected before reporting a result.".to_string();
+                self.add_status("BSP decompile worker disconnected before reporting a result.");
+            }
+        }
+    }
+
     fn choose_compile_profile_path(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Select Source Weaver compile profile")
@@ -1680,6 +1991,7 @@ impl eframe::App for SourceWeaverApp {
         }
         self.handle_dropped_files(ctx);
         self.poll_compile_status();
+        self.poll_bsp_decompile_status();
 
         if let Some(error) = self.last_error_dialog.clone() {
             egui::Window::new("Source Weaver needs attention")
@@ -1705,6 +2017,9 @@ impl eframe::App for SourceWeaverApp {
                 }
                 if ui.button("Add BSP-derived VMF...").clicked() {
                     self.add_bsp_derived_vmf_dialog();
+                }
+                if ui.button("Decompile BSP...").clicked() {
+                    self.choose_bsp_decompile_input();
                 }
                 if ui.button("Re-scan").clicked() {
                     self.rescan_maps();
@@ -1809,6 +2124,8 @@ impl eframe::App for SourceWeaverApp {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 self.merge_panel(ui);
                 ui.separator();
+                self.bsp_decompile_panel(ui);
+                ui.separator();
                 self.compile_panel(ui);
                 ui.separator();
                 self.cleanup_panel(ui);
@@ -1911,6 +2228,132 @@ impl SourceWeaverApp {
             ui.weak("Preview builds the same merge in memory without writing an output VMF.");
         });
         ui.weak("World solids, skybox brushes, point entities, and brush entities are appended from incoming maps.");
+    }
+
+    fn bsp_decompile_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("BSP decompile import");
+        ui.label("Select a BSP and a user-provided BSPSource launcher or jar. Source Weaver does not bundle BSPSource, VMEX, game BSPs, or decompiled content.");
+        ui.horizontal(|ui| {
+            ui.label("Input BSP:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_decompile_bsp_path)
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.button("Browse...").clicked() {
+                self.choose_bsp_decompile_input();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Output VMF:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_decompile_output_vmf)
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.button("Choose output...").clicked() {
+                self.choose_bsp_decompile_output();
+            }
+        });
+        ui.collapsing("Decompiler tool", |ui| {
+            ui.weak("Select exactly one mode. BSPSource launcher/jar avoids hand-written wrapper scripts; generic wrapper remains an escape hatch.");
+            ui.horizontal(|ui| {
+                ui.label("BSPSource launcher:");
+                ui.add(egui::TextEdit::singleline(&mut self.bsp_decompile_bspsource_path).desired_width(f32::INFINITY));
+                if ui.button("Choose launcher...").clicked() {
+                    self.choose_bsp_decompile_bspsource();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("BSPSource jar:");
+                ui.add(egui::TextEdit::singleline(&mut self.bsp_decompile_jar_path).desired_width(f32::INFINITY));
+                if ui.button("Choose jar...").clicked() {
+                    self.choose_bsp_decompile_jar();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Java executable:");
+                ui.add(egui::TextEdit::singleline(&mut self.bsp_decompile_java_path).desired_width(f32::INFINITY));
+                if ui.button("Choose java...").clicked() {
+                    self.choose_bsp_decompile_java();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Generic wrapper:");
+                ui.add(egui::TextEdit::singleline(&mut self.bsp_decompile_wrapper_path).desired_width(f32::INFINITY));
+                if ui.button("Choose wrapper...").clicked() {
+                    self.choose_bsp_decompile_wrapper();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Tool args:");
+                ui.add(egui::TextEdit::singleline(&mut self.bsp_decompile_tool_args).desired_width(f32::INFINITY))
+                    .on_hover_text("Whitespace-separated args forwarded before -o for BSPSource. Use the CLI for complex quoting.");
+            });
+        });
+        ui.horizontal(|ui| {
+            ui.label("Log:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_decompile_log_path)
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.button("Choose log...").clicked() {
+                self.choose_bsp_decompile_log();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Report JSON:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_decompile_report_path)
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.button("Choose report...").clicked() {
+                self.choose_bsp_decompile_report();
+            }
+            ui.label("Timeout:");
+            ui.text_edit_singleline(&mut self.bsp_decompile_timeout_seconds);
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(!self.bsp_decompile_status.running, egui::Button::new("Decompile and import VMF"))
+                .clicked()
+            {
+                self.launch_bsp_decompile();
+            }
+            ui.weak("Successful output is parsed, integrity-checked by the CLI, imported, and tagged as BSP-derived.");
+        });
+        if self.bsp_decompile_status.running {
+            ui.add(egui::Spinner::new());
+        }
+        ui.label(&self.bsp_decompile_status.summary);
+        if !self.bsp_decompile_status.command.is_empty() {
+            ui.collapsing("BSP decompile command", |ui| {
+                ui.monospace(self.bsp_decompile_status.command.join(" "));
+            });
+        }
+        if let Some(report_json) = &self.bsp_decompile_status.report_json {
+            ui.collapsing("BSP import report JSON", |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut report_json.clone())
+                        .desired_rows(12)
+                        .code_editor(),
+                );
+            });
+        }
+        if !self.bsp_decompile_status.stdout_tail.is_empty()
+            || !self.bsp_decompile_status.stderr_tail.is_empty()
+        {
+            ui.collapsing("BSP decompile output tail", |ui| {
+                for line in &self.bsp_decompile_status.stdout_tail {
+                    ui.small(format!("stdout: {line}"));
+                }
+                for line in &self.bsp_decompile_status.stderr_tail {
+                    ui.colored_label(egui::Color32::YELLOW, format!("stderr: {line}"));
+                }
+            });
+        }
+        ui.colored_label(
+            egui::Color32::YELLOW,
+            "BSP-derived VMFs are approximate and review-required before merge.",
+        );
     }
 
     fn compile_panel(&mut self, ui: &mut egui::Ui) {
@@ -2649,6 +3092,157 @@ fn build_source_colored_preview(inputs: &[MergeInput], report: &MergeReport) -> 
         })
         .collect::<Vec<_>>();
     combine_preview_documents(previews)
+}
+
+fn default_bsp_decompile_output_path(input_bsp: &Path) -> PathBuf {
+    let stem = input_bsp
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("decompiled_map");
+    input_bsp.with_file_name(format!("{stem}_decompiled.vmf"))
+}
+
+fn default_bsp_decompile_report_path(input_bsp: &Path) -> PathBuf {
+    let stem = input_bsp
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("bsp-import");
+    input_bsp.with_file_name(format!("{stem}-bsp-import-report.json"))
+}
+
+fn default_bsp_decompile_log_path(input_bsp: &Path) -> PathBuf {
+    let stem = input_bsp
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("bsp-import");
+    input_bsp.with_file_name(format!("{stem}-bsp-import.log"))
+}
+
+fn desktop_bsp_decompile_command_preview(request: &DesktopBspDecompileRequest) -> Vec<String> {
+    let mut parts = vec![
+        request.cli_path.display().to_string(),
+        "bsp-import".to_string(),
+        request.input_bsp.display().to_string(),
+    ];
+    if let Some(bspsource) = &request.bspsource {
+        parts.push("--bspsource".to_string());
+        parts.push(bspsource.display().to_string());
+    }
+    if let Some(jar) = &request.bspsource_jar {
+        parts.push("--bspsource-jar".to_string());
+        parts.push(jar.display().to_string());
+    }
+    if let Some(java) = &request.java {
+        parts.push("--java".to_string());
+        parts.push(java.display().to_string());
+    }
+    if let Some(wrapper) = &request.wrapper {
+        parts.push("--tool".to_string());
+        parts.push(wrapper.display().to_string());
+    }
+    for arg in &request.tool_args {
+        parts.push("--tool-arg".to_string());
+        parts.push(arg.clone());
+    }
+    parts.push("--output".to_string());
+    parts.push(request.output_vmf.display().to_string());
+    if let Some(log_path) = &request.log_path {
+        parts.push("--log".to_string());
+        parts.push(log_path.display().to_string());
+    }
+    parts.push("--report".to_string());
+    parts.push(request.report_path.display().to_string());
+    if let Some(timeout) = request.timeout_seconds {
+        parts.push("--timeout-seconds".to_string());
+        parts.push(timeout.to_string());
+    }
+    parts.push("--json".to_string());
+    parts
+}
+
+fn run_desktop_bsp_decompile_request(
+    request: DesktopBspDecompileRequest,
+) -> DesktopBspDecompileMessage {
+    let command_preview = desktop_bsp_decompile_command_preview(&request);
+    let mut command = Command::new(&request.cli_path);
+    command.arg("bsp-import").arg(&request.input_bsp);
+    if let Some(bspsource) = &request.bspsource {
+        command.arg("--bspsource").arg(bspsource);
+    }
+    if let Some(jar) = &request.bspsource_jar {
+        command.arg("--bspsource-jar").arg(jar);
+    }
+    if let Some(java) = &request.java {
+        command.arg("--java").arg(java);
+    }
+    if let Some(wrapper) = &request.wrapper {
+        command.arg("--tool").arg(wrapper);
+    }
+    for arg in &request.tool_args {
+        command.arg("--tool-arg").arg(arg);
+    }
+    command.arg("--output").arg(&request.output_vmf);
+    if let Some(log_path) = &request.log_path {
+        command.arg("--log").arg(log_path);
+    }
+    command
+        .arg("--report")
+        .arg(&request.report_path)
+        .arg("--json");
+    if let Some(timeout) = request.timeout_seconds {
+        command.arg("--timeout-seconds").arg(timeout.to_string());
+    }
+
+    match command.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let report_json = if stdout.trim_start().starts_with('{') {
+                Some(stdout.clone())
+            } else {
+                fs::read_to_string(&request.report_path).ok()
+            };
+            let parsed_ok = report_json
+                .as_ref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false);
+            let ok = output.status.success() && parsed_ok && request.output_vmf.exists();
+            let summary = if ok {
+                format!(
+                    "BSP decompile completed and VMF passed Source Weaver import validation: {}",
+                    display_path(&request.output_vmf)
+                )
+            } else {
+                format!(
+                    "BSP decompile failed or import validation failed. Exit code: {:?}. Report: {}",
+                    output.status.code(),
+                    display_path(&request.report_path)
+                )
+            };
+            DesktopBspDecompileMessage {
+                ok,
+                summary,
+                command: command_preview,
+                output_vmf: ok.then_some(request.output_vmf),
+                report_json,
+                stdout_tail: tail_lines(&stdout, 40),
+                stderr_tail: tail_lines(&stderr, 40),
+            }
+        }
+        Err(error) => DesktopBspDecompileMessage {
+            ok: false,
+            summary: format!(
+                "Failed to start Source Weaver CLI BSP import command `{}`: {error}. Set SOURCEWEAVER_CLI to the CLI executable if needed.",
+                request.cli_path.display()
+            ),
+            command: command_preview,
+            output_vmf: None,
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        },
+    }
 }
 
 fn default_compile_report_path(output_path: &str) -> PathBuf {

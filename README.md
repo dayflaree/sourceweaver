@@ -14,7 +14,7 @@ Source Weaver takes selected VMF files and creates a single merged VMF. It is de
 
 Current capabilities:
 
-- Select multiple `.vmf` files in the desktop app, export a merged VMF, and optionally launch an external compile profile afterward.
+- Select multiple `.vmf` files in the desktop app, decompile/import BSP-derived VMFs with user-selected BSPSource tools, export a merged VMF, and optionally launch an external compile profile afterward.
 - Save and load desktop project/job TOML files that are CLI-compatible where possible.
 - Pick a base map for the merged output.
 - Align incoming maps to a shared `info_landmark` targetname.
@@ -201,7 +201,7 @@ cargo run -p sourceweaver-cli -- bsp-import map.bsp \
   --json
 ```
 
-For jar-only BSPSource distributions, use `--bspsource-jar /path/to/bspsrc.jar` and optionally `--java /path/to/java`. `--tool ./custom-wrapper.sh` remains available for unusual decompilers or argument orders. In the desktop app, use **Add BSP-derived VMF...** after decompiling externally. The generated VMF remains a normal VMF input but is marked with decompile-quality warnings.
+For jar-only BSPSource distributions, use `--bspsource-jar /path/to/bspsrc.jar` and optionally `--java /path/to/java`. `--tool ./custom-wrapper.sh` remains available for unusual decompilers or argument orders. In the desktop app, use **Decompile BSP...** or the **BSP decompile import** panel to select a `.bsp`, a BSPSource launcher/jar, and an output VMF. Successful output is validated, imported, and marked with decompile-quality warnings. **Add BSP-derived VMF...** remains available for VMFs decompiled outside Source Weaver.
 
 Pack custom assets into a compiled BSP with a user-provided `bspzip`-compatible tool:
 

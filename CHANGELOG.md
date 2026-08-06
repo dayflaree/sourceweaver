@@ -17,6 +17,7 @@
 - Compile profile create/validate/discover command plus Linux/Wine/Proton wrapper examples and setup docs.
 - Optional desktop compile panel that launches the CLI compile pipeline after export or on demand without blocking the UI.
 - Real Source compiler smoke-test matrix documentation for release evidence and manual validation.
+- Desktop BSP decompile/import panel that runs the CLI BSPSource workflow, validates output VMFs, imports them, and marks them as BSP-derived.
 
 ### Changed
 
