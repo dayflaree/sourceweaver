@@ -54,6 +54,7 @@ Current capabilities:
 - Apply deletion rules during merge.
 - Export a merged `.vmf` for Hammer.
 - Guard parser, merge, prune, preview, and automation behavior with VMF fixture/golden regression tests.
+- Reproduce public real-VMF validation with a pinned two-map Source 1 workflow script.
 - Translate displacement side planes and `dispinfo` `startposition` values during landmark-aligned moves.
 - Adjust VMF `uaxis`/`vaxis` texture shifts during brush translation to preserve texture-lock behavior.
 - Renumber incoming VMF IDs and remap known ID reference fields during merge.
@@ -235,9 +236,12 @@ docs/                          Requirements, architecture, and roadmap notes
 packaging/                     Linux desktop entry/icon and Windows icon assets
 scripts/package-linux.sh       Linux release tarball builder
 scripts/package-windows.ps1    Windows release zip builder
+scripts/validate-public-vmfs.sh Public real-VMF validation smoke script
 tests/fixtures/                Small VMF files used for local validation
 tests/golden/                  Golden VMF and JSON snapshots used by regression tests
 ```
+
+For real-map smoke validation, run `scripts/validate-public-vmfs.sh /tmp/sourceweaver-real-validation`. It downloads two adjacent public Source 1 VMFs from a pinned commit, inspects them, merges them with a real landmark, validates the merged output, and exercises the compile-pipeline report path with a fake VBSP tool. See `docs/real-vmf-validation.md`.
 
 ## Important limitations
 

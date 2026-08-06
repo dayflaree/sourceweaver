@@ -183,6 +183,8 @@ Desktop release builds run from `.github/workflows/desktop-builds.yml`. Manual d
 
 Regression tests include representative VMF fixtures and golden snapshots. Core integration tests cover role classification, duplicate landmarks, transition discovery, preview extraction, prune counts, malformed input errors, and merged VMF golden output. CLI integration tests snapshot the job-runner JSON report and verify malformed inputs produce actionable filename/byte-position errors.
 
+Real-map smoke validation is documented separately because it downloads public VMFs and is not part of normal CI. `scripts/validate-public-vmfs.sh` fetches two adjacent public Source 1 VMFs from a pinned commit, runs inspect/list/merge/validate, and exercises the optional compile-pipeline JSON path with a fake VBSP tool. See `docs/real-vmf-validation.md`.
+
 ## Known technical risks
 
 - Real displacement-heavy maps may reveal game-specific edge cases; current behavior is documented in `docs/displacements.md`.

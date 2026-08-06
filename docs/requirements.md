@@ -51,6 +51,8 @@ The CLI must also provide an optional Source compile pipeline for users who can 
 
 CI must cover representative VMF structures so parser, merge, preview, deletion, transition, and automation behavior cannot drift silently. Fixtures should include world brushes, triggers, clips, areaportals, skybox materials, displacement start positions, multiple/duplicate landmarks, malformed VMFs, transitions, and larger mixed maps. Golden snapshots should verify key merged VMF output and job-runner JSON reports.
 
+Real VMF validation must be reproducible outside CI without requiring bundled game assets. A script may download public VMFs from a pinned source commit, run inspect/list/merge/validate, and document any environment limitations such as unavailable Hammer/Hammer++ on Linux.
+
 ## Displacement translation
 
 Landmark-aligned translation must move displacement-bearing brush sides consistently. Side `plane` points and `dispinfo` `startposition` values are absolute VMF coordinates and must be translated together. Non-position displacement fields such as normals, distances, alphas, triangle tags, and allowed verts must be preserved unless a real-map fixture proves they need different treatment.
