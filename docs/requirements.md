@@ -57,6 +57,10 @@ Large VMFs must remain manageable in the desktop inspection UI. Entity rows must
 
 Entity-table row selection must support multiple selected rows through checkboxes, select-all and clear controls, and a visible selected count. Selection keys must include the VMF path and row identity data so later deletion actions can target selected rows without confusing rows from different maps.
 
+### Deletion safety modes
+
+Brush-role deletion must distinguish world solids from brush-entity behavior. World solid role matches remove matching world solids. Brush-entity role matches must use an explicit mode: `whole-entity` removes matching brush entities as a unit and preserves the original behavior; `matching-solids` preserves the entity and removes only matching contained solids. Critical transition/player/logic entities must be protected by default from classname, targetname, and brush-role deletion unless protection is explicitly disabled.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.

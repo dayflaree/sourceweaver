@@ -1,10 +1,10 @@
 use eframe::egui;
 use sourceweaver_core::{
-    BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord, IntegrityReport,
-    LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions, MergeReport, PreviewBounds,
-    PreviewDocument, PreviewSolid, discover_landmarks, format_integrity_issue, inspect_entities,
-    merge_maps, preview_document, prune_document, summarize_entity_types,
-    validate_document_integrity,
+    BrushEntityDeletionMode, BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord,
+    IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions,
+    MergeReport, PreviewBounds, PreviewDocument, PreviewSolid, discover_landmarks,
+    format_integrity_issue, inspect_entities, merge_maps, preview_document, prune_document,
+    summarize_entity_types, validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -35,6 +35,8 @@ struct SourceWeaverApp {
     drop_classnames: String,
     drop_targetnames: String,
     role_options: Vec<RoleOption>,
+    brush_entity_mode: BrushEntityDeletionMode,
+    protect_critical_entities: bool,
     status: Vec<String>,
     active_table: TableMode,
     preview_scope: PreviewScope,
@@ -83,6 +85,7 @@ struct MergedPreviewSummary {
     appended_entities: usize,
     removed_entities: usize,
     removed_world_solids: usize,
+    removed_brush_entity_solids: usize,
     offsets: Vec<String>,
 }
 
@@ -183,6 +186,8 @@ impl SourceWeaverApp {
                 RoleOption::new("World brushes", BrushRole::WorldBrush),
                 RoleOption::new("Brush entities", BrushRole::BrushEntity),
             ],
+            brush_entity_mode: BrushEntityDeletionMode::WholeEntity,
+            protect_critical_entities: true,
             status: vec!["Ready. Add VMF files to inspect or merge.".to_string()],
             active_table: TableMode::Preview,
             preview_scope: PreviewScope::SelectedMap,
@@ -301,6 +306,8 @@ impl SourceWeaverApp {
                 .filter(|option| option.selected)
                 .map(|option| option.role.clone()),
         );
+        criteria.brush_entity_mode = self.brush_entity_mode;
+        criteria.protect_critical_entities = self.protect_critical_entities;
         criteria
     }
 
@@ -580,6 +587,7 @@ impl SourceWeaverApp {
                 let report = prune_document(&mut document, &criteria);
                 removed_total.removed_entities += report.removed_entities;
                 removed_total.removed_world_solids += report.removed_world_solids;
+                removed_total.removed_brush_entity_solids += report.removed_brush_entity_solids;
             }
             merge_inputs.push(MergeInput {
                 label: display_path(&entry.path),
@@ -629,8 +637,10 @@ impl SourceWeaverApp {
                         .unwrap_or(0)
                 ));
                 self.add_status(format!(
-                    "Preview cleanup removed {} entities and {} world solids in memory; no VMF was written.",
-                    removed_total.removed_entities, removed_total.removed_world_solids
+                    "Preview cleanup removed {} entities, {} world solids, and {} brush-entity solids in memory; no VMF was written.",
+                    removed_total.removed_entities,
+                    removed_total.removed_world_solids,
+                    removed_total.removed_brush_entity_solids
                 ));
             }
             Err(error) => self.add_status(format!("Merge preview failed: {error}")),
@@ -652,15 +662,17 @@ impl SourceWeaverApp {
                     let report = prune_document(&mut document, &criteria);
                     total.removed_entities += report.removed_entities;
                     total.removed_world_solids += report.removed_world_solids;
+                    total.removed_brush_entity_solids += report.removed_brush_entity_solids;
                 }
                 Err(_) => failures += 1,
             }
         }
 
         self.add_status(format!(
-            "Preview: would remove {} entities and {} world solids across {} map(s).{}",
+            "Preview: would remove {} entities, {} world solids, and {} brush-entity solids across {} map(s).{}",
             total.removed_entities,
             total.removed_world_solids,
+            total.removed_brush_entity_solids,
             self.maps.len().saturating_sub(failures),
             if failures == 0 {
                 String::new()
@@ -714,10 +726,11 @@ impl SourceWeaverApp {
                 }
                 match write_document(&output_path, &document) {
                     Ok(()) => self.add_status(format!(
-                        "Wrote cleaned VMF: {}. Removed {} entities and {} world solids.",
+                        "Wrote cleaned VMF: {}. Removed {} entities, {} world solids, and {} brush-entity solids.",
                         display_path(&output_path),
                         report.removed_entities,
-                        report.removed_world_solids
+                        report.removed_world_solids,
+                        report.removed_brush_entity_solids
                     )),
                     Err(error) => self.add_status(error),
                 }
@@ -767,11 +780,12 @@ impl SourceWeaverApp {
                             display_path(&output_path)
                         ));
                         self.add_status(format!(
-                            "Appended {} world solids and {} entities. Cleanup removed {} entities and {} world solids.",
+                            "Appended {} world solids and {} entities. Cleanup removed {} entities, {} world solids, and {} brush-entity solids.",
                             report.appended_world_solids,
                             report.appended_entities,
                             removed_total.removed_entities,
-                            removed_total.removed_world_solids
+                            removed_total.removed_world_solids,
+                            removed_total.removed_brush_entity_solids
                         ));
                         for (label, offset) in report.applied_offsets {
                             self.add_status(format!("Offset {label}: {offset}"));
@@ -992,6 +1006,27 @@ impl SourceWeaverApp {
             });
         });
 
+        ui.collapsing("Deletion safety", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Brush-entity role matches:");
+                ui.radio_value(
+                    &mut self.brush_entity_mode,
+                    BrushEntityDeletionMode::WholeEntity,
+                    "Delete whole entity",
+                );
+                ui.radio_value(
+                    &mut self.brush_entity_mode,
+                    BrushEntityDeletionMode::MatchingSolids,
+                    "Delete matching contained solids",
+                );
+            });
+            ui.checkbox(
+                &mut self.protect_critical_entities,
+                "Protect critical transition/player/logic entities",
+            );
+            ui.weak("Default safety preserves existing brush-role behavior by deleting whole matching brush entities, while protecting critical classnames unless this box is cleared.");
+        });
+
         ui.horizontal(|ui| {
             if ui.button("Preview deletion").clicked() {
                 self.preview_deletion();
@@ -1142,8 +1177,10 @@ impl SourceWeaverApp {
                     summary.merged_maps, summary.appended_world_solids, summary.appended_entities
                 ));
                 ui.label(format!(
-                    "Cleanup applied in memory: removed {} entities and {} world solids. No output VMF was written.",
-                    summary.removed_entities, summary.removed_world_solids
+                    "Cleanup applied in memory: removed {} entities, {} world solids, and {} brush-entity solids. No output VMF was written.",
+                    summary.removed_entities,
+                    summary.removed_world_solids,
+                    summary.removed_brush_entity_solids
                 ));
                 for offset in &summary.offsets {
                     ui.small(offset);
@@ -1242,6 +1279,7 @@ impl MergedPreviewSummary {
             appended_entities: report.appended_entities,
             removed_entities: deletion.removed_entities,
             removed_world_solids: deletion.removed_world_solids,
+            removed_brush_entity_solids: deletion.removed_brush_entity_solids,
             offsets: report
                 .applied_offsets
                 .iter()

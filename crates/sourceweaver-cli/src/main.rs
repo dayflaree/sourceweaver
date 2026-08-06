@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
-    BrushRole, DeletionCriteria, DeletionReport, Document, IntegrityReport, MergeInput,
-    MergeOptions, MergeReport, format_integrity_issue, inspect_entities, merge_maps,
-    prune_document, summarize_entity_types, validate_document_integrity,
+    BrushEntityDeletionMode, BrushRole, DeletionCriteria, DeletionReport, Document,
+    IntegrityReport, MergeInput, MergeOptions, MergeReport, format_integrity_issue,
+    inspect_entities, merge_maps, prune_document, summarize_entity_types,
+    validate_document_integrity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
@@ -116,6 +117,17 @@ fn prune_command(args: &[String]) -> Result<(), String> {
                 let value = args.get(cursor).ok_or("--drop-role needs a value")?;
                 add_roles(&mut criteria.brush_roles, value)?;
             }
+            "--brush-entity-mode" => {
+                cursor += 1;
+                let value = args
+                    .get(cursor)
+                    .ok_or("--brush-entity-mode needs whole-entity or matching-solids")?;
+                criteria.brush_entity_mode = BrushEntityDeletionMode::parse(value)
+                    .ok_or_else(|| format!("unknown brush entity mode `{value}`"))?;
+            }
+            "--allow-critical-deletion" => {
+                criteria.protect_critical_entities = false;
+            }
             value if value.starts_with('-') => return Err(format!("unknown prune flag `{value}`")),
             value => {
                 if input.is_some() {
@@ -127,13 +139,17 @@ fn prune_command(args: &[String]) -> Result<(), String> {
         cursor += 1;
     }
 
-    let input = input.ok_or("usage: sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role]")?;
+    let input = input.ok_or("usage: sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]")?;
     let output = output.ok_or("prune needs -o/--output")?;
     let mut document = load_document(&input)?;
     let report = prune_document(&mut document, &criteria);
     write_document(&output, &document)?;
     println!("removed entities: {}", report.removed_entities);
     println!("removed world solids: {}", report.removed_world_solids);
+    println!(
+        "removed brush-entity solids: {}",
+        report.removed_brush_entity_solids
+    );
     println!("wrote {}", output.display());
     Ok(())
 }
@@ -294,6 +310,10 @@ struct DeleteConfig {
     targetnames: Vec<String>,
     #[serde(default)]
     roles: Vec<String>,
+    #[serde(default)]
+    brush_entity_mode: Option<String>,
+    #[serde(default = "default_protect_critical_entities")]
+    protect_critical_entities: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -332,8 +352,11 @@ struct DeletionSnapshot {
     classnames: Vec<String>,
     targetnames: Vec<String>,
     roles: Vec<String>,
+    brush_entity_mode: String,
+    protect_critical_entities: bool,
     removed_entities: usize,
     removed_world_solids: usize,
+    removed_brush_entity_solids: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -348,6 +371,7 @@ struct MapJobReport {
     entity_types_after: BTreeMap<String, usize>,
     removed_entities: usize,
     removed_world_solids: usize,
+    removed_brush_entity_solids: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -408,6 +432,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         let deletion_report = prune_document(&mut document, &criteria);
         removed_total.removed_entities += deletion_report.removed_entities;
         removed_total.removed_world_solids += deletion_report.removed_world_solids;
+        removed_total.removed_brush_entity_solids += deletion_report.removed_brush_entity_solids;
         let after_records = inspect_entities(&document).len();
         let after_types = summarize_entity_types(&document);
 
@@ -422,6 +447,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
             entity_types_after: after_types,
             removed_entities: deletion_report.removed_entities,
             removed_world_solids: deletion_report.removed_world_solids,
+            removed_brush_entity_solids: deletion_report.removed_brush_entity_solids,
         });
 
         prepared_documents.push((label, document));
@@ -498,8 +524,11 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>(),
+            brush_entity_mode: criteria.brush_entity_mode.to_string(),
+            protect_critical_entities: criteria.protect_critical_entities,
             removed_entities: removed_total.removed_entities,
             removed_world_solids: removed_total.removed_world_solids,
+            removed_brush_entity_solids: removed_total.removed_brush_entity_solids,
         },
         per_map,
         integrity: snapshot_integrity_report(&integrity_report),
@@ -511,6 +540,11 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
 
 fn criteria_from_delete_config(delete: &DeleteConfig) -> Result<DeletionCriteria, String> {
     let mut criteria = DeletionCriteria::default();
+    criteria.protect_critical_entities = delete.protect_critical_entities;
+    if let Some(mode) = &delete.brush_entity_mode {
+        criteria.brush_entity_mode = BrushEntityDeletionMode::parse(mode)
+            .ok_or_else(|| format!("unknown delete.brush_entity_mode `{mode}`"))?;
+    }
     criteria.classnames.extend(
         delete
             .classnames
@@ -533,6 +567,10 @@ fn criteria_from_delete_config(delete: &DeleteConfig) -> Result<DeletionCriteria
         criteria.brush_roles.insert(role);
     }
     Ok(criteria)
+}
+
+fn default_protect_critical_entities() -> bool {
+    true
 }
 
 fn snapshot_merge_report(report: MergeReport) -> MergeSnapshot {
@@ -640,13 +678,17 @@ Automatically inspect, prune, and merge Source VMF campaign maps.
 Usage:
   sourceweaver inspect <map.vmf>
   sourceweaver list-types <map.vmf>
-  sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role]
+  sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
 Deletion roles:
   trigger, clip, areaportal, skybox, occluder, hint, skip, nodraw, water, world-brush, brush-entity
+
+Deletion safety:
+  Job files can set delete.brush_entity_mode to "whole-entity" or "matching-solids".
+  Critical entities are protected by default unless delete.protect_critical_entities is false.
 
 Automation:
   Use `sourceweaver job-template > sourceweaver-job.toml`, edit paths/rules, then run
@@ -691,6 +733,8 @@ report = "sourceweaver-report.json"
 classnames = []
 targetnames = []
 roles = ["trigger", "clip"]
+brush_entity_mode = "whole-entity"
+protect_critical_entities = true
 "#
     );
 }

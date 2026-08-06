@@ -26,6 +26,6 @@ pub use merge::{MergeInput, MergeOptions, MergeReport, merge_maps};
 pub use preview::{
     PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid, preview_document,
 };
-pub use prune::{DeletionCriteria, DeletionReport, prune_document};
+pub use prune::{BrushEntityDeletionMode, DeletionCriteria, DeletionReport, prune_document};
 pub use transform::{Vec3, find_landmark_origin, translate_block};
 pub use vmf::{Document, Node, ParseError, parse_document};

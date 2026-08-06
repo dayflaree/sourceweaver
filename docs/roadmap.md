@@ -32,8 +32,9 @@ Status: implemented.
 - Add VMF integrity checks before writing merged output.
 - Add checkbox bulk selection to the entity table.
 - Add search, filtering, and sortable columns for entities and classnames.
+- Add safe deletion modes for brush entities and world solids.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, and inspection-table filtering/sorting implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, and safe deletion modes implemented.
 
 ## Milestone 3: Source/Hammer validation
 

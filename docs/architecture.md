@@ -35,6 +35,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - search, role filtering, filtered counts, and sorting for inspection tables
 - entity table row-selection state for future cleanup actions
 - deletion-rule controls
+- deletion-safety controls for brush-entity modes and protected entities
 - deletion preview
 - cleaned-copy export
 - merge/export action
@@ -106,7 +107,7 @@ Integrity validation runs before preview/export write paths. The core validator 
 
 Deletion is criteria-based. The UI builds a `DeletionCriteria` object from selected filters, then calls the same prune function as the CLI.
 
-Brush-role deletion removes matching world solids and whole brush entities that match the selected role.
+Brush-role deletion removes matching world solids directly. Brush entities use an explicit safety mode: `whole-entity` preserves the historical behavior where matching brush entities are removed as a unit, while `matching-solids` keeps brush entities and removes only matching contained solids. Critical transition/player/logic classnames are protected by default unless the CLI job or desktop UI explicitly disables protection.
 
 ## Cross-platform strategy
 
