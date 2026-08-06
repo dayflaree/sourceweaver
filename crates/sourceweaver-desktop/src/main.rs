@@ -46,6 +46,13 @@ struct SourceWeaverApp {
     preview_show_entities: bool,
     preview_show_grid: bool,
     selected_entity_rows: BTreeSet<EntitySelectionKey>,
+    entity_search: String,
+    entity_role_filter: Option<BrushRole>,
+    entity_sort_column: EntitySortColumn,
+    entity_sort_ascending: bool,
+    classname_search: String,
+    classname_sort_column: ClassnameSortColumn,
+    classname_sort_ascending: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +127,23 @@ enum PreviewView {
     Side,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntitySortColumn {
+    Index,
+    Block,
+    Classname,
+    Targetname,
+    Origin,
+    Solids,
+    Roles,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClassnameSortColumn {
+    Classname,
+    Count,
+}
+
 #[derive(Debug, Clone)]
 struct RoleOption {
     label: &'static str,
@@ -170,6 +194,13 @@ impl SourceWeaverApp {
             preview_show_entities: true,
             preview_show_grid: true,
             selected_entity_rows: BTreeSet::new(),
+            entity_search: String::new(),
+            entity_role_filter: None,
+            entity_sort_column: EntitySortColumn::Index,
+            entity_sort_ascending: true,
+            classname_search: String::new(),
+            classname_sort_column: ClassnameSortColumn::Classname,
+            classname_sort_ascending: true,
         }
     }
 
@@ -1026,11 +1057,21 @@ impl SourceWeaverApp {
                         &entry_path,
                         &analysis.entity_records,
                         &mut self.selected_entity_rows,
+                        &mut self.entity_search,
+                        &mut self.entity_role_filter,
+                        &mut self.entity_sort_column,
+                        &mut self.entity_sort_ascending,
                     );
                 }
                 TableMode::Classnames => {
                     ui.label(&path);
-                    draw_classname_table(ui, &analysis.type_counts);
+                    draw_classname_table(
+                        ui,
+                        &analysis.type_counts,
+                        &mut self.classname_search,
+                        &mut self.classname_sort_column,
+                        &mut self.classname_sort_ascending,
+                    );
                 }
             },
             Err(error) => {
@@ -1296,27 +1337,107 @@ fn draw_entity_table(
     map_path: &Path,
     records: &[EntityRecord],
     selected_rows: &mut BTreeSet<EntitySelectionKey>,
+    search: &mut String,
+    role_filter: &mut Option<BrushRole>,
+    sort_column: &mut EntitySortColumn,
+    sort_ascending: &mut bool,
 ) {
     let row_keys = records
         .iter()
         .map(|record| entity_selection_key(map_path, record))
         .collect::<Vec<_>>();
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Search entities:");
+        ui.add(
+            egui::TextEdit::singleline(search)
+                .desired_width(260.0)
+                .hint_text("classname, targetname, role"),
+        );
+        if !search.trim().is_empty() && ui.button("Clear search").clicked() {
+            search.clear();
+        }
+        ui.separator();
+        ui.label("Role:");
+        egui::ComboBox::from_id_salt("entity_role_filter")
+            .selected_text(
+                role_filter
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "All roles".to_string()),
+            )
+            .show_ui(ui, |ui| {
+                ui.selectable_value(role_filter, None, "All roles");
+                for role in entity_role_filter_options() {
+                    ui.selectable_value(role_filter, Some(role.clone()), role.to_string());
+                }
+            });
+    });
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Sort:");
+        egui::ComboBox::from_id_salt("entity_sort_column")
+            .selected_text(entity_sort_column_label(*sort_column))
+            .show_ui(ui, |ui| {
+                for column in [
+                    EntitySortColumn::Index,
+                    EntitySortColumn::Block,
+                    EntitySortColumn::Classname,
+                    EntitySortColumn::Targetname,
+                    EntitySortColumn::Origin,
+                    EntitySortColumn::Solids,
+                    EntitySortColumn::Roles,
+                ] {
+                    ui.selectable_value(sort_column, column, entity_sort_column_label(column));
+                }
+            });
+        ui.checkbox(sort_ascending, "Ascending");
+    });
+
+    let mut rows = records
+        .iter()
+        .zip(row_keys.iter())
+        .filter(|(record, _)| entity_matches_filters(record, search, role_filter.as_ref()))
+        .collect::<Vec<_>>();
+    sort_entity_rows(&mut rows, *sort_column, *sort_ascending);
+
+    let filtered_keys = rows
+        .iter()
+        .map(|(_, key)| (*key).clone())
+        .collect::<Vec<_>>();
     let current_selected = row_keys
+        .iter()
+        .filter(|key| selected_rows.contains(key))
+        .count();
+    let filtered_selected = filtered_keys
         .iter()
         .filter(|key| selected_rows.contains(key))
         .count();
 
     ui.horizontal_wrapped(|ui| {
-        ui.label(format!("{} world/entity records", records.len()));
+        ui.label(format!(
+            "Showing {} of {} world/entity records",
+            rows.len(),
+            records.len()
+        ));
         ui.separator();
         ui.label(format!(
-            "{} selected in this map, {} selected total",
+            "{} selected visible, {} selected in this map, {} selected total",
+            filtered_selected,
             current_selected,
             selected_rows.len()
         ));
         ui.separator();
+        if ui.button("Select visible rows").clicked() {
+            selected_rows.extend(filtered_keys.iter().cloned());
+        }
         if ui.button("Select all rows").clicked() {
             selected_rows.extend(row_keys.iter().cloned());
+        }
+        if ui.button("Clear visible").clicked() {
+            for key in &filtered_keys {
+                selected_rows.remove(key);
+            }
         }
         if ui.button("Clear current map").clicked() {
             for key in &row_keys {
@@ -1346,7 +1467,7 @@ fn draw_entity_table(
                 ui.strong("Roles");
                 ui.end_row();
 
-                for (record, key) in records.iter().zip(row_keys.iter()) {
+                for (record, key) in rows {
                     let mut selected = selected_rows.contains(key);
                     if ui.checkbox(&mut selected, "").changed() {
                         if selected {
@@ -1383,8 +1504,56 @@ fn entity_selection_key(map_path: &Path, record: &EntityRecord) -> EntitySelecti
     }
 }
 
-fn draw_classname_table(ui: &mut egui::Ui, type_counts: &BTreeMap<String, usize>) {
-    ui.label(format!("{} detected classnames", type_counts.len()));
+fn draw_classname_table(
+    ui: &mut egui::Ui,
+    type_counts: &BTreeMap<String, usize>,
+    search: &mut String,
+    sort_column: &mut ClassnameSortColumn,
+    sort_ascending: &mut bool,
+) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Search classnames:");
+        ui.add(
+            egui::TextEdit::singleline(search)
+                .desired_width(260.0)
+                .hint_text("classname"),
+        );
+        if !search.trim().is_empty() && ui.button("Clear search").clicked() {
+            search.clear();
+        }
+        ui.separator();
+        ui.label("Sort:");
+        egui::ComboBox::from_id_salt("classname_sort_column")
+            .selected_text(classname_sort_column_label(*sort_column))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    sort_column,
+                    ClassnameSortColumn::Classname,
+                    classname_sort_column_label(ClassnameSortColumn::Classname),
+                );
+                ui.selectable_value(
+                    sort_column,
+                    ClassnameSortColumn::Count,
+                    classname_sort_column_label(ClassnameSortColumn::Count),
+                );
+            });
+        ui.checkbox(sort_ascending, "Ascending");
+    });
+
+    let query = search.trim().to_ascii_lowercase();
+    let mut rows = type_counts
+        .iter()
+        .filter(|(classname, _)| {
+            query.is_empty() || classname.to_ascii_lowercase().contains(&query)
+        })
+        .collect::<Vec<_>>();
+    sort_classname_rows(&mut rows, *sort_column, *sort_ascending);
+
+    ui.label(format!(
+        "Showing {} of {} detected classnames",
+        rows.len(),
+        type_counts.len()
+    ));
     egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
         egui::Grid::new("classname_table")
             .striped(true)
@@ -1394,13 +1563,128 @@ fn draw_classname_table(ui: &mut egui::Ui, type_counts: &BTreeMap<String, usize>
                 ui.strong("Count");
                 ui.strong("Classname");
                 ui.end_row();
-                for (classname, count) in type_counts {
+                for (classname, count) in rows {
                     ui.label(count.to_string());
                     ui.label(classname);
                     ui.end_row();
                 }
             });
     });
+}
+
+fn entity_matches_filters(
+    record: &EntityRecord,
+    search: &str,
+    role_filter: Option<&BrushRole>,
+) -> bool {
+    if let Some(role) = role_filter {
+        if !record.roles.iter().any(|record_role| record_role == role) {
+            return false;
+        }
+    }
+
+    let query = search.trim().to_ascii_lowercase();
+    if query.is_empty() {
+        return true;
+    }
+
+    let roles = format_roles(&record.roles).to_ascii_lowercase();
+    record.block_name.to_ascii_lowercase().contains(&query)
+        || record
+            .classname
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .contains(&query)
+        || record
+            .targetname
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .contains(&query)
+        || roles.contains(&query)
+}
+
+fn sort_entity_rows(
+    rows: &mut Vec<(&EntityRecord, &EntitySelectionKey)>,
+    column: EntitySortColumn,
+    ascending: bool,
+) {
+    rows.sort_by(|(left, _), (right, _)| {
+        let ordering = match column {
+            EntitySortColumn::Index => left.index.cmp(&right.index),
+            EntitySortColumn::Block => left.block_name.cmp(&right.block_name),
+            EntitySortColumn::Classname => left.classname.cmp(&right.classname),
+            EntitySortColumn::Targetname => left.targetname.cmp(&right.targetname),
+            EntitySortColumn::Origin => left
+                .origin
+                .map(|origin| origin.to_string())
+                .cmp(&right.origin.map(|origin| origin.to_string())),
+            EntitySortColumn::Solids => left.solid_count.cmp(&right.solid_count),
+            EntitySortColumn::Roles => format_roles(&left.roles).cmp(&format_roles(&right.roles)),
+        };
+        if ascending {
+            ordering.then_with(|| left.index.cmp(&right.index))
+        } else {
+            ordering
+                .reverse()
+                .then_with(|| left.index.cmp(&right.index))
+        }
+    });
+}
+
+fn sort_classname_rows(
+    rows: &mut Vec<(&String, &usize)>,
+    column: ClassnameSortColumn,
+    ascending: bool,
+) {
+    rows.sort_by(|(left_name, left_count), (right_name, right_count)| {
+        let ordering = match column {
+            ClassnameSortColumn::Classname => left_name.cmp(right_name),
+            ClassnameSortColumn::Count => left_count.cmp(right_count),
+        };
+        if ascending {
+            ordering.then_with(|| left_name.cmp(right_name))
+        } else {
+            ordering.reverse().then_with(|| left_name.cmp(right_name))
+        }
+    });
+}
+
+fn entity_role_filter_options() -> Vec<BrushRole> {
+    vec![
+        BrushRole::Trigger,
+        BrushRole::Clip,
+        BrushRole::Areaportal,
+        BrushRole::Skybox,
+        BrushRole::Occluder,
+        BrushRole::Hint,
+        BrushRole::Skip,
+        BrushRole::Nodraw,
+        BrushRole::Water,
+        BrushRole::WorldBrush,
+        BrushRole::BrushEntity,
+        BrushRole::Other,
+    ]
+}
+
+fn entity_sort_column_label(column: EntitySortColumn) -> &'static str {
+    match column {
+        EntitySortColumn::Index => "Index",
+        EntitySortColumn::Block => "Block",
+        EntitySortColumn::Classname => "Classname",
+        EntitySortColumn::Targetname => "Targetname",
+        EntitySortColumn::Origin => "Origin",
+        EntitySortColumn::Solids => "Solids",
+        EntitySortColumn::Roles => "Roles",
+    }
+}
+
+fn classname_sort_column_label(column: ClassnameSortColumn) -> &'static str {
+    match column {
+        ClassnameSortColumn::Classname => "Classname",
+        ClassnameSortColumn::Count => "Count",
+    }
 }
 
 fn draw_preview_grid(painter: &egui::Painter, rect: egui::Rect, transform: &PreviewTransform) {

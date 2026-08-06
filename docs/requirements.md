@@ -53,6 +53,8 @@ The tool must list every top-level VMF `entity` block and expose its Hammer `cla
 
 Source Weaver must not rely on a fixed Hammer entity whitelist. Unknown or game-specific classnames must still be shown.
 
+Large VMFs must remain manageable in the desktop inspection UI. Entity rows must support text search across block name, classname, targetname, and roles; role filtering; visible-row counts; and sortable columns for index, block, classname, targetname, origin, solids, and roles. Classname summaries must support search, filtered counts, and sorting by classname or count. Map-source filtering for merged data depends on source-provenance tracking in the merged preview workflow.
+
 Entity-table row selection must support multiple selected rows through checkboxes, select-all and clear controls, and a visible selected count. Selection keys must include the VMF path and row identity data so later deletion actions can target selected rows without confusing rows from different maps.
 
 ### Landmark discovery

@@ -32,6 +32,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - in-memory merged-output preview before export
 - top, front, and side preview projections
 - entity/classname inspection tables
+- search, role filtering, filtered counts, and sorting for inspection tables
 - entity table row-selection state for future cleanup actions
 - deletion-rule controls
 - deletion preview

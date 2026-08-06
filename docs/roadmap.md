@@ -31,8 +31,9 @@ Status: implemented.
 - Add landmark discovery dropdown and missing/duplicate landmark warnings.
 - Add VMF integrity checks before writing merged output.
 - Add checkbox bulk selection to the entity table.
+- Add search, filtering, and sortable columns for entities and classnames.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, and entity table selection implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, and inspection-table filtering/sorting implemented.
 
 ## Milestone 3: Source/Hammer validation
 
