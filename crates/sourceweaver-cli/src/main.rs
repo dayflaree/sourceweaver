@@ -11,7 +11,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{self, Command};
+use std::process::{self, Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS: u64 = 900;
 
 fn main() {
     if let Err(error) = run(env::args().skip(1).collect()) {
@@ -208,8 +212,9 @@ fn merge_command(args: &[String]) -> Result<(), String> {
 
     if inputs.len() < 2 {
         return Err(
-            "usage: sourceweaver merge -o <out.vmf> [--landmark name] <base.vmf> <add.vmf> [...]",
-        )?;
+            "usage: sourceweaver merge -o <out.vmf> [--landmark name] <base.vmf> <add.vmf> [...]"
+                .to_string(),
+        );
     }
     let output = output.ok_or("merge needs -o/--output")?;
 
@@ -245,6 +250,7 @@ fn validate_command(args: &[String]) -> Result<(), String> {
     let mut vbsp: Option<PathBuf> = None;
     let mut game: Option<PathBuf> = None;
     let mut captured_log: Option<PathBuf> = None;
+    let mut timeout_seconds = DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS;
     let mut json = false;
 
     let mut cursor = 0;
@@ -274,6 +280,12 @@ fn validate_command(args: &[String]) -> Result<(), String> {
                     args.get(cursor).ok_or("--capture-log needs a path")?,
                 ));
             }
+            "--timeout-seconds" => {
+                cursor += 1;
+                timeout_seconds = parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?;
+            }
             "--json" => json = true,
             "--help" | "-h" => {
                 print_validate_help();
@@ -292,7 +304,7 @@ fn validate_command(args: &[String]) -> Result<(), String> {
         cursor += 1;
     }
 
-    let input = input.ok_or("usage: sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--json]")?;
+    let input = input.ok_or("usage: sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]")?;
     let document = load_document(&input)?;
     let mut compile_log_text =
         match compile_log {
@@ -303,7 +315,12 @@ fn validate_command(args: &[String]) -> Result<(), String> {
         };
 
     let vbsp_status = if let Some(vbsp_path) = vbsp {
-        let output = run_vbsp(&vbsp_path, game.as_deref(), &input)?;
+        let output = run_vbsp(
+            &vbsp_path,
+            game.as_deref(),
+            &input,
+            Duration::from_secs(timeout_seconds),
+        )?;
         let log = format!(
             "{}\n{}",
             String::from_utf8_lossy(&output.stdout),
@@ -345,17 +362,107 @@ fn run_vbsp(
     vbsp_path: &Path,
     game_dir: Option<&Path>,
     input: &Path,
-) -> Result<std::process::Output, String> {
+    timeout: Duration,
+) -> Result<Output, String> {
     let mut command = Command::new(vbsp_path);
     if let Some(game_dir) = game_dir {
         command.arg("-game").arg(game_dir);
     }
     command.arg(input);
-    command.output().map_err(|error| {
+    run_command_with_timeout(
+        &mut command,
+        &format!("VBSP command {}", vbsp_path.display()),
+        timeout,
+    )
+}
+
+fn tool_timeout_seconds(value: Option<u64>) -> u64 {
+    value.unwrap_or(DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS)
+}
+
+fn parse_timeout_seconds(value: &str) -> Result<u64, String> {
+    let seconds = value
+        .parse::<u64>()
+        .map_err(|error| format!("invalid timeout `{value}`: {error}"))?;
+    if seconds == 0 {
+        return Err("timeout must be at least 1 second".to_string());
+    }
+    Ok(seconds)
+}
+
+fn run_command_with_timeout(
+    command: &mut Command,
+    label: &str,
+    timeout: Duration,
+) -> Result<Output, String> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let pid = process::id();
+    let stdout_path = env::temp_dir().join(format!("sourceweaver-{pid}-{nonce}-stdout.log"));
+    let stderr_path = env::temp_dir().join(format!("sourceweaver-{pid}-{nonce}-stderr.log"));
+
+    let stdout = fs::File::create(&stdout_path).map_err(|error| {
         format!(
-            "failed to run VBSP command {}: {error}",
-            vbsp_path.display()
+            "failed to create temporary stdout file {}: {error}",
+            stdout_path.display()
         )
+    })?;
+    let stderr = fs::File::create(&stderr_path).map_err(|error| {
+        format!(
+            "failed to create temporary stderr file {}: {error}",
+            stderr_path.display()
+        )
+    })?;
+
+    command
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("failed to start {label}: {error}"))?;
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => return Err(format!("failed to wait for {label}: {error}")),
+        }
+
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&stdout_path);
+            let _ = fs::remove_file(&stderr_path);
+            return Err(format!(
+                "timed out after {} second(s) running {label}",
+                timeout.as_secs()
+            ));
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    };
+
+    let stdout = fs::read(&stdout_path).map_err(|error| {
+        format!(
+            "failed to read temporary stdout file {}: {error}",
+            stdout_path.display()
+        )
+    })?;
+    let stderr = fs::read(&stderr_path).map_err(|error| {
+        format!(
+            "failed to read temporary stderr file {}: {error}",
+            stderr_path.display()
+        )
+    })?;
+    let _ = fs::remove_file(&stdout_path);
+    let _ = fs::remove_file(&stderr_path);
+
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
     })
 }
 
@@ -366,7 +473,7 @@ fn compile_command(args: &[String]) -> Result<(), String> {
     }
     let mut config = parse_compile_args(args)?;
     apply_compile_profile(&mut config)?;
-    let input = config.input.clone().ok_or("usage: sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--report report.json] [--json]")?;
+    let input = config.input.clone().ok_or("usage: sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]")?;
 
     let document = load_document(&input)?;
     let validation = validate_for_source_tools(&document, &input.display().to_string(), None);
@@ -397,16 +504,7 @@ fn compile_command(args: &[String]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&report)
         .map_err(|error| format!("failed to encode compile report: {error}"))?;
     if let Some(report_path) = &config.report {
-        if let Some(parent) = report_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    format!(
-                        "failed to create report directory {}: {error}",
-                        parent.display()
-                    )
-                })?;
-            }
-        }
+        create_parent_dir(report_path, "report")?;
         fs::write(report_path, &json).map_err(|error| {
             format!(
                 "failed to write compile report {}: {error}",
@@ -485,6 +583,12 @@ fn parse_compile_args(args: &[String]) -> Result<CompileConfig, String> {
                     args.get(cursor).ok_or("--report needs a path")?,
                 ));
             }
+            "--timeout-seconds" => {
+                cursor += 1;
+                config.timeout_seconds = Some(parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?);
+            }
             "--json" => config.json = true,
             "--help" | "-h" => {
                 print_compile_help();
@@ -551,6 +655,9 @@ fn apply_compile_profile(config: &mut CompileConfig) -> Result<(), String> {
                 .log_dir
                 .map(|path| resolve_job_path(base_dir, &path));
         }
+        if config.timeout_seconds.is_none() {
+            config.timeout_seconds = settings.timeout_seconds;
+        }
     }
     Ok(())
 }
@@ -615,7 +722,12 @@ fn run_compile_pipeline_step(
     let tool = compile_tool_for_step(config, step)
         .ok_or_else(|| format!("compile step `{step}` is missing a tool path"))?;
     let step_input = compile_input_for_step(map_input, step);
-    let output = run_source_compile_tool(tool, config.game.as_deref(), &step_input)?;
+    let output = run_source_compile_tool(
+        tool,
+        config.game.as_deref(),
+        &step_input,
+        Duration::from_secs(tool_timeout_seconds(config.timeout_seconds)),
+    )?;
     let log = format!(
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -656,18 +768,18 @@ fn run_source_compile_tool(
     tool_path: &Path,
     game_dir: Option<&Path>,
     input: &Path,
-) -> Result<std::process::Output, String> {
+    timeout: Duration,
+) -> Result<Output, String> {
     let mut command = Command::new(tool_path);
     if let Some(game_dir) = game_dir {
         command.arg("-game").arg(game_dir);
     }
     command.arg(input);
-    command.output().map_err(|error| {
-        format!(
-            "failed to run Source compile tool {}: {error}",
-            tool_path.display()
-        )
-    })
+    run_command_with_timeout(
+        &mut command,
+        &format!("Source compile tool {}", tool_path.display()),
+        timeout,
+    )
 }
 
 fn print_compile_pipeline_report(report: &CompilePipelineReport) {
@@ -707,7 +819,7 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let config = parse_bsp_import_args(args)?;
-    let input = config.input.as_ref().ok_or("usage: sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--report report.json] [--json]")?;
+    let input = config.input.as_ref().ok_or("usage: sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
     let tool = config
         .tool
         .as_ref()
@@ -717,23 +829,20 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
         .as_ref()
         .ok_or("bsp-import needs --output <out.vmf>")?;
 
-    let tool_output = run_bsp_decompiler(tool, &config.tool_args, input, output_vmf)?;
+    let tool_output = run_bsp_decompiler(
+        tool,
+        &config.tool_args,
+        input,
+        output_vmf,
+        Duration::from_secs(tool_timeout_seconds(config.timeout_seconds)),
+    )?;
     let log_text = format!(
         "{}\n{}",
         String::from_utf8_lossy(&tool_output.stdout),
         String::from_utf8_lossy(&tool_output.stderr)
     );
     if let Some(log_path) = &config.log {
-        if let Some(parent) = log_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    format!(
-                        "failed to create log directory {}: {error}",
-                        parent.display()
-                    )
-                })?;
-            }
-        }
+        create_parent_dir(log_path, "log")?;
         fs::write(log_path, &log_text).map_err(|error| {
             format!(
                 "failed to write decompile log {}: {error}",
@@ -847,6 +956,12 @@ fn parse_bsp_import_args(args: &[String]) -> Result<BspImportConfig, String> {
                     args.get(cursor).ok_or("--report needs a path")?,
                 ));
             }
+            "--timeout-seconds" => {
+                cursor += 1;
+                config.timeout_seconds = Some(parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?);
+            }
             "--tool-arg" => {
                 cursor += 1;
                 config
@@ -874,14 +989,17 @@ fn run_bsp_decompiler(
     tool_args: &[String],
     input: &Path,
     output_vmf: &Path,
-) -> Result<std::process::Output, String> {
+    timeout: Duration,
+) -> Result<Output, String> {
     let mut command = Command::new(tool);
     command.args(tool_args);
     command.arg(input);
     command.arg(output_vmf);
-    command
-        .output()
-        .map_err(|error| format!("failed to run BSP decompiler {}: {error}", tool.display()))
+    run_command_with_timeout(
+        &mut command,
+        &format!("BSP decompiler {}", tool.display()),
+        timeout,
+    )
 }
 
 fn finish_bsp_import_report(
@@ -891,16 +1009,7 @@ fn finish_bsp_import_report(
     let json = serde_json::to_string_pretty(&report)
         .map_err(|error| format!("failed to encode BSP import report: {error}"))?;
     if let Some(report_path) = &config.report {
-        if let Some(parent) = report_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    format!(
-                        "failed to create report directory {}: {error}",
-                        parent.display()
-                    )
-                })?;
-            }
-        }
+        create_parent_dir(report_path, "report")?;
         fs::write(report_path, &json).map_err(|error| {
             format!(
                 "failed to write BSP import report {}: {error}",
@@ -983,16 +1092,7 @@ fn run_job_command(args: &[String]) -> Result<(), String> {
 
     if let Some(report_path) = &job.report {
         let report_path = resolve_job_path(base_dir, report_path);
-        if let Some(parent) = report_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    format!(
-                        "failed to create report directory {}: {error}",
-                        parent.display()
-                    )
-                })?;
-            }
-        }
+        create_parent_dir(&report_path, "report")?;
         fs::write(&report_path, &json).map_err(|error| {
             format!("failed to write report {}: {error}", report_path.display())
         })?;
@@ -1163,6 +1263,7 @@ struct CompileProfileTools {
 struct CompileProfileSettings {
     steps: Option<Vec<String>>,
     log_dir: Option<PathBuf>,
+    timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1176,6 +1277,7 @@ struct CompileConfig {
     steps: Option<Vec<String>>,
     log_dir: Option<PathBuf>,
     report: Option<PathBuf>,
+    timeout_seconds: Option<u64>,
     json: bool,
 }
 
@@ -1208,6 +1310,7 @@ struct BspImportConfig {
     log: Option<PathBuf>,
     report: Option<PathBuf>,
     tool_args: Vec<String>,
+    timeout_seconds: Option<u64>,
     json: bool,
 }
 
@@ -1429,9 +1532,11 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
 }
 
 fn criteria_from_delete_config(delete: &DeleteConfig) -> Result<DeletionCriteria, String> {
-    let mut criteria = DeletionCriteria::default();
-    criteria.drop_all_entities = delete.all_entities;
-    criteria.protect_critical_entities = delete.protect_critical_entities;
+    let mut criteria = DeletionCriteria {
+        drop_all_entities: delete.all_entities,
+        protect_critical_entities: delete.protect_critical_entities,
+        ..DeletionCriteria::default()
+    };
     if let Some(mode) = &delete.brush_entity_mode {
         criteria.brush_entity_mode = BrushEntityDeletionMode::parse(mode)
             .ok_or_else(|| format!("unknown delete.brush_entity_mode `{mode}`"))?;
@@ -1578,14 +1683,24 @@ fn load_document(path: impl AsRef<Path>) -> Result<Document, String> {
 
 fn write_document(path: impl AsRef<Path>, document: &Document) -> Result<(), String> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
-        }
-    }
+    create_parent_dir(path, "output")?;
     fs::write(path, document.to_vmf_string())
         .map_err(|error| format!("failed to write {}: {error}", path.display()))
+}
+
+fn create_parent_dir(path: &Path, label: &str) -> Result<(), String> {
+    let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    else {
+        return Ok(());
+    };
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "failed to create {label} directory {}: {error}",
+            parent.display()
+        )
+    })
 }
 
 fn split_csv(value: &str) -> impl Iterator<Item = &str> {
@@ -1636,9 +1751,9 @@ Usage:
   sourceweaver list-types <map.vmf>
   sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
-  sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--json]
-  sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--report report.json] [--json]
-  sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--report report.json] [--json]
+  sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
+  sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
@@ -1671,7 +1786,7 @@ Merge behavior:
 fn print_validate_help() {
     println!(
         r#"Usage:
-  sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--json]
+  sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
 
 Validates a VMF for Source tool readiness.
 
@@ -1681,6 +1796,8 @@ Linux-friendly workflow:
 
 Source SDK workflow when VBSP is installed:
   sourceweaver validate merged.vmf --vbsp /path/to/vbsp --game /path/to/game --capture-log vbsp.log --json
+
+External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );
 }
@@ -1688,7 +1805,7 @@ Source SDK workflow when VBSP is installed:
 fn print_compile_help() {
     println!(
         r#"Usage:
-  sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--report report.json] [--json]
+  sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
 
 Runs an optional Source compile pipeline using user-provided tool paths.
 
@@ -1706,9 +1823,11 @@ Compile profile TOML:
   [compile]
   steps = ["vbsp", "vvis", "vrad"]
   log_dir = "target/sourceweaver-compile-logs"
+  timeout_seconds = 900
 
 Each step captures stdout/stderr, writes step logs when --log-dir is set,
 parses warnings/errors/leaks, and reports JSON when --json or --report is used.
+External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );
 }
@@ -1716,7 +1835,7 @@ parses warnings/errors/leaks, and reports JSON when --json or --report is used.
 fn print_bsp_import_help() {
     println!(
         r#"Usage:
-  sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--report report.json] [--json]
+  sourceweaver bsp-import <map.bsp> --tool <decompiler> --output <out.vmf> [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
 
 Runs a user-provided external BSP decompiler and validates the generated VMF.
 
@@ -1730,6 +1849,7 @@ Generic wrapper command shape:
   <decompiler> [--tool-arg values...] <input.bsp> <output.vmf>
 
 If a decompiler needs a different argument order, create a small wrapper script and pass that script as --tool.
+External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );
 }

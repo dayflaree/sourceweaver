@@ -84,8 +84,8 @@ impl EntityRecord {
 pub fn inspect_entities(document: &Document) -> Vec<EntityRecord> {
     let mut records = Vec::new();
     for node in &document.nodes {
-        if let Node::Block { name, body } = node {
-            if name == "world" || name == "entity" {
+        match node {
+            Node::Block { name, body } if name == "world" || name == "entity" => {
                 let classname = Node::get_property(body, "classname").map(ToOwned::to_owned);
                 let targetname = Node::get_property(body, "targetname").map(ToOwned::to_owned);
                 let origin = Node::get_property(body, "origin").and_then(Vec3::parse);
@@ -103,6 +103,7 @@ pub fn inspect_entities(document: &Document) -> Vec<EntityRecord> {
                     roles,
                 });
             }
+            _ => {}
         }
     }
     records

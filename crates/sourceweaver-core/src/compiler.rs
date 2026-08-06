@@ -86,15 +86,6 @@ pub fn parse_compile_log(log: &str) -> CompileLogSummary {
         }
     }
 
-    if summary.errors.is_empty()
-        && !summary.leak_detected
-        && log
-            .lines()
-            .any(|line| line.to_ascii_lowercase().contains("vbsp"))
-    {
-        summary.successful = true;
-    }
-
     summary
 }
 
@@ -118,6 +109,15 @@ VBSP finished successfully
         assert!(summary.is_ok());
         assert!(summary.errors.is_empty());
         assert!(summary.warnings.is_empty());
+    }
+
+    #[test]
+    fn incomplete_tool_banner_is_not_successful() {
+        let summary = parse_compile_log("Valve Software - vbsp.exe\nLoading test.vmf\n");
+
+        assert!(!summary.successful);
+        assert!(!summary.is_ok());
+        assert!(summary.errors.is_empty());
     }
 
     #[test]

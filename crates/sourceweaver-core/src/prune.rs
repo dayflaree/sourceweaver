@@ -34,16 +34,11 @@ impl DeletionCriteria {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum BrushEntityDeletionMode {
+    #[default]
     WholeEntity,
     MatchingSolids,
-}
-
-impl Default for BrushEntityDeletionMode {
-    fn default() -> Self {
-        Self::WholeEntity
-    }
 }
 
 impl BrushEntityDeletionMode {
@@ -118,15 +113,15 @@ fn should_delete_entity(node: &Node, criteria: &DeletionCriteria) -> bool {
         return true;
     }
 
-    if let Some(classname) = Node::get_property(body, "classname") {
-        if criteria.classnames.contains(classname) {
-            return true;
-        }
+    if Node::get_property(body, "classname")
+        .is_some_and(|classname| criteria.classnames.contains(classname))
+    {
+        return true;
     }
-    if let Some(targetname) = Node::get_property(body, "targetname") {
-        if criteria.targetnames.contains(targetname) {
-            return true;
-        }
+    if Node::get_property(body, "targetname")
+        .is_some_and(|targetname| criteria.targetnames.contains(targetname))
+    {
+        return true;
     }
     if !criteria.brush_roles.is_empty() {
         if criteria.brush_entity_mode == BrushEntityDeletionMode::MatchingSolids {

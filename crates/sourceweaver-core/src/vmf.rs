@@ -138,11 +138,12 @@ impl Node {
     pub fn set_property(body: &mut Vec<Node>, key: &str, value: impl Into<String>) {
         let value = value.into();
         for node in body.iter_mut() {
-            if let Node::Property { key: k, value: v } = node {
-                if k == key {
+            match node {
+                Node::Property { key: k, value: v } if k == key => {
                     *v = value;
                     return;
                 }
+                _ => {}
             }
         }
         body.insert(

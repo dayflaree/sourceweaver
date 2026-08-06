@@ -151,7 +151,7 @@ cargo run -p sourceweaver-cli -- validate stitched.vmf --json
 cargo run -p sourceweaver-cli -- validate stitched.vmf --compile-log vbsp.log --json
 ```
 
-When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. See `docs/compiler-validation.md` for Linux-friendly validation, captured-log parsing, and HL2/Black Mesa command examples.
+When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. External compiler/decompiler runs default to a 900-second timeout; use `--timeout-seconds` for slower tools or quick failure tests. Captured compiler logs must include explicit success markers such as `0 errors` or `VBSP finished`; a truncated tool banner does not count as a successful compile. See `docs/compiler-validation.md` for Linux-friendly validation, captured-log parsing, and HL2/Black Mesa command examples.
 
 Run a user-configured compile pipeline when VBSP/VVIS/VRAD are available:
 
@@ -160,6 +160,7 @@ cargo run -p sourceweaver-cli -- compile stitched.vmf \
   --profile hl2-tools.toml \
   --steps vbsp,vvis,vrad \
   --log-dir target/sourceweaver-compile-logs \
+  --timeout-seconds 900 \
   --report compile-report.json \
   --json
 ```
@@ -173,6 +174,7 @@ cargo run -p sourceweaver-cli -- bsp-import map.bsp \
   --tool ./run-bspsource-wrapper.sh \
   --output decompiled_map.vmf \
   --log decompile.log \
+  --timeout-seconds 900 \
   --report bsp-import-report.json \
   --json
 ```

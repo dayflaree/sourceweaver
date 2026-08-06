@@ -10,8 +10,8 @@ BASE_URL="https://raw.githubusercontent.com/rubycho/labescape-hl2/${SOURCE_SHA}/
 rm -rf "$OUT"
 mkdir -p "$OUT/vmfs" "$OUT/fake-tools" "$OUT/compile-logs"
 
-curl -L "$BASE_URL/hl2-chap2.vmf" -o "$OUT/vmfs/hl2-chap2.vmf"
-curl -L "$BASE_URL/hl2-chap3.vmf" -o "$OUT/vmfs/hl2-chap3.vmf"
+curl -fL --retry 3 --retry-delay 2 "$BASE_URL/hl2-chap2.vmf" -o "$OUT/vmfs/hl2-chap2.vmf"
+curl -fL --retry 3 --retry-delay 2 "$BASE_URL/hl2-chap3.vmf" -o "$OUT/vmfs/hl2-chap3.vmf"
 
 "$CARGO" run -q -p sourceweaver-cli -- inspect "$OUT/vmfs/hl2-chap2.vmf" > "$OUT/hl2-chap2.inspect.txt"
 "$CARGO" run -q -p sourceweaver-cli -- inspect "$OUT/vmfs/hl2-chap3.vmf" > "$OUT/hl2-chap3.inspect.txt"

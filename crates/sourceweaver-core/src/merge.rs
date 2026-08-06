@@ -204,10 +204,12 @@ fn renumber_ids(
 fn remap_id_references(node: &mut Node, id_remap: &IdRemap) {
     match node {
         Node::Property { key, value } if is_single_id_reference_key(key) => {
-            if let Ok(old_id) = value.parse::<i64>() {
-                if let Some(new_id) = id_remap.unique(old_id) {
-                    *value = new_id.to_string();
-                }
+            if let Some(new_id) = value
+                .parse::<i64>()
+                .ok()
+                .and_then(|old_id| id_remap.unique(old_id))
+            {
+                *value = new_id.to_string();
             }
         }
         Node::Property { key, value } if key == "sides" => {

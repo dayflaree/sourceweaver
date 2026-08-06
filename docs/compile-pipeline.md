@@ -12,6 +12,7 @@ sourceweaver compile stitched.vmf \
   --game /path/to/game-dir \
   --steps vbsp,vvis,vrad \
   --log-dir target/sourceweaver-compile-logs \
+  --timeout-seconds 900 \
   --report target/sourceweaver-compile-report.json \
   --json
 ```
@@ -22,6 +23,7 @@ Available flags:
 - `--game`: optional Source game/content directory passed as `-game <dir>`
 - `--steps`: comma-separated step order, such as `vbsp`, `vbsp,vvis`, or `vbsp,vvis,vrad`
 - `--log-dir`: directory where each step writes `<step>.log`
+- `--timeout-seconds`: per-tool timeout; defaults to 900 seconds
 - `--report`: JSON report path
 - `--json`: print the JSON report to stdout
 
@@ -41,6 +43,7 @@ game = "/path/to/game-dir"
 [compile]
 steps = ["vbsp", "vvis", "vrad"]
 log_dir = "target/sourceweaver-compile-logs"
+timeout_seconds = 900
 ```
 
 Run it with:
@@ -61,7 +64,7 @@ The compile report includes:
 - one entry per step with tool path, input path, exit code, log path, and parsed compile-log summary
 - warning, error, and leak lines extracted from stdout/stderr
 
-The command exits non-zero if VMF integrity has structural errors, any compile process exits non-zero, or any parsed log contains errors or leaks.
+The command exits non-zero if VMF integrity has structural errors, any compile process exits non-zero, any tool times out, or any parsed log contains errors or leaks. Captured output must include an explicit success marker, such as `0 errors` or `VBSP finished`; a truncated compiler banner is reported as unsuccessful.
 
 ## Linux development workflow
 

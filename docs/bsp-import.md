@@ -19,6 +19,7 @@ sourceweaver bsp-import map.bsp \
   --tool /path/to/bspsource-or-wrapper \
   --output decompiled_map.vmf \
   --log decompile.log \
+  --timeout-seconds 900 \
   --report bsp-import-report.json \
   --json
 ```
@@ -29,7 +30,7 @@ The generic command shape is:
 <decompiler> [--tool-arg values...] <input.bsp> <output.vmf>
 ```
 
-If BSPSource or another tool needs a different command-line shape, create a small wrapper script and pass that script as `--tool`. The JSON report includes the tool path, input BSP, output VMF, exit code, log path, warning/error counts, entity count, classname count, and VMF integrity status.
+If BSPSource or another tool needs a different command-line shape, create a small wrapper script and pass that script as `--tool`. The JSON report includes the tool path, input BSP, output VMF, exit code, log path, warning/error counts, entity count, classname count, and VMF integrity status. External decompiler runs default to a 900-second timeout; override with `--timeout-seconds` for slower maps or short failure tests.
 
 ## Desktop workflow
 

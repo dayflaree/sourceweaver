@@ -1179,15 +1179,16 @@ impl SourceWeaverApp {
                             ui.end_row();
                         }
                     });
-                if let Some(first_pair) = suggestion.landmark_pairs.first() {
-                    if ui.button("Use first suggested landmark").clicked() {
-                        self.landmark = first_pair.landmark.clone();
-                        self.clear_merged_preview();
-                        self.add_status(format!(
-                            "Using suggested landmark `{}`. You can still edit it manually.",
-                            first_pair.landmark
-                        ));
-                    }
+                if !suggestion.landmark_pairs.is_empty()
+                    && ui.button("Use first suggested landmark").clicked()
+                {
+                    let first_pair = &suggestion.landmark_pairs[0];
+                    self.landmark = first_pair.landmark.clone();
+                    self.clear_merged_preview();
+                    self.add_status(format!(
+                        "Using suggested landmark `{}`. You can still edit it manually.",
+                        first_pair.landmark
+                    ));
                 }
             }
 
@@ -2164,35 +2165,39 @@ impl SourceWeaverApp {
             })
             .unwrap_or_default();
 
-        if response.clicked() {
-            if let Some(click_position) = response.interact_pointer_pos() {
-                if let Some((path, records)) = selection_context {
-                    if let Some(owner_index) = preview_hit_owner_index(
+        let clicked_selection = response
+            .clicked()
+            .then(|| response.interact_pointer_pos())
+            .flatten()
+            .and_then(|click_position| {
+                selection_context.and_then(|(path, records)| {
+                    preview_hit_owner_index(
                         preview,
                         &transform,
                         click_position,
                         &deletion_criteria,
                         deletion_overlay_mode,
-                    ) {
-                        if let Some(key) =
-                            entity_selection_key_for_owner(path, records, owner_index)
-                        {
-                            let selected = if self.selected_entity_rows.contains(&key) {
-                                self.selected_entity_rows.remove(&key);
-                                false
-                            } else {
-                                self.selected_entity_rows.insert(key);
-                                true
-                            };
-                            self.active_table = TableMode::Entities;
-                            self.add_status(format!(
-                                "{} preview owner row #{owner_index}.",
-                                if selected { "Selected" } else { "Cleared" }
-                            ));
-                        }
-                    }
-                }
-            }
+                    )
+                    .and_then(|owner_index| {
+                        entity_selection_key_for_owner(path, records, owner_index)
+                            .map(|key| (key, owner_index))
+                    })
+                })
+            });
+
+        if let Some((key, owner_index)) = clicked_selection {
+            let selected = if self.selected_entity_rows.contains(&key) {
+                self.selected_entity_rows.remove(&key);
+                false
+            } else {
+                self.selected_entity_rows.insert(key);
+                true
+            };
+            self.active_table = TableMode::Entities;
+            self.add_status(format!(
+                "{} preview owner row #{owner_index}.",
+                if selected { "Selected" } else { "Cleared" }
+            ));
         }
         if self.preview_show_grid {
             draw_preview_grid(&painter, rect, &transform);
@@ -2411,6 +2416,7 @@ impl PreviewTransform {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_entity_table(
     ui: &mut egui::Ui,
     map_path: &Path,
@@ -2775,10 +2781,8 @@ fn entity_matches_filters(
     role_filter: Option<&BrushRole>,
     fgd_metadata: &BTreeMap<String, EntityMetadata>,
 ) -> bool {
-    if let Some(role) = role_filter {
-        if !record.roles.iter().any(|record_role| record_role == role) {
-            return false;
-        }
+    if role_filter.is_some_and(|role| !record.roles.iter().any(|record_role| record_role == role)) {
+        return false;
     }
 
     let query = search.trim().to_ascii_lowercase();
@@ -3091,11 +3095,7 @@ fn draw_preview_solid(
     removed: bool,
     selected: bool,
 ) {
-    let (min_u, min_v) = transform.project_vec(solid.bounds.min);
-    let (max_u, max_v) = transform.project_vec(solid.bounds.max);
-    let a = transform.uv_to_screen(min_u, min_v);
-    let b = transform.uv_to_screen(max_u, max_v);
-    let rect = egui::Rect::from_two_pos(a, b);
+    let rect = preview_solid_screen_rect(solid, transform);
     let mut role_color = solid_color(solid);
     let mut fill_color = solid.source_index.map(source_color).unwrap_or(role_color);
     if removed {
@@ -3239,31 +3239,33 @@ fn draw_preview_legend(
         cursor.y += 16.0;
     }
 
-    if let Some(summary) = merged_summary {
-        if !summary.source_labels.is_empty() {
-            cursor.y += 8.0;
-            painter.text(
-                cursor,
-                egui::Align2::LEFT_TOP,
-                "source maps",
-                egui::FontId::monospace(10.0),
-                egui::Color32::from_gray(235),
-            );
-            cursor.y += 16.0;
-            for (index, label) in summary.source_labels.iter().enumerate() {
-                let color = source_color(index);
-                let swatch = egui::Rect::from_min_size(cursor, egui::vec2(10.0, 10.0));
-                painter.rect_filled(swatch, 1.0, color);
-                painter.text(
-                    cursor + egui::vec2(16.0, 5.0),
-                    egui::Align2::LEFT_CENTER,
-                    file_label_for_legend(label),
-                    egui::FontId::monospace(10.0),
-                    egui::Color32::from_gray(220),
-                );
-                cursor.y += 16.0;
-            }
-        }
+    let Some(summary) = merged_summary else {
+        return;
+    };
+    if summary.source_labels.is_empty() {
+        return;
+    }
+    cursor.y += 8.0;
+    painter.text(
+        cursor,
+        egui::Align2::LEFT_TOP,
+        "source maps",
+        egui::FontId::monospace(10.0),
+        egui::Color32::from_gray(235),
+    );
+    cursor.y += 16.0;
+    for (index, label) in summary.source_labels.iter().enumerate() {
+        let color = source_color(index);
+        let swatch = egui::Rect::from_min_size(cursor, egui::vec2(10.0, 10.0));
+        painter.rect_filled(swatch, 1.0, color);
+        painter.text(
+            cursor + egui::vec2(16.0, 5.0),
+            egui::Align2::LEFT_CENTER,
+            file_label_for_legend(label),
+            egui::FontId::monospace(10.0),
+            egui::Color32::from_gray(220),
+        );
+        cursor.y += 16.0;
     }
 }
 
@@ -3411,12 +3413,27 @@ fn preview_hit_owner_index(
 }
 
 fn preview_solid_screen_rect(solid: &PreviewSolid, transform: &PreviewTransform) -> egui::Rect {
-    let (min_u, min_v) = transform.project_vec(solid.bounds.min);
-    let (max_u, max_v) = transform.project_vec(solid.bounds.max);
-    egui::Rect::from_two_pos(
-        transform.uv_to_screen(min_u, min_v),
-        transform.uv_to_screen(max_u, max_v),
-    )
+    solid_bounds_corners(solid)
+        .iter()
+        .map(|corner| transform.world_to_screen(*corner))
+        .fold(egui::Rect::NOTHING, |rect, point| {
+            rect.union(egui::Rect::from_min_size(point, egui::Vec2::ZERO))
+        })
+}
+
+fn solid_bounds_corners(solid: &PreviewSolid) -> [sourceweaver_core::Vec3; 8] {
+    let min = solid.bounds.min;
+    let max = solid.bounds.max;
+    [
+        sourceweaver_core::Vec3::new(min.x, min.y, min.z),
+        sourceweaver_core::Vec3::new(min.x, min.y, max.z),
+        sourceweaver_core::Vec3::new(min.x, max.y, min.z),
+        sourceweaver_core::Vec3::new(min.x, max.y, max.z),
+        sourceweaver_core::Vec3::new(max.x, min.y, min.z),
+        sourceweaver_core::Vec3::new(max.x, min.y, max.z),
+        sourceweaver_core::Vec3::new(max.x, max.y, min.z),
+        sourceweaver_core::Vec3::new(max.x, max.y, max.z),
+    ]
 }
 
 fn deletion_preview_mode_label(mode: DeletionPreviewMode) -> &'static str {
@@ -3643,8 +3660,10 @@ fn deletion_presets() -> [DeletionPresetSpec; 6] {
 }
 
 fn deletion_preset_criteria(kind: DeletionPresetKind) -> DeletionCriteria {
-    let mut criteria = DeletionCriteria::default();
-    criteria.protect_critical_entities = true;
+    let mut criteria = DeletionCriteria {
+        protect_critical_entities: true,
+        ..DeletionCriteria::default()
+    };
 
     match kind {
         DeletionPresetKind::RemoveTriggers => {
@@ -3799,10 +3818,9 @@ fn remember_recent_path(recent: &mut Vec<PathBuf>, path: PathBuf) {
 
 fn project_relative_path(path: &Path, base_dir: &Path) -> String {
     if path.is_absolute() {
-        if let Ok(relative) = path.strip_prefix(base_dir) {
-            if !relative.as_os_str().is_empty() {
-                return display_path(relative);
-            }
+        match path.strip_prefix(base_dir) {
+            Ok(relative) if !relative.as_os_str().is_empty() => return display_path(relative),
+            _ => {}
         }
     }
     display_path(path)

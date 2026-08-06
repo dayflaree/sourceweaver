@@ -1,6 +1,6 @@
 # Source tool validation
 
-Source Weaver can run a Linux-friendly validation path without Hammer or VBSP installed, and it can consume real Source compiler logs when those tools are available on Windows or through a game/tool install.
+Source Weaver can run a Linux-friendly validation path without Hammer or VBSP installed, and it can consume real Source compiler logs when those tools are available on Windows or through a game/tool install. External VBSP execution defaults to a 900-second timeout. Captured logs must include explicit success markers such as `0 errors` or `VBSP finished`; truncated banners are treated as incomplete logs.
 
 For multi-step VBSP/VVIS/VRAD execution, use `sourceweaver compile`; see `docs/compile-pipeline.md`.
 
@@ -42,6 +42,7 @@ cargo run -p sourceweaver-cli -- validate path/to/merged.vmf \
   --vbsp /path/to/vbsp \
   --game /path/to/game-dir \
   --capture-log target/vbsp.log \
+  --timeout-seconds 900 \
   --json
 ```
 

@@ -142,7 +142,7 @@ Campaign suggestion builds a lightweight graph from selected VMF labels and `tri
 
 The CLI `validate` command loads a VMF, runs integrity checks, optionally executes a configured VBSP command, and parses captured compiler logs. CI uses the portable mode plus fixture logs because hosted Linux/Windows runners do not include Hammer or game-specific Source tool installations.
 
-The CLI `compile` command extends this into an optional Source compile pipeline. Users can provide tool paths directly or through a TOML profile, select VBSP/VVIS/VRAD steps, capture stdout/stderr logs, and emit a JSON report with parsed warnings, errors, leaks, and exit codes. See `docs/compile-pipeline.md`.
+The CLI `compile` command extends this into an optional Source compile pipeline. Users can provide tool paths directly or through a TOML profile, select VBSP/VVIS/VRAD steps, capture stdout/stderr logs, and emit a JSON report with parsed warnings, errors, leaks, and exit codes. External compiler and decompiler executions are bounded by configurable timeouts, and stdout/stderr are captured through temporary files so large tool logs do not deadlock pipe buffers before reports are written. See `docs/compile-pipeline.md`.
 
 ## ID renumbering
 
@@ -178,7 +178,7 @@ Cleanup exports are gated by a pending-review state. Running deletion preview st
 
 ## Cross-platform strategy
 
-Rust and egui/eframe provide a shared Linux/Windows desktop UI. Native file dialogs are handled through `rfd`. CI builds the Rust workspace on Linux and Windows so platform-specific compile issues surface quickly.
+Rust and egui/eframe provide a shared Linux/Windows desktop UI. Native file dialogs are handled through `rfd`. CI builds the Rust workspace on Linux and Windows so platform-specific compile issues surface quickly. The main CI workflow runs formatting, Clippy, tests, builds, job-runner validation, and fixture VMF validation.
 
 Desktop release builds run from `.github/workflows/desktop-builds.yml`. Manual dispatch creates workflow artifacts. Pushing a `v*` tag builds the Linux tarball and Windows zip, then publishes both to a GitHub Release using `CHANGELOG.md` as release notes.
 

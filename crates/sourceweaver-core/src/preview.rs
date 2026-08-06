@@ -117,48 +117,28 @@ pub fn preview_document_with_source(
 
         let classname = Node::get_property(body, "classname").map(ToOwned::to_owned);
         let targetname = Node::get_property(body, "targetname").map(ToOwned::to_owned);
+        let owner = OwnerContext {
+            owner_index,
+            owner_block: name,
+            classname: classname.as_deref(),
+            targetname: targetname.as_deref(),
+            source_index,
+            source_label,
+        };
 
         if name == "entity" {
-            if let Some(origin) = Node::get_property(body, "origin").and_then(Vec3::parse) {
-                bounds.include(origin);
-                if classname.as_deref() == Some("info_landmark") {
-                    if let Some(targetname) = Node::get_property(body, "targetname") {
-                        let targetname = targetname.trim();
-                        if !targetname.is_empty() {
-                            landmarks.push(PreviewLandmarkMarker {
-                                owner_index,
-                                targetname: targetname.to_string(),
-                                origin,
-                                source_index,
-                                source_label: source_label.map(ToOwned::to_owned),
-                            });
-                        }
-                    }
-                }
-                entities.push(PreviewEntityMarker {
-                    owner_index,
-                    classname: classname.clone(),
-                    targetname: targetname.clone(),
-                    source_index,
-                    source_label: source_label.map(ToOwned::to_owned),
-                    origin,
-                });
-            }
+            collect_entity_marker(
+                body,
+                owner,
+                &classname,
+                &targetname,
+                &mut bounds,
+                &mut entities,
+                &mut landmarks,
+            );
         }
 
-        collect_solids(
-            body,
-            OwnerContext {
-                owner_index,
-                owner_block: name,
-                classname: classname.as_deref(),
-                targetname: targetname.as_deref(),
-                source_index,
-                source_label,
-            },
-            &mut solids,
-            &mut bounds,
-        );
+        collect_solids(body, owner, &mut solids, &mut bounds);
         owner_index += 1;
     }
 
@@ -168,6 +148,44 @@ pub fn preview_document_with_source(
         landmarks,
         bounds: bounds.finish(),
     }
+}
+
+fn collect_entity_marker(
+    body: &[Node],
+    owner: OwnerContext<'_>,
+    classname: &Option<String>,
+    targetname: &Option<String>,
+    bounds: &mut BoundsBuilder,
+    entities: &mut Vec<PreviewEntityMarker>,
+    landmarks: &mut Vec<PreviewLandmarkMarker>,
+) {
+    let Some(origin) = Node::get_property(body, "origin").and_then(Vec3::parse) else {
+        return;
+    };
+
+    bounds.include(origin);
+    if let (Some("info_landmark"), Some(targetname)) =
+        (classname.as_deref(), Node::get_property(body, "targetname"))
+    {
+        let targetname = targetname.trim();
+        if !targetname.is_empty() {
+            landmarks.push(PreviewLandmarkMarker {
+                owner_index: owner.owner_index,
+                targetname: targetname.to_string(),
+                origin,
+                source_index: owner.source_index,
+                source_label: owner.source_label.map(ToOwned::to_owned),
+            });
+        }
+    }
+    entities.push(PreviewEntityMarker {
+        owner_index: owner.owner_index,
+        classname: classname.clone(),
+        targetname: targetname.clone(),
+        source_index: owner.source_index,
+        source_label: owner.source_label.map(ToOwned::to_owned),
+        origin,
+    });
 }
 
 pub fn translate_preview_document(preview: &mut PreviewDocument, offset: Vec3) {
