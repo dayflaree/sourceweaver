@@ -21,6 +21,10 @@ Current capabilities:
 - Preserve incoming point entities and brush entities.
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
 - View individual world/entity records with classname, targetname, origin, solid count, and detected roles.
+- Preview scanned VMFs in Hammer-style 2D orthographic views.
+- Switch preview projection between top X/Y, front X/Z, and side Y/Z views.
+- Pan and zoom the preview viewport.
+- Draw brush bounds, face-plane triangles, entity origin markers, grid lines, and role-colored overlays.
 - Detect brush roles such as triggers, clips, areaportals, occluders, skybox, hint, skip, nodraw, and water.
 - Preview bulk deletion rules.
 - Save a cleaned copy of a selected VMF.
@@ -65,10 +69,11 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 2. Select the base map in the left panel or in the **Base map** dropdown.
 3. Enter the shared `info_landmark` targetname. Leave it blank to append maps without alignment.
 4. Browse for an output `.vmf` path.
-5. Inspect the selected map's entities and classnames in the inspection table.
-6. Optionally add deletion rules by classname, targetname, or brush role.
-7. Click **Preview deletion** to see how much content the cleanup rules would remove.
-8. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
+5. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
+6. Inspect the selected map's entities and classnames in the inspection tables.
+7. Optionally add deletion rules by classname, targetname, or brush role.
+8. Click **Preview deletion** to see how much content the cleanup rules would remove.
+9. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
 
 
 ## Non-interactive automation
@@ -165,7 +170,7 @@ Source Weaver is still early in the rebuild.
 
 Known limitations:
 
-- No 2D/3D map preview yet.
+- The current map preview is a 2D orthographic preview based on VMF brush plane points and bounds. It is useful for layout/alignment inspection, but it is not yet a full textured Hammer 3D viewport.
 - No BSP decompilation.
 - No FGD-backed property labels yet.
 - No automatic compile pipeline yet.

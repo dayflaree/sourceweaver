@@ -6,12 +6,16 @@
 
 pub mod classify;
 pub mod merge;
+pub mod preview;
 pub mod prune;
 pub mod transform;
 pub mod vmf;
 
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
 pub use merge::{MergeInput, MergeOptions, MergeReport, merge_maps};
+pub use preview::{
+    PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid, preview_document,
+};
 pub use prune::{DeletionCriteria, DeletionReport, prune_document};
 pub use transform::{Vec3, find_landmark_origin, translate_block};
 pub use vmf::{Document, Node, ParseError, parse_document};

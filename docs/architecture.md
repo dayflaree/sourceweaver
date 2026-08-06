@@ -9,6 +9,7 @@ The core crate owns VMF behavior:
 - VMF tokenization and parsing
 - VMF serialization
 - entity and brush inspection
+- preview geometry extraction for orthographic UI views
 - landmark origin lookup
 - brush and entity translation
 - merge operations
@@ -24,6 +25,8 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - base-map selection
 - landmark targetname input
 - output VMF picker
+- Hammer-style 2D orthographic VMF preview
+- top, front, and side preview projections
 - entity inspection table
 - classname summary table
 - deletion-rule controls
@@ -60,6 +63,19 @@ Document
 ```
 
 This preserves unknown Hammer and game-specific data because the parser does not discard unrecognized blocks or keys.
+
+
+## Preview model
+
+`sourceweaver-core` extracts preview data from the same parsed VMF tree used by merge and deletion. The first preview slice collects brush side `plane` points, computes solid bounds, classifies each solid with the existing brush-role logic, and records entity `origin` markers.
+
+The desktop app renders this data in three orthographic projections:
+
+- top: X/Y
+- front: X/Z
+- side: Y/Z
+
+This gives a Hammer-style 2D map overview for verifying rough layout and landmark alignment. It is not yet a full textured 3D renderer.
 
 ## Merge model
 

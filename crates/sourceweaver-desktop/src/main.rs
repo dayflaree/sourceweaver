@@ -1,7 +1,8 @@
 use eframe::egui;
 use sourceweaver_core::{
     BrushRole, DeletionCriteria, DeletionReport, Document, EntityRecord, MergeInput, MergeOptions,
-    inspect_entities, merge_maps, prune_document, summarize_entity_types,
+    PreviewBounds, PreviewDocument, PreviewSolid, inspect_entities, merge_maps, preview_document,
+    prune_document, summarize_entity_types,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -34,6 +35,12 @@ struct SourceWeaverApp {
     role_options: Vec<RoleOption>,
     status: Vec<String>,
     active_table: TableMode,
+    preview_view: PreviewView,
+    preview_zoom: f32,
+    preview_pan: egui::Vec2,
+    preview_show_solids: bool,
+    preview_show_entities: bool,
+    preview_show_grid: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -46,12 +53,21 @@ struct MapEntry {
 struct MapAnalysis {
     entity_records: Vec<EntityRecord>,
     type_counts: BTreeMap<String, usize>,
+    preview: PreviewDocument,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TableMode {
+    Preview,
     Entities,
     Classnames,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreviewView {
+    Top,
+    Front,
+    Side,
 }
 
 #[derive(Debug, Clone)]
@@ -85,7 +101,13 @@ impl SourceWeaverApp {
                 RoleOption::new("Brush entities", BrushRole::BrushEntity),
             ],
             status: vec!["Ready. Add VMF files to inspect or merge.".to_string()],
-            active_table: TableMode::Entities,
+            active_table: TableMode::Preview,
+            preview_view: PreviewView::Top,
+            preview_zoom: 1.0,
+            preview_pan: egui::Vec2::ZERO,
+            preview_show_solids: true,
+            preview_show_entities: true,
+            preview_show_grid: true,
         }
     }
 
@@ -131,6 +153,8 @@ impl SourceWeaverApp {
         self.maps.clear();
         self.selected_map = None;
         self.base_index = 0;
+        self.preview_pan = egui::Vec2::ZERO;
+        self.preview_zoom = 1.0;
         self.add_status("Cleared selected VMFs.");
     }
 
@@ -385,9 +409,10 @@ impl eframe::App for SourceWeaverApp {
                             match &entry.analysis {
                                 Ok(analysis) => {
                                     ui.small(format!(
-                                        "{} records, {} classnames",
+                                        "{} records, {} classnames, {} preview solids",
                                         analysis.entity_records.len(),
-                                        analysis.type_counts.len()
+                                        analysis.type_counts.len(),
+                                        analysis.preview.solids.len()
                                     ));
                                 }
                                 Err(error) => {
@@ -514,14 +539,15 @@ impl SourceWeaverApp {
     }
 
     fn inspection_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Inspection");
+        ui.heading("Map view and inspection");
         ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.active_table, TableMode::Preview, "Preview");
             ui.selectable_value(&mut self.active_table, TableMode::Entities, "Entities");
             ui.selectable_value(&mut self.active_table, TableMode::Classnames, "Classnames");
         });
 
         let Some(index) = self.selected_map else {
-            ui.weak("Select a VMF on the left to inspect entities and classnames.");
+            ui.weak("Select a VMF on the left to preview and inspect it.");
             return;
         };
         let Some(entry) = self.maps.get(index) else {
@@ -529,9 +555,12 @@ impl SourceWeaverApp {
             return;
         };
 
-        ui.label(display_path(&entry.path));
-        match &entry.analysis {
+        let path = display_path(&entry.path);
+        let analysis = entry.analysis.clone();
+        ui.label(&path);
+        match analysis {
             Ok(analysis) => match self.active_table {
+                TableMode::Preview => self.draw_preview_panel(ui, &analysis.preview),
                 TableMode::Entities => draw_entity_table(ui, &analysis.entity_records),
                 TableMode::Classnames => draw_classname_table(ui, &analysis.type_counts),
             },
@@ -539,6 +568,113 @@ impl SourceWeaverApp {
                 ui.colored_label(egui::Color32::LIGHT_RED, error);
             }
         }
+    }
+
+    fn draw_preview_panel(&mut self, ui: &mut egui::Ui, preview: &PreviewDocument) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label("View:");
+            ui.radio_value(&mut self.preview_view, PreviewView::Top, "Top X/Y");
+            ui.radio_value(&mut self.preview_view, PreviewView::Front, "Front X/Z");
+            ui.radio_value(&mut self.preview_view, PreviewView::Side, "Side Y/Z");
+            ui.separator();
+            ui.checkbox(&mut self.preview_show_grid, "Grid");
+            ui.checkbox(&mut self.preview_show_solids, "Solids");
+            ui.checkbox(&mut self.preview_show_entities, "Entities");
+            if ui.button("Reset view").clicked() {
+                self.preview_zoom = 1.0;
+                self.preview_pan = egui::Vec2::ZERO;
+            }
+        });
+
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!("{} preview solids", preview.solids.len()));
+            ui.separator();
+            ui.label(format!("{} entity origins", preview.entities.len()));
+            ui.separator();
+            ui.add(egui::Slider::new(&mut self.preview_zoom, 0.1..=12.0).text("Zoom"));
+            ui.weak("Mouse wheel zooms. Drag the preview to pan.");
+        });
+
+        let desired_height = 560.0_f32.max(ui.available_height().min(720.0));
+        let desired_size = egui::vec2(ui.available_width().max(360.0), desired_height);
+        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::drag());
+        let painter = ui.painter_at(rect);
+
+        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(21, 24, 28));
+        draw_rect_outline(
+            &painter,
+            rect,
+            egui::Stroke::new(1.0_f32, egui::Color32::DARK_GRAY),
+        );
+
+        if response.dragged() {
+            self.preview_pan += ui.input(|input| input.pointer.delta());
+        }
+        if response.hovered() {
+            let scroll_delta =
+                ui.input(|input| input.smooth_scroll_delta.y + input.raw_scroll_delta.y);
+            if scroll_delta.abs() > f32::EPSILON {
+                let factor = (1.0 + scroll_delta * 0.0015).clamp(0.85, 1.18);
+                self.preview_zoom = (self.preview_zoom * factor).clamp(0.1, 12.0);
+            }
+        }
+
+        let Some(bounds) = preview.bounds else {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "No brush planes or entity origins found in this VMF.",
+                egui::FontId::proportional(16.0),
+                egui::Color32::LIGHT_GRAY,
+            );
+            return;
+        };
+
+        let transform = PreviewTransform::new(
+            rect,
+            bounds,
+            self.preview_view,
+            self.preview_zoom,
+            self.preview_pan,
+        );
+        if self.preview_show_grid {
+            draw_preview_grid(&painter, rect, &transform);
+        }
+        draw_axes_label(&painter, rect, self.preview_view);
+
+        if self.preview_show_solids {
+            for solid in &preview.solids {
+                draw_preview_solid(&painter, &transform, solid);
+            }
+        }
+
+        if self.preview_show_entities {
+            for entity in &preview.entities {
+                let position = transform.world_to_screen(entity.origin);
+                if rect.contains(position) {
+                    painter.circle_filled(position, 4.5, egui::Color32::from_rgb(255, 232, 128));
+                    painter.circle_stroke(
+                        position,
+                        6.5,
+                        egui::Stroke::new(1.0_f32, egui::Color32::BLACK),
+                    );
+                    let label = entity
+                        .targetname
+                        .as_deref()
+                        .or(entity.classname.as_deref())
+                        .unwrap_or("entity");
+                    painter.text(
+                        position + egui::vec2(7.0, -7.0),
+                        egui::Align2::LEFT_CENTER,
+                        label,
+                        egui::FontId::monospace(10.0),
+                        egui::Color32::from_rgb(255, 245, 180),
+                    );
+                }
+            }
+        }
+
+        draw_preview_legend(&painter, rect);
     }
 }
 
@@ -548,6 +684,7 @@ impl MapEntry {
             Ok(document) => Ok(MapAnalysis {
                 entity_records: inspect_entities(&document),
                 type_counts: summarize_entity_types(&document),
+                preview: preview_document(&document),
             }),
             Err(error) => Err(error),
         };
@@ -562,6 +699,58 @@ impl RoleOption {
             role,
             selected: false,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PreviewTransform {
+    rect: egui::Rect,
+    bounds: PreviewBounds,
+    view: PreviewView,
+    scale: f32,
+    center_u: f64,
+    center_v: f64,
+    pan: egui::Vec2,
+}
+
+impl PreviewTransform {
+    fn new(
+        rect: egui::Rect,
+        bounds: PreviewBounds,
+        view: PreviewView,
+        zoom: f32,
+        pan: egui::Vec2,
+    ) -> Self {
+        let (min_u, min_v) = project_vec(bounds.min, view);
+        let (max_u, max_v) = project_vec(bounds.max, view);
+        let extent_u = (max_u - min_u).abs().max(1.0);
+        let extent_v = (max_v - min_v).abs().max(1.0);
+        let fit_scale = ((rect.width() * 0.88) as f64 / extent_u)
+            .min((rect.height() * 0.88) as f64 / extent_v)
+            .clamp(0.001, 128.0) as f32;
+        Self {
+            rect,
+            bounds,
+            view,
+            scale: fit_scale * zoom,
+            center_u: (min_u + max_u) * 0.5,
+            center_v: (min_v + max_v) * 0.5,
+            pan,
+        }
+    }
+
+    fn world_to_screen(&self, point: sourceweaver_core::Vec3) -> egui::Pos2 {
+        let (u, v) = project_vec(point, self.view);
+        self.uv_to_screen(u, v)
+    }
+
+    fn uv_to_screen(&self, u: f64, v: f64) -> egui::Pos2 {
+        self.rect.center()
+            + self.pan
+            + egui::vec2(
+                ((u - self.center_u) as f32) * self.scale,
+                -((v - self.center_v) as f32) * self.scale,
+            )
     }
 }
 
@@ -619,6 +808,172 @@ fn draw_classname_table(ui: &mut egui::Ui, type_counts: &BTreeMap<String, usize>
                 }
             });
     });
+}
+
+fn draw_preview_grid(painter: &egui::Painter, rect: egui::Rect, transform: &PreviewTransform) {
+    let (min_u, min_v) = project_vec(transform.bounds.min, transform.view);
+    let (max_u, max_v) = project_vec(transform.bounds.max, transform.view);
+    let pad_u = ((max_u - min_u).abs() * 0.25).max(512.0);
+    let pad_v = ((max_v - min_v).abs() * 0.25).max(512.0);
+    let step = nice_grid_step(transform.scale);
+    let start_u = ((min_u - pad_u) / step).floor() as i64;
+    let end_u = ((max_u + pad_u) / step).ceil() as i64;
+    let start_v = ((min_v - pad_v) / step).floor() as i64;
+    let end_v = ((max_v + pad_v) / step).ceil() as i64;
+    let stroke = egui::Stroke::new(
+        1.0_f32,
+        egui::Color32::from_rgba_unmultiplied(85, 93, 105, 55),
+    );
+    let axis_stroke = egui::Stroke::new(
+        1.5_f32,
+        egui::Color32::from_rgba_unmultiplied(130, 148, 176, 120),
+    );
+
+    for i in start_u.max(-500)..=end_u.min(500) {
+        let u = i as f64 * step;
+        let a = transform.uv_to_screen(u, min_v - pad_v);
+        let b = transform.uv_to_screen(u, max_v + pad_v);
+        painter.line_segment([a, b], if i == 0 { axis_stroke } else { stroke });
+    }
+    for i in start_v.max(-500)..=end_v.min(500) {
+        let v = i as f64 * step;
+        let a = transform.uv_to_screen(min_u - pad_u, v);
+        let b = transform.uv_to_screen(max_u + pad_u, v);
+        painter.line_segment([a, b], if i == 0 { axis_stroke } else { stroke });
+    }
+
+    painter.text(
+        rect.left_bottom() + egui::vec2(10.0, -12.0),
+        egui::Align2::LEFT_BOTTOM,
+        format!("grid {}u", step as i64),
+        egui::FontId::monospace(10.0),
+        egui::Color32::from_gray(150),
+    );
+}
+
+fn draw_preview_solid(painter: &egui::Painter, transform: &PreviewTransform, solid: &PreviewSolid) {
+    let (min_u, min_v) = project_vec(solid.bounds.min, transform.view);
+    let (max_u, max_v) = project_vec(solid.bounds.max, transform.view);
+    let a = transform.uv_to_screen(min_u, min_v);
+    let b = transform.uv_to_screen(max_u, max_v);
+    let rect = egui::Rect::from_two_pos(a, b);
+    let color = solid_color(solid);
+
+    if rect.intersects(transform.rect) {
+        painter.rect_filled(rect, 0.0, color.gamma_multiply(0.18));
+        draw_rect_outline(painter, rect, egui::Stroke::new(1.25_f32, color));
+    }
+
+    for chunk in solid.points.chunks(3) {
+        if chunk.len() == 3 {
+            let p0 = transform.world_to_screen(chunk[0]);
+            let p1 = transform.world_to_screen(chunk[1]);
+            let p2 = transform.world_to_screen(chunk[2]);
+            painter.line_segment(
+                [p0, p1],
+                egui::Stroke::new(0.8_f32, color.gamma_multiply(0.7)),
+            );
+            painter.line_segment(
+                [p1, p2],
+                egui::Stroke::new(0.8_f32, color.gamma_multiply(0.7)),
+            );
+            painter.line_segment(
+                [p2, p0],
+                egui::Stroke::new(0.8_f32, color.gamma_multiply(0.7)),
+            );
+        }
+    }
+}
+
+fn draw_preview_legend(painter: &egui::Painter, rect: egui::Rect) {
+    let items = [
+        ("world", egui::Color32::from_rgb(170, 190, 220)),
+        ("skybox", egui::Color32::from_rgb(100, 170, 255)),
+        ("trigger", egui::Color32::from_rgb(255, 170, 90)),
+        ("clip", egui::Color32::from_rgb(230, 95, 95)),
+        ("areaportal", egui::Color32::from_rgb(185, 115, 255)),
+        ("water", egui::Color32::from_rgb(80, 210, 230)),
+        ("entity origin", egui::Color32::from_rgb(255, 232, 128)),
+    ];
+    let mut cursor = rect.left_top() + egui::vec2(12.0, 12.0);
+    for (label, color) in items {
+        let swatch = egui::Rect::from_min_size(cursor, egui::vec2(10.0, 10.0));
+        painter.rect_filled(swatch, 1.0, color);
+        painter.text(
+            cursor + egui::vec2(16.0, 5.0),
+            egui::Align2::LEFT_CENTER,
+            label,
+            egui::FontId::monospace(10.0),
+            egui::Color32::from_gray(220),
+        );
+        cursor.y += 16.0;
+    }
+}
+
+fn draw_axes_label(painter: &egui::Painter, rect: egui::Rect, view: PreviewView) {
+    let label = match view {
+        PreviewView::Top => "Top view: X / Y",
+        PreviewView::Front => "Front view: X / Z",
+        PreviewView::Side => "Side view: Y / Z",
+    };
+    painter.text(
+        rect.right_top() + egui::vec2(-12.0, 12.0),
+        egui::Align2::RIGHT_TOP,
+        label,
+        egui::FontId::monospace(12.0),
+        egui::Color32::from_gray(210),
+    );
+}
+
+fn draw_rect_outline(painter: &egui::Painter, rect: egui::Rect, stroke: egui::Stroke) {
+    painter.line_segment([rect.left_top(), rect.right_top()], stroke);
+    painter.line_segment([rect.right_top(), rect.right_bottom()], stroke);
+    painter.line_segment([rect.right_bottom(), rect.left_bottom()], stroke);
+    painter.line_segment([rect.left_bottom(), rect.left_top()], stroke);
+}
+
+fn project_vec(point: sourceweaver_core::Vec3, view: PreviewView) -> (f64, f64) {
+    match view {
+        PreviewView::Top => (point.x, point.y),
+        PreviewView::Front => (point.x, point.z),
+        PreviewView::Side => (point.y, point.z),
+    }
+}
+
+fn nice_grid_step(scale: f32) -> f64 {
+    let target_world = (72.0_f64 / scale.max(0.001) as f64).max(1.0);
+    let base = 10_f64.powf(target_world.log10().floor());
+    for multiplier in [1.0, 2.0, 4.0, 8.0, 16.0] {
+        let candidate = base * multiplier;
+        if candidate >= target_world {
+            return candidate;
+        }
+    }
+    base * 32.0
+}
+
+fn solid_color(solid: &PreviewSolid) -> egui::Color32 {
+    if solid.roles.contains(&BrushRole::Trigger) {
+        egui::Color32::from_rgb(255, 170, 90)
+    } else if solid.roles.contains(&BrushRole::Clip) {
+        egui::Color32::from_rgb(230, 95, 95)
+    } else if solid.roles.contains(&BrushRole::Areaportal) {
+        egui::Color32::from_rgb(185, 115, 255)
+    } else if solid.roles.contains(&BrushRole::Skybox) {
+        egui::Color32::from_rgb(100, 170, 255)
+    } else if solid.roles.contains(&BrushRole::Occluder) {
+        egui::Color32::from_rgb(175, 175, 105)
+    } else if solid.roles.contains(&BrushRole::Hint) || solid.roles.contains(&BrushRole::Skip) {
+        egui::Color32::from_rgb(255, 225, 100)
+    } else if solid.roles.contains(&BrushRole::Nodraw) {
+        egui::Color32::from_rgb(150, 150, 150)
+    } else if solid.roles.contains(&BrushRole::Water) {
+        egui::Color32::from_rgb(80, 210, 230)
+    } else if solid.roles.contains(&BrushRole::BrushEntity) {
+        egui::Color32::from_rgb(130, 235, 145)
+    } else {
+        egui::Color32::from_rgb(170, 190, 220)
+    }
 }
 
 fn load_document(path: impl AsRef<Path>) -> Result<Document, String> {

@@ -24,8 +24,11 @@ Status: implemented.
 - Add cleaned VMF export.
 - Add merge/export action.
 - Add status log.
+- Add Hammer-style 2D orthographic preview.
+- Add preview pan and zoom.
+- Add role-colored brush overlays and entity origin markers.
 
-Status: first native Linux/Windows UI slice implemented.
+Status: first native Linux/Windows UI and 2D preview slices implemented.
 
 ## Milestone 3: Source/Hammer validation
 
@@ -48,5 +51,6 @@ Status: first native Linux/Windows UI slice implemented.
 - FGD-backed property labels.
 - Saved deletion presets.
 - Batch mode for many campaign maps.
-- Optional 2D/3D preview.
+- Interactive preview selection.
+- Full 3D textured preview.
 - Packaging for Linux and Windows releases.
