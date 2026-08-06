@@ -1,0 +1,33 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "info_player_start"
+	"origin" "0 0 64"
+}
+entity
+{
+	"id" "3"
+	"classname" "info_landmark"
+	"targetname" "map_transition"
+	"origin" "128 0 64"
+}
+entity
+{
+	"id" "4"
+	"classname" "trigger_changelevel"
+	"targetname" "to_next_map"
+	"map" "d1_trainstation_02"
+	"landmark" "map_transition"
+}

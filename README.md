@@ -158,10 +158,11 @@ Validate a generated VMF and optionally parse a captured VBSP log:
 
 ```bash
 cargo run -p sourceweaver-cli -- validate stitched.vmf --json
+cargo run -p sourceweaver-cli -- validate stitched.vmf --rule-set hl2 --json
 cargo run -p sourceweaver-cli -- validate stitched.vmf --compile-log vbsp.log --json
 ```
 
-When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. External compiler/decompiler runs default to a 900-second timeout; use `--timeout-seconds` for slower tools or quick failure tests. Captured compiler logs must include explicit success markers such as `0 errors` or `VBSP finished`; a truncated tool banner does not count as a successful compile. See `docs/compiler-validation.md` for Linux-friendly validation, captured-log parsing, and HL2/Black Mesa command examples.
+Use `--rule-set hl2` for portable Half-Life 2 single-player VMF semantics. Rule-set findings are reported separately from generic integrity findings and do not run Hammer, VBSP, VVIS, VRAD, or a game runtime. When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. External compiler/decompiler runs default to a 900-second timeout; use `--timeout-seconds` for slower tools or quick failure tests. Captured compiler logs must include explicit success markers such as `0 errors` or `VBSP finished`; a truncated tool banner does not count as a successful compile. See `docs/compiler-validation.md` and `docs/game-validation-rule-sets.md` for Linux-friendly validation, captured-log parsing, rule-set scope, and HL2/Black Mesa command examples.
 
 Create and validate a compile profile without hand-editing TOML, then run a user-configured compile pipeline when VBSP/VVIS/VRAD are available:
 

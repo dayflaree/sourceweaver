@@ -14,6 +14,20 @@ cargo run -p sourceweaver-cli -- validate path/to/merged.vmf --json
 
 This validates the VMF can be parsed again and checks the same integrity rules used before desktop/CLI writes, including the required top-level `world` block and ID warnings.
 
+## Game/profile rule sets
+
+Add `--rule-set <id>` to run portable game/mod/profile semantics after generic integrity checks:
+
+```bash
+cargo run -p sourceweaver-cli -- validate path/to/merged.vmf \
+  --rule-set hl2 \
+  --json
+```
+
+Use `--rule-set none` or omit the flag for generic VMF integrity only. The JSON report keeps rule-set findings in `rule_set`, separate from generic `integrity` findings and compile-log findings. The initial `hl2` profile is documented in `docs/game-validation-rule-sets.md` and covered by `tests/fixtures/hl2_ruleset_ok.vmf` and `tests/fixtures/hl2_ruleset_warnings.vmf`.
+
+Rule sets are Source Weaver checks only. They do not run Hammer, Hammer++, VBSP, VVIS, VRAD, or a game runtime, and they do not require a game install.
+
 ## Validate a captured VBSP log
 
 When someone compiles on Windows or another machine, save the full VBSP output and parse it on Linux:

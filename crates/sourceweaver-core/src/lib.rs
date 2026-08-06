@@ -15,6 +15,7 @@ pub mod preview;
 pub mod prune;
 pub mod transform;
 pub mod transition;
+pub mod validation_rules;
 pub mod vmf;
 
 pub use campaign::{
@@ -24,6 +25,7 @@ pub use campaign::{
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
 pub use compiler::{
     CompileLogSummary, VmfToolValidationReport, parse_compile_log, validate_for_source_tools,
+    validate_for_source_tools_with_rule_set,
 };
 pub use entity_metadata::{
     EntityCategory, EntityMetadata, EntityMetadataSource, metadata_for_classname,
@@ -49,4 +51,9 @@ pub use prune::{
 };
 pub use transform::{Vec3, find_landmark_origin, translate_block};
 pub use transition::{CampaignTransition, discover_transitions};
+pub use validation_rules::{
+    BUILTIN_VALIDATION_RULE_SETS, NO_VALIDATION_RULE_SET_ID, RuleSetIssue, RuleSetValidationReport,
+    ValidationRuleSet, format_rule_set_issue, validate_document_with_rule_set,
+    validation_rule_set_by_id, validation_rule_set_choices,
+};
 pub use vmf::{Document, Node, ParseError, parse_document};

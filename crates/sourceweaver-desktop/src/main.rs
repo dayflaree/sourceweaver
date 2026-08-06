@@ -1,15 +1,17 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
-    BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
-    CampaignTransition, DeletionCriteria, DeletionReport, Document, EntityMetadata, EntityRecord,
-    IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus, MergeInput, MergeOptions,
-    MergeReport, PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid,
+    BUILTIN_VALIDATION_RULE_SETS, BrushEntityDeletionMode, BrushRole, CampaignMapInput,
+    CampaignOrderSuggestion, CampaignTransition, DeletionCriteria, DeletionReport, Document,
+    EntityMetadata, EntityRecord, IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus,
+    MergeInput, MergeOptions, MergeReport, NO_VALIDATION_RULE_SET_ID, PreviewBounds,
+    PreviewDocument, PreviewEntityMarker, PreviewSolid, RuleSetValidationReport,
     combine_preview_documents, discover_landmarks, discover_transitions, format_integrity_issue,
-    inspect_entities, is_critical_entity_classname, merge_maps,
+    format_rule_set_issue, inspect_entities, is_critical_entity_classname, merge_maps,
     metadata_for_classname_with_overrides, parse_fgd_metadata, preview_document,
     preview_document_with_source, prune_document, suggest_campaign_order, summarize_entity_types,
-    translate_preview_document, validate_document_integrity,
+    translate_preview_document, validate_document_integrity, validate_document_with_rule_set,
+    validation_rule_set_by_id,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -71,6 +73,7 @@ struct SourceWeaverApp {
     classname_sort_column: ClassnameSortColumn,
     classname_sort_ascending: bool,
     fgd_metadata: BTreeMap<String, EntityMetadata>,
+    validation_rule_set: String,
     bsp_derived_vmfs: BTreeSet<String>,
     bsp_decompile_bsp_path: String,
     bsp_decompile_output_vmf: String,
@@ -113,6 +116,7 @@ struct MapAnalysis {
     landmarks: LandmarkDiscovery,
     transitions: Vec<CampaignTransition>,
     integrity: IntegrityReport,
+    rule_set: Option<RuleSetValidationReport>,
 }
 
 #[derive(Debug, Clone)]
@@ -466,6 +470,7 @@ impl SourceWeaverApp {
             classname_sort_column: ClassnameSortColumn::Classname,
             classname_sort_ascending: true,
             fgd_metadata: BTreeMap::new(),
+            validation_rule_set: NO_VALIDATION_RULE_SET_ID.to_string(),
             bsp_derived_vmfs: BTreeSet::new(),
             bsp_decompile_bsp_path: String::new(),
             bsp_decompile_output_vmf: String::new(),
@@ -705,7 +710,13 @@ impl SourceWeaverApp {
         );
 
         let criteria = project.delete.to_criteria()?;
-        self.maps = paths.into_iter().map(MapEntry::load).collect();
+        let rule_set_id = self
+            .selected_validation_rule_set_id()
+            .map(ToOwned::to_owned);
+        self.maps = paths
+            .into_iter()
+            .map(|path| MapEntry::load(path, rule_set_id.as_deref()))
+            .collect();
         self.selected_map = (!self.maps.is_empty()).then_some(0);
         self.base_index = 0;
         self.landmark = project.landmark.unwrap_or_default();
@@ -752,7 +763,10 @@ impl SourceWeaverApp {
             if self.maps.iter().any(|entry| entry.path == file) {
                 continue;
             }
-            self.maps.push(MapEntry::load(file));
+            let rule_set_id = self
+                .selected_validation_rule_set_id()
+                .map(ToOwned::to_owned);
+            self.maps.push(MapEntry::load(file, rule_set_id.as_deref()));
             added += 1;
         }
         if self.selected_map.is_none() && !self.maps.is_empty() {
@@ -765,9 +779,12 @@ impl SourceWeaverApp {
     }
 
     fn rescan_maps(&mut self) {
+        let rule_set_id = self
+            .selected_validation_rule_set_id()
+            .map(ToOwned::to_owned);
         for map in &mut self.maps {
             let path = map.path.clone();
-            *map = MapEntry::load(path);
+            *map = MapEntry::load(path, rule_set_id.as_deref());
         }
         self.retain_valid_entity_selections();
         self.clear_merged_preview();
@@ -1076,6 +1093,15 @@ impl SourceWeaverApp {
         });
     }
 
+    fn selected_validation_rule_set_id(&self) -> Option<&str> {
+        let value = self.validation_rule_set.trim();
+        if value.is_empty() || value.eq_ignore_ascii_case(NO_VALIDATION_RULE_SET_ID) {
+            None
+        } else {
+            Some(value)
+        }
+    }
+
     fn integrity_status_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         for entry in &self.maps {
@@ -1094,9 +1120,56 @@ impl SourceWeaverApp {
         lines
     }
 
-    fn draw_integrity_status(&self, ui: &mut egui::Ui) {
+    fn rule_set_status_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        for entry in &self.maps {
+            if let Some(report) = entry
+                .analysis
+                .as_ref()
+                .ok()
+                .and_then(|analysis| analysis.rule_set.as_ref())
+            {
+                for issue in &report.issues {
+                    lines.push(format!("Rule set {}", format_rule_set_issue(issue)));
+                }
+            }
+        }
+        lines
+    }
+
+    fn draw_integrity_status(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.label("VMF integrity status");
+            let mut selected_rule_set = self.validation_rule_set.clone();
+            ui.horizontal(|ui| {
+                ui.label("Rule set");
+                egui::ComboBox::from_id_salt("validation_rule_set_combo")
+                    .selected_text(validation_rule_set_combo_label(&selected_rule_set))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut selected_rule_set,
+                            NO_VALIDATION_RULE_SET_ID.to_string(),
+                            "none: generic VMF integrity only",
+                        );
+                        for rule_set in BUILTIN_VALIDATION_RULE_SETS {
+                            ui.selectable_value(
+                                &mut selected_rule_set,
+                                rule_set.id.to_string(),
+                                format!("{}: {}", rule_set.id, rule_set.name),
+                            );
+                        }
+                    });
+            });
+            if selected_rule_set != self.validation_rule_set {
+                self.validation_rule_set = selected_rule_set;
+                self.rescan_maps();
+                self.add_status(format!(
+                    "Selected validation rule set `{}`.",
+                    self.validation_rule_set
+                ));
+            }
+            ui.weak("Rule sets are portable Source Weaver checks; they do not run Hammer, VBSP, VVIS, VRAD, or a game runtime.");
+
             if self.maps.is_empty() {
                 ui.weak("Add VMFs to run integrity checks.");
                 return;
@@ -1116,16 +1189,23 @@ impl SourceWeaverApp {
                             Ok(analysis) => {
                                 let errors = analysis.integrity.error_count();
                                 let warnings = analysis.integrity.warning_count();
-                                if errors > 0 {
-                                    ui.colored_label(
-                                        egui::Color32::LIGHT_RED,
-                                        format!("{errors} error(s), {warnings} warning(s)"),
-                                    );
-                                } else if warnings > 0 {
-                                    ui.colored_label(
-                                        egui::Color32::YELLOW,
-                                        format!("{warnings} warning(s)"),
-                                    );
+                                let rule_errors = analysis
+                                    .rule_set
+                                    .as_ref()
+                                    .map(RuleSetValidationReport::error_count)
+                                    .unwrap_or(0);
+                                let rule_warnings = analysis
+                                    .rule_set
+                                    .as_ref()
+                                    .map(RuleSetValidationReport::warning_count)
+                                    .unwrap_or(0);
+                                let summary = format!(
+                                    "{errors} integrity error(s), {warnings} integrity warning(s), {rule_errors} rule error(s), {rule_warnings} rule warning(s)"
+                                );
+                                if errors > 0 || rule_errors > 0 {
+                                    ui.colored_label(egui::Color32::LIGHT_RED, summary);
+                                } else if warnings > 0 || rule_warnings > 0 {
+                                    ui.colored_label(egui::Color32::YELLOW, summary);
                                 } else {
                                     ui.colored_label(egui::Color32::LIGHT_GREEN, "OK");
                                 }
@@ -1145,6 +1225,14 @@ impl SourceWeaverApp {
             if !detail_lines.is_empty() {
                 ui.collapsing("Integrity details", |ui| {
                     for line in detail_lines {
+                        ui.small(line);
+                    }
+                });
+            }
+            let rule_lines = self.rule_set_status_lines();
+            if !rule_lines.is_empty() {
+                ui.collapsing("Rule-set details", |ui| {
+                    for line in rule_lines {
                         ui.small(line);
                     }
                 });
@@ -3399,10 +3487,13 @@ fn tail_lines(text: &str, limit: usize) -> Vec<String> {
 }
 
 impl MapEntry {
-    fn load(path: PathBuf) -> Self {
+    fn load(path: PathBuf, rule_set_id: Option<&str>) -> Self {
         let analysis = match load_document(&path) {
             Ok(document) => {
                 let label = display_path(&path);
+                let rule_set = rule_set_id
+                    .and_then(validation_rule_set_by_id)
+                    .map(|rule_set| validate_document_with_rule_set(&document, &label, rule_set));
                 Ok(MapAnalysis {
                     entity_records: inspect_entities(&document),
                     type_counts: summarize_entity_types(&document),
@@ -3410,6 +3501,7 @@ impl MapEntry {
                     landmarks: discover_landmarks(&document),
                     transitions: discover_transitions(&document),
                     integrity: validate_document_integrity(&document, &label),
+                    rule_set,
                 })
             }
             Err(error) => Err(error),
@@ -4733,6 +4825,15 @@ fn split_csv(value: &str) -> impl Iterator<Item = &str> {
         .split(',')
         .map(str::trim)
         .filter(|item| !item.is_empty())
+}
+
+fn validation_rule_set_combo_label(value: &str) -> String {
+    if value.trim().eq_ignore_ascii_case(NO_VALIDATION_RULE_SET_ID) {
+        return "none: generic VMF integrity only".to_string();
+    }
+    validation_rule_set_by_id(value)
+        .map(|rule_set| format!("{}: {}", rule_set.id, rule_set.name))
+        .unwrap_or_else(|| format!("{}: unknown rule set", value.trim()))
 }
 
 fn blank_to_none(value: &str) -> Option<String> {

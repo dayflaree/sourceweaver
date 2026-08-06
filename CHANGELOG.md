@@ -19,6 +19,7 @@
 - Real Source compiler smoke-test matrix documentation for release evidence and manual validation.
 - Desktop BSP decompile/import panel that runs the CLI BSPSource workflow, validates output VMFs, imports them, and marks them as BSP-derived.
 - Optional model tooling slice with native MDL header inspection, user-provided StudioMDL-compatible compile reports, and Crowbar research/licensing docs.
+- Opt-in game validation rule-set model with an initial portable HL2 single-player profile exposed in CLI JSON/text reports and the desktop integrity panel.
 
 ### Changed
 

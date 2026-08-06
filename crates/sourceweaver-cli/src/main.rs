@@ -2,10 +2,12 @@ use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
     CampaignTransition, DeletionCriteria, DeletionReport, Document, IntegrityReport, MergeInput,
-    MergeOptions, MergeReport, VmfToolValidationReport, discover_landmarks, discover_transitions,
-    format_integrity_issue, inspect_entities, merge_maps, parse_compile_log, prune_document,
-    suggest_campaign_order, summarize_entity_types, validate_document_integrity,
-    validate_for_source_tools,
+    MergeOptions, MergeReport, RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport,
+    discover_landmarks, discover_transitions, format_integrity_issue, inspect_entities, merge_maps,
+    parse_compile_log, prune_document, suggest_campaign_order, summarize_entity_types,
+    validate_document_integrity, validate_for_source_tools,
+    validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
+    validation_rule_set_choices,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
@@ -254,6 +256,7 @@ fn validate_command(args: &[String]) -> Result<(), String> {
     let mut vbsp: Option<PathBuf> = None;
     let mut game: Option<PathBuf> = None;
     let mut captured_log: Option<PathBuf> = None;
+    let mut rule_set_id: Option<String> = None;
     let mut timeout_seconds = DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS;
     let mut json = false;
 
@@ -284,6 +287,14 @@ fn validate_command(args: &[String]) -> Result<(), String> {
                     args.get(cursor).ok_or("--capture-log needs a path")?,
                 ));
             }
+            "--rule-set" | "--profile" | "--game-profile" => {
+                cursor += 1;
+                rule_set_id = Some(
+                    args.get(cursor)
+                        .ok_or("--rule-set needs a value")?
+                        .to_string(),
+                );
+            }
             "--timeout-seconds" => {
                 cursor += 1;
                 timeout_seconds = parse_timeout_seconds(
@@ -308,7 +319,8 @@ fn validate_command(args: &[String]) -> Result<(), String> {
         cursor += 1;
     }
 
-    let input = input.ok_or("usage: sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]")?;
+    let input = input.ok_or("usage: sourceweaver validate <map.vmf> [--compile-log log.txt] [--rule-set none|hl2] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]")?;
+    let rule_set = selected_validation_rule_set(rule_set_id.as_deref())?;
     let document = load_document(&input)?;
     let mut compile_log_text =
         match compile_log {
@@ -341,10 +353,11 @@ fn validate_command(args: &[String]) -> Result<(), String> {
         None
     };
 
-    let report = validate_for_source_tools(
+    let report = validate_for_source_tools_with_rule_set(
         &document,
         &input.display().to_string(),
         compile_log_text.as_deref(),
+        rule_set,
     );
     let snapshot = ValidationSnapshot::from_report(&report, vbsp_status);
 
@@ -2715,8 +2728,27 @@ struct ValidationSnapshot {
     ok: bool,
     map: String,
     integrity: IntegritySnapshot,
+    rule_set: Option<RuleSetValidationSnapshot>,
     vbsp_exit_code: Option<i32>,
     compile_log: Option<CompileLogSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RuleSetValidationSnapshot {
+    id: String,
+    name: String,
+    scope: String,
+    errors: usize,
+    warnings: usize,
+    issues: Vec<RuleSetIssueSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RuleSetIssueSnapshot {
+    severity: String,
+    map: String,
+    rule_id: String,
+    message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3026,6 +3058,7 @@ impl ValidationSnapshot {
             ok: report.is_ok() && vbsp_exit_code.map(|code| code == 0).unwrap_or(true),
             map: report.map_label.clone(),
             integrity: snapshot_integrity_report(&report.integrity),
+            rule_set: report.rule_set.as_ref().map(snapshot_rule_set_report),
             vbsp_exit_code,
             compile_log: report.compile_log.as_ref().map(|log| CompileLogSnapshot {
                 ok: log.is_ok(),
@@ -3292,6 +3325,26 @@ fn snapshot_integrity_report(report: &IntegrityReport) -> IntegritySnapshot {
     }
 }
 
+fn snapshot_rule_set_report(report: &RuleSetValidationReport) -> RuleSetValidationSnapshot {
+    RuleSetValidationSnapshot {
+        id: report.rule_set.id.to_string(),
+        name: report.rule_set.name.to_string(),
+        scope: report.rule_set.scope.to_string(),
+        errors: report.error_count(),
+        warnings: report.warning_count(),
+        issues: report
+            .issues
+            .iter()
+            .map(|issue| RuleSetIssueSnapshot {
+                severity: issue.severity.to_string(),
+                map: issue.label.clone(),
+                rule_id: issue.rule_id.clone(),
+                message: issue.message.clone(),
+            })
+            .collect(),
+    }
+}
+
 fn snapshot_transition(
     map: &str,
     role: &str,
@@ -3338,6 +3391,19 @@ fn print_validation_snapshot(snapshot: &ValidationSnapshot) {
             issue.severity, issue.map, issue.message
         );
     }
+    if let Some(rule_set) = &snapshot.rule_set {
+        println!("rule set: {} ({})", rule_set.id, rule_set.name);
+        println!("rule-set errors: {}", rule_set.errors);
+        println!("rule-set warnings: {}", rule_set.warnings);
+        for issue in &rule_set.issues {
+            println!(
+                "rule-set\t{}\t{}\t{}\t{}",
+                issue.severity, issue.map, issue.rule_id, issue.message
+            );
+        }
+    } else {
+        println!("rule set: none");
+    }
     if let Some(code) = snapshot.vbsp_exit_code {
         println!("vbsp exit code: {code}");
     }
@@ -3355,6 +3421,23 @@ fn print_validation_snapshot(snapshot: &ValidationSnapshot) {
     } else {
         println!("compile log: not provided");
     }
+}
+
+fn selected_validation_rule_set(
+    value: Option<&str>,
+) -> Result<Option<&'static ValidationRuleSet>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.trim().eq_ignore_ascii_case("none") {
+        return Ok(None);
+    }
+    validation_rule_set_by_id(value).map(Some).ok_or_else(|| {
+        format!(
+            "unknown validation rule set `{value}`. available rule sets: {}",
+            validation_rule_set_choices()
+        )
+    })
 }
 
 fn resolve_job_path(base_dir: &Path, path: &Path) -> PathBuf {
@@ -3442,7 +3525,7 @@ Usage:
   sourceweaver list-types <map.vmf>
   sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
-  sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
+  sourceweaver validate <map.vmf> [--compile-log log.txt] [--rule-set none|hl2] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver compile-profile create|validate|discover [options]
   sourceweaver model-inspect <model.mdl> [--json]
@@ -3487,11 +3570,13 @@ Validates a VMF for Source tool readiness.
 
 Linux-friendly workflow:
   sourceweaver validate merged.vmf --json
+  sourceweaver validate merged.vmf --rule-set hl2 --json
   sourceweaver validate merged.vmf --compile-log captured-vbsp.log --json
 
 Source SDK workflow when VBSP is installed:
   sourceweaver validate merged.vmf --vbsp /path/to/vbsp --game /path/to/game --capture-log vbsp.log --json
 
+Rule sets are portable checks. Available rule sets: none, hl2.
 External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );

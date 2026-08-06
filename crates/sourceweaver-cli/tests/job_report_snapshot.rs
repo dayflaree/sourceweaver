@@ -74,6 +74,66 @@ fn malformed_input_has_actionable_error() {
     assert!(stderr.contains("byte"), "{stderr}");
 }
 
+#[test]
+fn validate_reports_hl2_rule_set_separately() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "validate",
+            repo_path("tests/fixtures/hl2_ruleset_warnings.vmf")
+                .to_str()
+                .unwrap(),
+            "--rule-set",
+            "hl2",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["integrity"]["errors"], 0);
+    assert_eq!(report["rule_set"]["id"], "hl2");
+    assert_eq!(report["rule_set"]["errors"], 1);
+    assert!(
+        report["rule_set"]["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["rule_id"] == "hl2.changelevel_map")
+    );
+}
+
+#[test]
+fn validate_accepts_hl2_rule_set_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "validate",
+            repo_path("tests/fixtures/hl2_ruleset_ok.vmf")
+                .to_str()
+                .unwrap(),
+            "--rule-set",
+            "hl2",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["rule_set"]["id"], "hl2");
+    assert_eq!(report["rule_set"]["errors"], 0);
+    assert_eq!(report["rule_set"]["warnings"], 0);
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {
