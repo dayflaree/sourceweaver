@@ -1,5 +1,6 @@
+use sourceweaver_core::transform::translate_document;
 use sourceweaver_core::{
-    BrushRole, DeletionCriteria, discover_landmarks, discover_transitions, inspect_entities,
+    BrushRole, DeletionCriteria, Vec3, discover_landmarks, discover_transitions, inspect_entities,
     merge_maps, parse_document, preview_document, prune_document,
 };
 use sourceweaver_core::{MergeInput, MergeOptions};
@@ -66,6 +67,17 @@ fn prune_complex_fixture_matches_expected_counts() {
     let rendered = document.to_vmf_string();
     assert!(!rendered.contains("TOOLS/TOOLSCLIP"));
     assert!(!rendered.contains("TOOLS/TOOLSTRIGGER"));
+}
+
+#[test]
+fn translates_displacement_startposition_in_fixture() {
+    let mut document = parse_document(&fixture("complex_roles.vmf")).unwrap();
+
+    translate_document(&mut document, Vec3::new(32.0, -16.0, 8.0));
+    let rendered = document.to_vmf_string();
+
+    assert!(rendered.contains("\"startposition\" \"[32 -16 136]\""));
+    assert!(rendered.contains("(32 -16 136) (96 -16 136) (96 48 136)"));
 }
 
 #[test]

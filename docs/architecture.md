@@ -110,7 +110,7 @@ The first selected VMF is the base document. For each additional VMF:
 5. Compute translation offset against the base landmark.
 6. Translate incoming entity `origin` values.
 7. Translate incoming brush `plane` values.
-8. Translate displacement `startposition` values when present.
+8. Translate displacement `startposition` values when present, including square-bracket VMF displacement syntax.
 9. Renumber incoming `id` keys.
 10. Append incoming world solids into the base `world` block.
 11. Append incoming top-level entities after existing base nodes.
@@ -151,7 +151,7 @@ Regression tests include representative VMF fixtures and golden snapshots. Core 
 
 ## Known technical risks
 
-- Displacement data may need more coordinate translation beyond `startposition`.
+- Real displacement-heavy maps may reveal game-specific edge cases; current behavior is documented in `docs/displacements.md`.
 - Texture lock behavior may require updating texture-axis offsets after brush translation.
 - Some maps contain nested/hidden groups that need more nuanced merge behavior.
 - VMF instance handling may require expanding or preserving `func_instance` workflows.

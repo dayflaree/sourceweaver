@@ -49,6 +49,10 @@ Source Weaver must provide a validation path that works on Linux without Hammer 
 
 CI must cover representative VMF structures so parser, merge, preview, deletion, transition, and automation behavior cannot drift silently. Fixtures should include world brushes, triggers, clips, areaportals, skybox materials, displacement start positions, multiple/duplicate landmarks, malformed VMFs, transitions, and larger mixed maps. Golden snapshots should verify key merged VMF output and job-runner JSON reports.
 
+## Displacement translation
+
+Landmark-aligned translation must move displacement-bearing brush sides consistently. Side `plane` points and `dispinfo` `startposition` values are absolute VMF coordinates and must be translated together. Non-position displacement fields such as normals, distances, alphas, triangle tags, and allowed verts must be preserved unless a real-map fixture proves they need different treatment.
+
 ### Skybox preservation
 
 World solids from incoming maps must be appended to the base map, including brushes using skybox tool materials. This ensures each selected map can contribute its skybox shell.

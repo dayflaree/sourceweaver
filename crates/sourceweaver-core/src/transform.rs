@@ -106,7 +106,7 @@ fn translate_body(body: &mut Vec<Node>, offset: Vec3) {
                 }
             }
             Node::Property { key, value } if key == "startposition" => {
-                if let Some(translated) = translate_parenthesized_vec3(value, offset) {
+                if let Some(translated) = translate_wrapped_vec3(value, offset) {
                     *value = translated;
                 }
             }
@@ -130,12 +130,21 @@ fn translate_plane(value: &str, offset: Vec3) -> Option<String> {
     )
 }
 
-fn translate_parenthesized_vec3(value: &str, offset: Vec3) -> Option<String> {
-    let points = parse_parenthesized_points(value)?;
-    if points.len() != 1 {
-        return None;
+fn translate_wrapped_vec3(value: &str, offset: Vec3) -> Option<String> {
+    let trimmed = value.trim();
+    if let Some(inner) = trimmed
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    {
+        return Some(format!("[{}]", (Vec3::parse(inner)? + offset).to_vmf()));
     }
-    Some(format!("({})", (points[0] + offset).to_vmf()))
+    if let Some(inner) = trimmed
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_suffix(')'))
+    {
+        return Some(format!("({})", (Vec3::parse(inner)? + offset).to_vmf()));
+    }
+    Vec3::parse(trimmed).map(|point| (point + offset).to_vmf())
 }
 
 fn parse_parenthesized_points(value: &str) -> Option<Vec<Vec3>> {
@@ -207,5 +216,42 @@ mod tests {
         translate_block(&mut block, Vec3::new(10.0, 0.0, -3.0));
         let body = block.as_body().unwrap();
         assert_eq!(Node::get_property(body, "origin"), Some("11 2 0"));
+    }
+
+    #[test]
+    fn translates_displacement_startposition_square_brackets() {
+        let mut block = Node::Block {
+            name: "side".to_string(),
+            body: vec![Node::Block {
+                name: "dispinfo".to_string(),
+                body: vec![Node::Property {
+                    key: "startposition".to_string(),
+                    value: "[0 0 128]".to_string(),
+                }],
+            }],
+        };
+
+        translate_block(&mut block, Vec3::new(16.0, -8.0, 32.0));
+
+        let dispinfo_body = match &block.as_body().unwrap()[0] {
+            Node::Block { body, .. } => body,
+            _ => panic!("expected dispinfo block"),
+        };
+        assert_eq!(
+            Node::get_property(dispinfo_body, "startposition"),
+            Some("[16 -8 160]")
+        );
+    }
+
+    #[test]
+    fn translates_displacement_startposition_parentheses_and_bare_vectors() {
+        assert_eq!(
+            translate_wrapped_vec3("(1 2 3)", Vec3::new(10.0, 0.0, -3.0)),
+            Some("(11 2 0)".to_string())
+        );
+        assert_eq!(
+            translate_wrapped_vec3("1 2 3", Vec3::new(10.0, 0.0, -3.0)),
+            Some("11 2 0".to_string())
+        );
     }
 }
