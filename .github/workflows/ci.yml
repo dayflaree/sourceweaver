@@ -27,3 +27,7 @@ jobs:
       - run: cargo build --workspace
       - name: Validate non-interactive job runner
         run: cargo run -p sourceweaver-cli -- run --job tests/jobs/fixture-merge.toml --dry-run --report target/sourceweaver-fixture-report.json
+      - name: Validate generated VMF for Source tool readiness
+        run: |
+          cargo run -p sourceweaver-cli -- merge -o target/sourceweaver-fixture-merged.vmf --landmark map_transition tests/fixtures/base.vmf tests/fixtures/incoming.vmf
+          cargo run -p sourceweaver-cli -- validate target/sourceweaver-fixture-merged.vmf --compile-log tests/fixtures/vbsp-success.txt --json

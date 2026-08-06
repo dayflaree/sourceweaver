@@ -1,15 +1,15 @@
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignTransition, DeletionCriteria, DeletionReport,
-    Document, IntegrityReport, MergeInput, MergeOptions, MergeReport, discover_transitions,
-    format_integrity_issue, inspect_entities, merge_maps, prune_document, summarize_entity_types,
-    validate_document_integrity,
+    Document, IntegrityReport, MergeInput, MergeOptions, MergeReport, VmfToolValidationReport,
+    discover_transitions, format_integrity_issue, inspect_entities, merge_maps, prune_document,
+    summarize_entity_types, validate_document_integrity, validate_for_source_tools,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process;
+use std::process::{self, Command};
 
 fn main() {
     if let Err(error) = run(env::args().skip(1).collect()) {
@@ -29,6 +29,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "list-types" => list_types_command(&args[1..]),
         "prune" => prune_command(&args[1..]),
         "merge" => merge_command(&args[1..]),
+        "validate" => validate_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
         "job-template" => {
             print_job_template();
@@ -234,6 +235,126 @@ fn merge_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_command(args: &[String]) -> Result<(), String> {
+    let mut input: Option<PathBuf> = None;
+    let mut compile_log: Option<PathBuf> = None;
+    let mut vbsp: Option<PathBuf> = None;
+    let mut game: Option<PathBuf> = None;
+    let mut captured_log: Option<PathBuf> = None;
+    let mut json = false;
+
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--compile-log" => {
+                cursor += 1;
+                compile_log = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--compile-log needs a path")?,
+                ));
+            }
+            "--vbsp" => {
+                cursor += 1;
+                vbsp = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--vbsp needs a path")?,
+                ));
+            }
+            "--game" => {
+                cursor += 1;
+                game = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game needs a path")?,
+                ));
+            }
+            "--capture-log" => {
+                cursor += 1;
+                captured_log = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--capture-log needs a path")?,
+                ));
+            }
+            "--json" => json = true,
+            "--help" | "-h" => {
+                print_validate_help();
+                return Ok(());
+            }
+            value if value.starts_with('-') => {
+                return Err(format!("unknown validate flag `{value}`"));
+            }
+            value => {
+                if input.is_some() {
+                    return Err("validate accepts one input VMF".to_string());
+                }
+                input = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+
+    let input = input.ok_or("usage: sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--json]")?;
+    let document = load_document(&input)?;
+    let mut compile_log_text =
+        match compile_log {
+            Some(path) => Some(fs::read_to_string(&path).map_err(|error| {
+                format!("failed to read compile log {}: {error}", path.display())
+            })?),
+            None => None,
+        };
+
+    let vbsp_status = if let Some(vbsp_path) = vbsp {
+        let output = run_vbsp(&vbsp_path, game.as_deref(), &input)?;
+        let log = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if let Some(path) = captured_log {
+            fs::write(&path, &log).map_err(|error| {
+                format!("failed to write captured log {}: {error}", path.display())
+            })?;
+        }
+        compile_log_text = Some(log);
+        Some(output.status.code().unwrap_or(-1))
+    } else {
+        None
+    };
+
+    let report = validate_for_source_tools(
+        &document,
+        &input.display().to_string(),
+        compile_log_text.as_deref(),
+    );
+    let snapshot = ValidationSnapshot::from_report(&report, vbsp_status);
+
+    if json {
+        let text = serde_json::to_string_pretty(&snapshot)
+            .map_err(|error| format!("failed to encode validation report: {error}"))?;
+        println!("{text}");
+    } else {
+        print_validation_snapshot(&snapshot);
+    }
+
+    if !snapshot.ok {
+        return Err("validation found errors".to_string());
+    }
+    Ok(())
+}
+
+fn run_vbsp(
+    vbsp_path: &Path,
+    game_dir: Option<&Path>,
+    input: &Path,
+) -> Result<std::process::Output, String> {
+    let mut command = Command::new(vbsp_path);
+    if let Some(game_dir) = game_dir {
+        command.arg("-game").arg(game_dir);
+    }
+    command.arg(input);
+    command.output().map_err(|error| {
+        format!(
+            "failed to run VBSP command {}: {error}",
+            vbsp_path.display()
+        )
+    })
+}
+
 fn run_job_command(args: &[String]) -> Result<(), String> {
     let mut job_path: Option<PathBuf> = None;
     let mut report_override: Option<PathBuf> = None;
@@ -412,6 +533,44 @@ struct TransitionSnapshot {
     landmark: Option<String>,
     origin: Option<String>,
     solid_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ValidationSnapshot {
+    ok: bool,
+    map: String,
+    integrity: IntegritySnapshot,
+    vbsp_exit_code: Option<i32>,
+    compile_log: Option<CompileLogSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompileLogSnapshot {
+    ok: bool,
+    errors: usize,
+    warnings: usize,
+    leak_detected: bool,
+    error_lines: Vec<String>,
+    warning_lines: Vec<String>,
+}
+
+impl ValidationSnapshot {
+    fn from_report(report: &VmfToolValidationReport, vbsp_exit_code: Option<i32>) -> Self {
+        Self {
+            ok: report.is_ok() && vbsp_exit_code.map(|code| code == 0).unwrap_or(true),
+            map: report.map_label.clone(),
+            integrity: snapshot_integrity_report(&report.integrity),
+            vbsp_exit_code,
+            compile_log: report.compile_log.as_ref().map(|log| CompileLogSnapshot {
+                ok: log.is_ok(),
+                errors: log.errors.len(),
+                warnings: log.warnings.len(),
+                leak_detected: log.leak_detected,
+                error_lines: log.errors.clone(),
+                warning_lines: log.warnings.clone(),
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -672,6 +831,36 @@ fn snapshot_transition(
     }
 }
 
+fn print_validation_snapshot(snapshot: &ValidationSnapshot) {
+    println!("validation: {}", if snapshot.ok { "ok" } else { "failed" });
+    println!("map: {}", snapshot.map);
+    println!("integrity errors: {}", snapshot.integrity.errors);
+    println!("integrity warnings: {}", snapshot.integrity.warnings);
+    for issue in &snapshot.integrity.issues {
+        println!(
+            "integrity\t{}\t{}\t{}",
+            issue.severity, issue.map, issue.message
+        );
+    }
+    if let Some(code) = snapshot.vbsp_exit_code {
+        println!("vbsp exit code: {code}");
+    }
+    if let Some(log) = &snapshot.compile_log {
+        println!("compile log ok: {}", log.ok);
+        println!("compile errors: {}", log.errors);
+        println!("compile warnings: {}", log.warnings);
+        println!("leak detected: {}", log.leak_detected);
+        for line in &log.error_lines {
+            println!("compile-error\t{line}");
+        }
+        for line in &log.warning_lines {
+            println!("compile-warning\t{line}");
+        }
+    } else {
+        println!("compile log: not provided");
+    }
+}
+
 fn resolve_job_path(base_dir: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
@@ -747,6 +936,7 @@ Usage:
   sourceweaver list-types <map.vmf>
   sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
+  sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
@@ -762,12 +952,33 @@ Automation:
   `sourceweaver run --job sourceweaver-job.toml`. The run command is fully non-interactive
   and prints a JSON report, making it suitable for ChatGPT/Hermes-driven workflows.
 
+Compiler validation:
+  `sourceweaver validate` performs portable VMF readiness checks on Linux and can parse
+  captured VBSP logs. When Source tooling is available, pass --vbsp and optional --game.
+
 Merge behavior:
   - keeps the first VMF as the base map
   - appends world solids from each additional VMF, including skybox solids
   - appends all point and brush entities from each additional VMF
   - renumbers incoming VMF id keys to avoid collisions
   - when --landmark is supplied, aligns matching info_landmark targetnames to the base map
+"#
+    );
+}
+
+fn print_validate_help() {
+    println!(
+        r#"Usage:
+  sourceweaver validate <map.vmf> [--compile-log log.txt] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--json]
+
+Validates a VMF for Source tool readiness.
+
+Linux-friendly workflow:
+  sourceweaver validate merged.vmf --json
+  sourceweaver validate merged.vmf --compile-log captured-vbsp.log --json
+
+Source SDK workflow when VBSP is installed:
+  sourceweaver validate merged.vmf --vbsp /path/to/vbsp --game /path/to/game --capture-log vbsp.log --json
 "#
     );
 }

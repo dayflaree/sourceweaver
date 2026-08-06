@@ -36,8 +36,9 @@ Status: implemented.
 - Add deletion presets and protected critical entities.
 - Add desktop project save/load using CLI-compatible TOML job files.
 - Detect `trigger_changelevel` campaign transition entities.
+- Add portable Source-tool validation and VBSP compile-log parsing.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, and transition detection implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, transition detection, and compiler-log validation implemented.
 
 ## Milestone 3: Source/Hammer validation
 

@@ -1,0 +1,6 @@
+Valve Software - vbsp.exe (Nov 10 2025)
+Command line: vbsp.exe broken.vmf
+WARNING: node without a volume
+**** leaked ****
+Entity prop_static (-64 0 0) leaked!
+Error opening broken.vmf

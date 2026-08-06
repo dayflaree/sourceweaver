@@ -5,6 +5,7 @@
 //! share the same VMF behavior.
 
 pub mod classify;
+pub mod compiler;
 pub mod integrity;
 pub mod landmark;
 pub mod merge;
@@ -15,6 +16,9 @@ pub mod transition;
 pub mod vmf;
 
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
+pub use compiler::{
+    CompileLogSummary, VmfToolValidationReport, parse_compile_log, validate_for_source_tools,
+};
 pub use integrity::{
     IntegrityIssue, IntegrityReport, IntegritySeverity, format_integrity_issue,
     validate_document_integrity, validate_merge_inputs,

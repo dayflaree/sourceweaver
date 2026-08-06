@@ -12,6 +12,7 @@ The core crate owns VMF behavior:
 - campaign transition discovery for `trigger_changelevel` entities
 - preview geometry extraction for orthographic UI views
 - VMF integrity validation for pre-write safety checks
+- Source-tool validation reports and VBSP compile-log parsing
 - landmark discovery, duplicate checks, selected-landmark status, and origin lookup
 - brush and entity translation
 - merge operations
@@ -57,6 +58,7 @@ Current commands:
 - `list-types`
 - `prune`
 - `merge`
+- `validate` for portable Source-tool readiness checks and optional VBSP log parsing/execution
 - `run` / `batch` / `job` for non-interactive TOML job execution
 - `job-template` for generating a starter automation file
 
@@ -108,6 +110,10 @@ Landmark discovery records top-level `entity` blocks with `classname` `info_land
 Integrity validation runs before preview/export write paths. The core validator reports structural errors such as missing or duplicate top-level `world` blocks and warnings such as missing common VMF sections, missing IDs, duplicate numeric IDs, multiple ID fields, or non-numeric IDs on blocks where Hammer normally expects stable IDs.
 
 Campaign transition discovery records top-level `trigger_changelevel` entities, including targetname, target map, landmark/landmarkname, origin, and trigger solid count. CLI inspection, automation reports, and the desktop transition table surface this data so later landmark-ordering workflows can use it.
+
+## Source tool validation
+
+The CLI `validate` command loads a VMF, runs integrity checks, optionally executes a configured VBSP command, and parses captured compiler logs. CI uses the portable mode plus fixture logs because hosted Linux/Windows runners do not include Hammer or game-specific Source tool installations.
 
 ## Deletion model
 

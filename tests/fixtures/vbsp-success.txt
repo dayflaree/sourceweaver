@@ -1,0 +1,6 @@
+Valve Software - vbsp.exe (Nov 10 2025)
+Command line: vbsp.exe tests/fixtures/merged.vmf
+materialPath: c:\steam\steamapps\common\Half-Life 2\hl2\materials
+Loading tests/fixtures/merged.vmf
+0 errors, 0 warnings
+VBSP finished successfully

@@ -39,6 +39,10 @@ The engine must detect `trigger_changelevel` entities and expose target map plus
 
 Before writing cleaned or merged output, Source Weaver must validate the relevant VMFs and result document. It must error when an output has no editable top-level `world` block or has multiple top-level `world` blocks. It should warn about missing common VMF sections, missing IDs, duplicate numeric IDs, multiple ID fields, and non-numeric IDs on blocks that normally require stable Hammer IDs. CLI errors must include the VMF filename, and parse errors must include the parser byte position. The desktop UI and automation JSON reports must surface integrity warnings so users can inspect problems before export.
 
+## Source tool validation
+
+Source Weaver must provide a validation path that works on Linux without Hammer installed and can also consume real Source compiler logs. The CLI must validate a generated VMF structurally, parse captured VBSP logs for warnings, errors, and leaks, and optionally run a configured VBSP command when a user has Source tooling installed. CI should cover the portable path with fixture logs rather than depending on proprietary game tools.
+
 ### Skybox preservation
 
 World solids from incoming maps must be appended to the base map, including brushes using skybox tool materials. This ensures each selected map can contribute its skybox shell.

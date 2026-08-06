@@ -21,6 +21,7 @@ Current capabilities:
 - Discover `info_landmark` targetnames from selected VMFs and choose one from a dropdown.
 - Show missing, duplicate, and invalid landmark status before preview or export.
 - Show VMF integrity status before preview/export, including missing common sections, duplicate IDs, and invalid world blocks.
+- Validate generated VMFs for Source-tool readiness and parse captured VBSP logs.
 - Preserve incoming world brushes, including skybox brushes.
 - Preserve incoming point entities and brush entities.
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
@@ -115,6 +116,15 @@ cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml --dry-run
 ```
 
 The job runner prints a JSON report and can also write one to disk. Reports include detected `trigger_changelevel` campaign transitions with target map and landmark data. See `docs/automation.md` for the full workflow.
+
+Validate a generated VMF and optionally parse a captured VBSP log:
+
+```bash
+cargo run -p sourceweaver-cli -- validate stitched.vmf --json
+cargo run -p sourceweaver-cli -- validate stitched.vmf --compile-log vbsp.log --json
+```
+
+When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. See `docs/compiler-validation.md` for Linux-friendly validation, captured-log parsing, and HL2/Black Mesa command examples.
 
 ## CLI usage
 
