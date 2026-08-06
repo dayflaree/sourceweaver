@@ -51,6 +51,22 @@ class CompilerRunBlockerCode(StrEnum):
     UNKNOWN_HOST = "unknown_host"
 
 
+class CompilerInvocationStatus(StrEnum):
+    """Final status for compiler invocation command planning."""
+
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class CompilerInvocationBlockerCode(StrEnum):
+    """Deterministic blockers for compiler invocation command planning."""
+
+    PREFLIGHT_BLOCKED = "preflight_blocked"
+    SOURCE_VMF_MISSING = "source_vmf_missing"
+    EMPTY_MAP_NAME = "empty_map_name"
+    REQUIRED_STAGE_MISSING = "required_stage_missing"
+
+
 @dataclass(frozen=True, slots=True)
 class CompilerSet:
     vbsp: Path | None
@@ -107,6 +123,39 @@ class CompilerRunPreflight:
     tools: tuple[CompilerRunTool, ...]
     blockers: tuple[CompilerRunBlocker, ...]
     runner_command: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerStageCommand:
+    """One argument-array compiler stage command."""
+
+    role: str
+    argv: tuple[str, ...]
+    workdir: Path
+    stdout_path: Path
+    stderr_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerInvocationBlocker:
+    """A reason compiler command planning cannot proceed."""
+
+    code: CompilerInvocationBlockerCode
+    message: str
+    role: str | None = None
+    path: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerInvocationPlan:
+    """Read-only compiler invocation command plan."""
+
+    status: CompilerInvocationStatus
+    source_vmf: Path
+    workdir: Path
+    bsp_path: Path
+    commands: tuple[CompilerStageCommand, ...]
+    blockers: tuple[CompilerInvocationBlocker, ...]
 
 
 def _decode_vdf_string(value: str) -> str:
@@ -382,6 +431,125 @@ def build_compiler_run_preflight(
         tools=tuple(tools),
         blockers=tuple(blockers),
         runner_command=runner,
+    )
+
+
+def build_compile_invocation_plan(
+    preflight: CompilerRunPreflight,
+    *,
+    source_vmf: Path,
+    workdir: Path,
+    map_name: str,
+) -> CompilerInvocationPlan:
+    """Build deterministic argument-array compiler commands without executing them."""
+    bsp_path = workdir / f"{map_name}.bsp"
+    blockers = _compile_invocation_blockers(
+        preflight,
+        source_vmf=source_vmf,
+        map_name=map_name,
+    )
+    if blockers:
+        return CompilerInvocationPlan(
+            status=CompilerInvocationStatus.BLOCKED,
+            source_vmf=source_vmf,
+            workdir=workdir,
+            bsp_path=bsp_path,
+            commands=(),
+            blockers=blockers,
+        )
+    tools_by_role = {tool.role: tool for tool in preflight.tools}
+    missing_stage_blockers = tuple(
+        CompilerInvocationBlocker(
+            code=CompilerInvocationBlockerCode.REQUIRED_STAGE_MISSING,
+            message="Required compiler stage is absent from the ready preflight.",
+            role=role,
+        )
+        for role in _REQUIRED_COMPILE_ROLES
+        if role not in tools_by_role
+    )
+    if missing_stage_blockers:
+        return CompilerInvocationPlan(
+            status=CompilerInvocationStatus.BLOCKED,
+            source_vmf=source_vmf,
+            workdir=workdir,
+            bsp_path=bsp_path,
+            commands=(),
+            blockers=missing_stage_blockers,
+        )
+    return CompilerInvocationPlan(
+        status=CompilerInvocationStatus.READY,
+        source_vmf=source_vmf,
+        workdir=workdir,
+        bsp_path=bsp_path,
+        commands=tuple(
+            _stage_command(
+                index=index,
+                role=role,
+                tool=tools_by_role[role],
+                runner_command=preflight.runner_command,
+                source_vmf=source_vmf,
+                bsp_path=bsp_path,
+                workdir=workdir,
+            )
+            for index, role in enumerate(_REQUIRED_COMPILE_ROLES, start=1)
+        ),
+        blockers=(),
+    )
+
+
+def _compile_invocation_blockers(
+    preflight: CompilerRunPreflight,
+    *,
+    source_vmf: Path,
+    map_name: str,
+) -> tuple[CompilerInvocationBlocker, ...]:
+    blockers: list[CompilerInvocationBlocker] = []
+    if preflight.status is not CompilerRunStatus.READY:
+        blockers.append(
+            CompilerInvocationBlocker(
+                code=CompilerInvocationBlockerCode.PREFLIGHT_BLOCKED,
+                message="Compiler run preflight is blocked.",
+            )
+        )
+    if not source_vmf.is_file():
+        blockers.append(
+            CompilerInvocationBlocker(
+                code=CompilerInvocationBlockerCode.SOURCE_VMF_MISSING,
+                message="Source VMF for compilation is missing.",
+                path=source_vmf,
+            )
+        )
+    if not map_name:
+        blockers.append(
+            CompilerInvocationBlocker(
+                code=CompilerInvocationBlockerCode.EMPTY_MAP_NAME,
+                message="Compiler invocation map name must not be empty.",
+            )
+        )
+    return tuple(blockers)
+
+
+def _stage_command(
+    *,
+    index: int,
+    role: str,
+    tool: CompilerRunTool,
+    runner_command: str | None,
+    source_vmf: Path,
+    bsp_path: Path,
+    workdir: Path,
+) -> CompilerStageCommand:
+    input_path = source_vmf if role == "vbsp" else bsp_path
+    executable = str(tool.path)
+    argv: tuple[str, ...] = (executable, str(input_path))
+    if runner_command is not None:
+        argv = (runner_command, *argv)
+    return CompilerStageCommand(
+        role=role,
+        argv=argv,
+        workdir=workdir,
+        stdout_path=workdir / f"{index:02d}-{role}.stdout.log",
+        stderr_path=workdir / f"{index:02d}-{role}.stderr.log",
     )
 
 
