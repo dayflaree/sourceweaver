@@ -1,0 +1,144 @@
+{
+  "base": "tests/jobs/../fixtures/base.vmf",
+  "campaign_order": {
+    "landmark_pairs": [],
+    "ordered_labels": [
+      "tests/jobs/../fixtures/base.vmf",
+      "tests/jobs/../fixtures/incoming.vmf"
+    ],
+    "warnings": [
+      "tests/jobs/../fixtures/incoming.vmf points to missing map `d1_trainstation_03` via trigger_changelevel #2."
+    ]
+  },
+  "deletion": {
+    "all_entities": false,
+    "brush_entity_mode": "whole-entity",
+    "classnames": [],
+    "protect_critical_entities": true,
+    "removed_brush_entity_solids": 0,
+    "removed_entities": 1,
+    "removed_world_solids": 0,
+    "roles": [
+      "trigger"
+    ],
+    "targetnames": []
+  },
+  "dry_run": true,
+  "inputs": [
+    "tests/jobs/../fixtures/incoming.vmf"
+  ],
+  "integrity": {
+    "errors": 0,
+    "issues": [
+      {
+        "map": "tests/jobs/../fixtures/base.vmf",
+        "message": "missing common VMF section `viewsettings`",
+        "severity": "warning"
+      },
+      {
+        "map": "tests/jobs/../fixtures/incoming.vmf",
+        "message": "missing common VMF section `viewsettings`",
+        "severity": "warning"
+      },
+      {
+        "map": "result",
+        "message": "missing common VMF section `viewsettings`",
+        "severity": "warning"
+      }
+    ],
+    "warnings": 3
+  },
+  "landmark": "map_transition",
+  "merge": {
+    "appended_entities": 2,
+    "appended_world_solids": 1,
+    "applied_offsets": [
+      {
+        "map": "tests/jobs/../fixtures/base.vmf",
+        "offset": "0 0 0"
+      },
+      {
+        "map": "tests/jobs/../fixtures/incoming.vmf",
+        "offset": "-100 0 0"
+      }
+    ],
+    "merged_maps": 2
+  },
+  "operation": "merge",
+  "output": "tests/jobs/../out/fixture-merged.vmf",
+  "output_written": false,
+  "per_map": [
+    {
+      "entity_records_after": 2,
+      "entity_records_before": 2,
+      "entity_types_after": {
+        "info_landmark": 1,
+        "world": 1
+      },
+      "entity_types_before": {
+        "info_landmark": 1,
+        "world": 1
+      },
+      "integrity_errors": 0,
+      "integrity_warnings": 1,
+      "path": "tests/jobs/../fixtures/base.vmf",
+      "removed_brush_entity_solids": 0,
+      "removed_entities": 0,
+      "removed_world_solids": 0,
+      "role": "base",
+      "transitions": []
+    },
+    {
+      "entity_records_after": 3,
+      "entity_records_before": 4,
+      "entity_types_after": {
+        "info_landmark": 1,
+        "trigger_changelevel": 1,
+        "world": 1
+      },
+      "entity_types_before": {
+        "info_landmark": 1,
+        "trigger_changelevel": 1,
+        "trigger_once": 1,
+        "world": 1
+      },
+      "integrity_errors": 0,
+      "integrity_warnings": 1,
+      "path": "tests/jobs/../fixtures/incoming.vmf",
+      "removed_brush_entity_solids": 0,
+      "removed_entities": 1,
+      "removed_world_solids": 0,
+      "role": "input",
+      "transitions": [
+        {
+          "entity_index": 2,
+          "landmark": "map_transition",
+          "map": "tests/jobs/../fixtures/incoming.vmf",
+          "origin": "160 0 0",
+          "role": "input",
+          "solid_count": 1,
+          "target_map": "d1_trainstation_03",
+          "targetname": "to_next_map"
+        }
+      ]
+    }
+  ],
+  "result_entity_records": 4,
+  "result_entity_types": {
+    "info_landmark": 2,
+    "trigger_changelevel": 1,
+    "world": 1
+  },
+  "transitions": [
+    {
+      "entity_index": 2,
+      "landmark": "map_transition",
+      "map": "tests/jobs/../fixtures/incoming.vmf",
+      "origin": "160 0 0",
+      "role": "input",
+      "solid_count": 1,
+      "target_map": "d1_trainstation_03",
+      "targetname": "to_next_map"
+    }
+  ]
+}

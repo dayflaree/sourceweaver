@@ -1,0 +1,4 @@
+world
+{
+	"id" "1"
+	entity { "classname" "broken"

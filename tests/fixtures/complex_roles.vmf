@@ -1,0 +1,16 @@
+versioninfo { "editorversion" "400" }
+viewsettings { "bSnapToGrid" "1" }
+world
+{
+	"id" "1"
+	solid { "id" "2" side { "id" "3" "plane" "(0 0 0) (64 0 0) (64 64 0)" "material" "BRICK/WALL001" } }
+	solid { "id" "4" side { "id" "5" "plane" "(0 0 32) (64 0 32) (64 64 32)" "material" "TOOLS/TOOLSCLIP" } }
+	solid { "id" "6" side { "id" "7" "plane" "(0 0 64) (64 0 64) (64 64 64)" "material" "TOOLS/TOOLSSKYBOX" } }
+	solid { "id" "8" side { "id" "9" "plane" "(0 0 96) (64 0 96) (64 64 96)" "material" "TOOLS/TOOLSAREAPORTAL" } }
+	solid { "id" "10" side { "id" "11" "plane" "(0 0 128) (64 0 128) (64 64 128)" "material" "NATURE/WATER_WATER001" dispinfo { "startposition" "[0 0 128]" } } }
+}
+entity { "id" "12" "classname" "info_landmark" "targetname" "map_transition" "origin" "0 0 0" }
+entity { "id" "13" "classname" "info_landmark" "targetname" "duplicate_lm" "origin" "10 0 0" }
+entity { "id" "14" "classname" "info_landmark" "targetname" "duplicate_lm" "origin" "20 0 0" }
+entity { "id" "15" "classname" "trigger_multiple" "targetname" "cleanup_trigger" solid { "id" "16" side { "id" "17" "plane" "(0 0 160) (64 0 160) (64 64 160)" "material" "TOOLS/TOOLSTRIGGER" } } }
+entity { "id" "18" "classname" "trigger_changelevel" "targetname" "to_next" "map" "incoming" "landmark" "map_transition" "origin" "32 32 0" }

@@ -47,6 +47,7 @@ Current capabilities:
 - Save a cleaned copy of a selected VMF.
 - Apply deletion rules during merge.
 - Export a merged `.vmf` for Hammer.
+- Guard parser, merge, prune, preview, and automation behavior with VMF fixture/golden regression tests.
 
 ## Build and run the desktop app
 
@@ -203,6 +204,7 @@ crates/sourceweaver-cli/       CLI for validating and using the core engine
 crates/sourceweaver-desktop/   Native Linux/Windows desktop app
 docs/                          Requirements, architecture, and roadmap notes
 tests/fixtures/                Small VMF files used for local validation
+tests/golden/                  Golden VMF and JSON snapshots used by regression tests
 ```
 
 ## Important limitations

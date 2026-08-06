@@ -1,0 +1,78 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+world
+{
+	"id" "1"
+	solid
+	{
+		"id" "2"
+		side
+		{
+			"id" "3"
+			"plane" "(0 0 0) (64 0 0) (64 64 0)"
+			"material" "BRICK/WALL001"
+		}
+	}
+	solid
+	{
+		"id" "5"
+		side
+		{
+			"id" "6"
+			"plane" "(0 0 0) (64 0 0) (64 64 0)"
+			"material" "TOOLS/TOOLSSKYBOX"
+		}
+	}
+}
+entity
+{
+	"id" "4"
+	"classname" "info_landmark"
+	"targetname" "map_transition"
+	"origin" "0 0 0"
+}
+entity
+{
+	"id" "7"
+	"classname" "info_landmark"
+	"targetname" "map_transition"
+	"origin" "0 0 0"
+}
+entity
+{
+	"id" "8"
+	"classname" "trigger_once"
+	"targetname" "cleanup_me"
+	"origin" "28 0 0"
+	solid
+	{
+		"id" "9"
+		side
+		{
+			"id" "10"
+			"plane" "(20 0 0) (40 0 0) (40 20 0)"
+			"material" "TOOLS/TOOLSTRIGGER"
+		}
+	}
+}
+entity
+{
+	"id" "11"
+	"classname" "trigger_changelevel"
+	"targetname" "to_next_map"
+	"map" "d1_trainstation_03"
+	"landmark" "map_transition"
+	"origin" "60 0 0"
+	solid
+	{
+		"id" "12"
+		side
+		{
+			"id" "13"
+			"plane" "(50 0 0) (70 0 0) (70 20 0)"
+			"material" "TOOLS/TOOLSTRIGGER"
+		}
+	}
+}
