@@ -6,6 +6,7 @@ branch. A profile is tied to the exact executable hashes used for validation.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import os
 import platform
@@ -102,6 +103,22 @@ class CompilerArtifactBlockerCode(StrEnum):
     BSP_BAD_MAGIC = "bsp_bad_magic"
     PRT_MISSING = "prt_missing"
     PRT_MALFORMED = "prt_malformed"
+
+
+class CompilerWorktreeStatus(StrEnum):
+    """Final status for content-addressed compiler worktree planning."""
+
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class CompilerWorktreeBlockerCode(StrEnum):
+    """Deterministic blockers for compiler worktree planning."""
+
+    PREFLIGHT_BLOCKED = "preflight_blocked"
+    SOURCE_VMF_MISSING = "source_vmf_missing"
+    EMPTY_PROFILE_NAME = "empty_profile_name"
+    EMPTY_MAP_NAME = "empty_map_name"
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +260,33 @@ class PrtArtifactReport:
     leaf_count: int | None
     portal_count: int | None
     blockers: tuple[CompilerArtifactBlocker, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerWorktreeBlocker:
+    """A reason a compiler worktree layout cannot be planned."""
+
+    code: CompilerWorktreeBlockerCode
+    message: str
+    path: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerWorktreeLayout:
+    """Content-addressed worktree layout for a compile attempt."""
+
+    status: CompilerWorktreeStatus
+    cache_key: str
+    profile_name: str
+    map_name: str
+    cache_root: Path
+    workdir: Path
+    source_vmf: Path
+    source_vmf_copy: Path
+    expected_bsp: Path
+    log_dir: Path
+    manifest_path: Path
+    blockers: tuple[CompilerWorktreeBlocker, ...]
 
 
 def _decode_vdf_string(value: str) -> str:
@@ -582,6 +626,123 @@ def build_compile_invocation_plan(
         ),
         blockers=(),
     )
+
+
+def build_compile_worktree_layout(
+    preflight: CompilerRunPreflight,
+    *,
+    source_vmf: Path,
+    cache_root: Path,
+    profile_name: str,
+    map_name: str,
+) -> CompilerWorktreeLayout:
+    """Build a content-addressed compiler worktree layout without writing files."""
+    blockers = _compile_worktree_blockers(
+        preflight,
+        source_vmf=source_vmf,
+        profile_name=profile_name,
+        map_name=map_name,
+    )
+    cache_key = _compile_cache_key(preflight, source_vmf, profile_name, map_name)
+    workdir = cache_root / profile_name / cache_key
+    if blockers:
+        return CompilerWorktreeLayout(
+            status=CompilerWorktreeStatus.BLOCKED,
+            cache_key=cache_key,
+            profile_name=profile_name,
+            map_name=map_name,
+            cache_root=cache_root,
+            workdir=workdir,
+            source_vmf=source_vmf,
+            source_vmf_copy=workdir / f"{map_name}.vmf",
+            expected_bsp=workdir / f"{map_name}.bsp",
+            log_dir=workdir / "logs",
+            manifest_path=workdir / "compile-manifest.json",
+            blockers=blockers,
+        )
+    return CompilerWorktreeLayout(
+        status=CompilerWorktreeStatus.READY,
+        cache_key=cache_key,
+        profile_name=profile_name,
+        map_name=map_name,
+        cache_root=cache_root,
+        workdir=workdir,
+        source_vmf=source_vmf,
+        source_vmf_copy=workdir / f"{map_name}.vmf",
+        expected_bsp=workdir / f"{map_name}.bsp",
+        log_dir=workdir / "logs",
+        manifest_path=workdir / "compile-manifest.json",
+        blockers=(),
+    )
+
+
+def _compile_worktree_blockers(
+    preflight: CompilerRunPreflight,
+    *,
+    source_vmf: Path,
+    profile_name: str,
+    map_name: str,
+) -> tuple[CompilerWorktreeBlocker, ...]:
+    blockers: list[CompilerWorktreeBlocker] = []
+    if preflight.status is not CompilerRunStatus.READY:
+        blockers.append(
+            CompilerWorktreeBlocker(
+                code=CompilerWorktreeBlockerCode.PREFLIGHT_BLOCKED,
+                message="Compiler run preflight is blocked.",
+            )
+        )
+    if not source_vmf.is_file():
+        blockers.append(
+            CompilerWorktreeBlocker(
+                code=CompilerWorktreeBlockerCode.SOURCE_VMF_MISSING,
+                message="Source VMF for compilation is missing.",
+                path=source_vmf,
+            )
+        )
+    if not profile_name:
+        blockers.append(
+            CompilerWorktreeBlocker(
+                code=CompilerWorktreeBlockerCode.EMPTY_PROFILE_NAME,
+                message="Compiler profile name must not be empty.",
+            )
+        )
+    if not map_name:
+        blockers.append(
+            CompilerWorktreeBlocker(
+                code=CompilerWorktreeBlockerCode.EMPTY_MAP_NAME,
+                message="Compiler map name must not be empty.",
+            )
+        )
+    return tuple(blockers)
+
+
+def _compile_cache_key(
+    preflight: CompilerRunPreflight,
+    source_vmf: Path,
+    profile_name: str,
+    map_name: str,
+) -> str:
+    digest = hashlib.sha256()
+    digest.update(profile_name.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(map_name.encode("utf-8"))
+    digest.update(b"\0")
+    if source_vmf.is_file():
+        digest.update(source_vmf.read_bytes())
+    digest.update(b"\0")
+    for tool in preflight.tools:
+        digest.update(tool.role.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(tool.path).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(tool.executable_format.encode("utf-8"))
+        digest.update(b"\0")
+        if tool.path.is_file():
+            digest.update(ArtifactFingerprint.from_path(tool.path).sha256.encode("ascii"))
+        digest.update(b"\0")
+    runner = preflight.runner_command or ""
+    digest.update(runner.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def parse_compiler_log(text: str) -> CompilerLogReport:
