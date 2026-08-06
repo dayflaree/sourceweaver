@@ -190,7 +190,7 @@ Desktop release builds run from `.github/workflows/desktop-builds.yml`. Manual d
 
 Regression tests include representative VMF fixtures and golden snapshots. Core integration tests cover role classification, duplicate landmarks, transition discovery, preview extraction, prune counts, malformed input errors, and merged VMF golden output. CLI integration tests snapshot the job-runner JSON report, verify malformed inputs produce actionable filename/byte-position errors, cover the BSPSource CLI argument shape on Unix, and cover generated BSPZIP file-list/report behavior on Unix.
 
-Real-map smoke validation is documented separately because it downloads public VMFs and is not part of normal CI. `scripts/validate-public-vmfs.sh` fetches two adjacent public Source 1 VMFs from a pinned commit, runs inspect/list/merge/validate, and exercises the optional compile-pipeline JSON path with a fake VBSP tool. See `docs/real-vmf-validation.md`.
+Real-map smoke validation is documented separately because it downloads public VMFs and is not part of normal CI. `scripts/validate-public-vmfs.sh` fetches two adjacent public Source 1 VMFs from a pinned commit, runs inspect/list/merge/validate, and exercises the optional compile-pipeline JSON path with a fake VBSP tool. Real Source compiler smoke-test evidence is tracked separately in `docs/source-compiler-smoke-test-matrix.md` so release notes distinguish fake-tool CI from actual VBSP/VVIS/VRAD/Hammer/game runtime tests. See `docs/real-vmf-validation.md`.
 
 ## Known technical risks
 

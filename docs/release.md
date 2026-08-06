@@ -62,4 +62,4 @@ scripts\package-windows.ps1 -Version v0.1.0-local
 - Linux is packaged as a tarball, not an AppImage.
 - Windows is packaged as a zip, not an MSI installer.
 - Release artifacts are not code-signed.
-- Real Hammer/VBSP validation still requires a user-provided Source tool installation or captured compile logs.
+- Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims.

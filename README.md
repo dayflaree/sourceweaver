@@ -187,7 +187,7 @@ cargo run -p sourceweaver-cli -- compile stitched.vmf \
 
 See `docs/linux-source-compiler-setup.md` for Wine/Proton wrappers, sample profiles, troubleshooting, and the boundary between VMF validation and real compiler validation. The desktop app also has an **Optional external compile** panel that can run the same profile after a successful merge/export without blocking the UI.
 
-See `docs/compile-pipeline.md` for profile format, report fields, desktop compile behavior, and Linux-friendly validation notes.
+See `docs/compile-pipeline.md` for profile format, report fields, desktop compile behavior, and Linux-friendly validation notes. See `docs/source-compiler-smoke-test-matrix.md` for real-tool smoke-test evidence requirements.
 
 Run a user-selected BSPSource decompiler and validate the generated VMF:
 

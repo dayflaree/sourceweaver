@@ -109,4 +109,4 @@ The command exits non-zero if VMF integrity has structural errors, any compile p
 
 This repository is developed on Linux and does not assume licensed Source tools are installed. The compile command is validated with fake compiler tools in local test runs so pipeline control flow, log capture, JSON reporting, and leak/error parsing are deterministic.
 
-Real compile validation still requires a Source game/tool installation or captured logs from a machine that has those tools. See `docs/linux-source-compiler-setup.md` for Wine/Proton wrappers, sample profiles, and troubleshooting.
+Real compile validation still requires a Source game/tool installation or captured logs from a machine that has those tools. Use `docs/source-compiler-smoke-test-matrix.md` to record exactly which real toolchains were tested. See `docs/linux-source-compiler-setup.md` for Wine/Proton wrappers, sample profiles, and troubleshooting.
