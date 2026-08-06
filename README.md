@@ -33,6 +33,7 @@ Current capabilities:
 - Draw brush bounds, face-plane triangles, entity origin markers, grid lines, and role-colored overlays.
 - Detect brush roles such as triggers, clips, areaportals, occluders, skybox, hint, skip, nodraw, and water.
 - Preview bulk deletion rules.
+- Apply transparent deletion presets for triggers, clips, areaportals, gameplay logic, world-only cleanup, and world-plus-skybox cleanup.
 - Choose safe brush-entity deletion behavior and protect critical transition/player/logic entities by default.
 - Save a cleaned copy of a selected VMF.
 - Apply deletion rules during merge.
@@ -82,7 +83,7 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 8. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
 9. Switch **Preview source** between the selected VMF and the merged result.
 10. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be searched, role-filtered, sorted, and selected with checkboxes; selections persist while switching tabs.
-11. Optionally add deletion rules by classname, targetname, or brush role.
+11. Optionally apply a deletion preset, then inspect the generated deletion rules.
 12. In **Deletion safety**, choose whether brush-entity role matches delete whole entities or only matching contained solids. Critical transition/player/logic entities are protected by default.
 13. Click **Preview deletion** to see how much content the cleanup rules would remove.
 14. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.
@@ -139,6 +140,8 @@ cargo run -p sourceweaver-cli -- prune \
 ```
 
 Brush-entity deletion modes are explicit. `whole-entity` preserves the original behavior for brush-role matches by deleting matching brush entities. `matching-solids` keeps brush entities and removes only contained solids with matching roles. Critical transition/player/logic classnames are protected by default; direct CLI prune can opt out with `--allow-critical-deletion`, and job files can set `delete.protect_critical_entities = false`.
+
+Desktop deletion presets are transparent. Each preset shows the generated criteria and can be previewed before applying; preview and export use the same pruning code path so counts match final deletion behavior.
 
 Merge multiple VMFs using a shared `info_landmark` targetname:
 

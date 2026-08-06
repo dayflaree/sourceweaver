@@ -128,6 +128,9 @@ fn prune_command(args: &[String]) -> Result<(), String> {
             "--allow-critical-deletion" => {
                 criteria.protect_critical_entities = false;
             }
+            "--drop-all-entities" => {
+                criteria.drop_all_entities = true;
+            }
             value if value.starts_with('-') => return Err(format!("unknown prune flag `{value}`")),
             value => {
                 if input.is_some() {
@@ -139,7 +142,7 @@ fn prune_command(args: &[String]) -> Result<(), String> {
         cursor += 1;
     }
 
-    let input = input.ok_or("usage: sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]")?;
+    let input = input.ok_or("usage: sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]")?;
     let output = output.ok_or("prune needs -o/--output")?;
     let mut document = load_document(&input)?;
     let report = prune_document(&mut document, &criteria);
@@ -311,6 +314,8 @@ struct DeleteConfig {
     #[serde(default)]
     roles: Vec<String>,
     #[serde(default)]
+    all_entities: bool,
+    #[serde(default)]
     brush_entity_mode: Option<String>,
     #[serde(default = "default_protect_critical_entities")]
     protect_critical_entities: bool,
@@ -352,6 +357,7 @@ struct DeletionSnapshot {
     classnames: Vec<String>,
     targetnames: Vec<String>,
     roles: Vec<String>,
+    all_entities: bool,
     brush_entity_mode: String,
     protect_critical_entities: bool,
     removed_entities: usize,
@@ -524,6 +530,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>(),
+            all_entities: criteria.drop_all_entities,
             brush_entity_mode: criteria.brush_entity_mode.to_string(),
             protect_critical_entities: criteria.protect_critical_entities,
             removed_entities: removed_total.removed_entities,
@@ -540,6 +547,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
 
 fn criteria_from_delete_config(delete: &DeleteConfig) -> Result<DeletionCriteria, String> {
     let mut criteria = DeletionCriteria::default();
+    criteria.drop_all_entities = delete.all_entities;
     criteria.protect_critical_entities = delete.protect_critical_entities;
     if let Some(mode) = &delete.brush_entity_mode {
         criteria.brush_entity_mode = BrushEntityDeletionMode::parse(mode)
@@ -678,7 +686,7 @@ Automatically inspect, prune, and merge Source VMF campaign maps.
 Usage:
   sourceweaver inspect <map.vmf>
   sourceweaver list-types <map.vmf>
-  sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
+  sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
   sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
@@ -733,6 +741,7 @@ report = "sourceweaver-report.json"
 classnames = []
 targetnames = []
 roles = ["trigger", "clip"]
+all_entities = false
 brush_entity_mode = "whole-entity"
 protect_critical_entities = true
 "#

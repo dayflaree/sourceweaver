@@ -61,6 +61,8 @@ Entity-table row selection must support multiple selected rows through checkboxe
 
 Brush-role deletion must distinguish world solids from brush-entity behavior. World solid role matches remove matching world solids. Brush-entity role matches must use an explicit mode: `whole-entity` removes matching brush entities as a unit and preserves the original behavior; `matching-solids` preserves the entity and removes only matching contained solids. Critical transition/player/logic entities must be protected by default from classname, targetname, and brush-role deletion unless protection is explicitly disabled.
 
+Desktop deletion presets must generate transparent deletion criteria that users can inspect before applying. Presets should cover common cleanup workflows such as triggers, clips, areaportals, gameplay logic, world-only geometry, and world-plus-skybox cleanup. Preset previews must run the same deletion implementation as final export so preview counts match final deletion counts.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.

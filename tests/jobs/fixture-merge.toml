@@ -6,5 +6,6 @@ report = "../out/fixture-merge-report.json"
 
 [delete]
 roles = ["trigger"]
+all_entities = false
 brush_entity_mode = "whole-entity"
 protect_critical_entities = true

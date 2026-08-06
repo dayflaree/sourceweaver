@@ -35,6 +35,7 @@ struct SourceWeaverApp {
     drop_classnames: String,
     drop_targetnames: String,
     role_options: Vec<RoleOption>,
+    drop_all_entities: bool,
     brush_entity_mode: BrushEntityDeletionMode,
     protect_critical_entities: bool,
     status: Vec<String>,
@@ -147,6 +148,23 @@ enum ClassnameSortColumn {
     Count,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeletionPresetKind {
+    RemoveTriggers,
+    RemoveClips,
+    RemoveAreaportals,
+    RemoveGameplayLogic,
+    KeepWorldGeometry,
+    KeepWorldAndSkybox,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DeletionPresetSpec {
+    kind: DeletionPresetKind,
+    name: &'static str,
+    description: &'static str,
+}
+
 #[derive(Debug, Clone)]
 struct RoleOption {
     label: &'static str,
@@ -186,6 +204,7 @@ impl SourceWeaverApp {
                 RoleOption::new("World brushes", BrushRole::WorldBrush),
                 RoleOption::new("Brush entities", BrushRole::BrushEntity),
             ],
+            drop_all_entities: false,
             brush_entity_mode: BrushEntityDeletionMode::WholeEntity,
             protect_critical_entities: true,
             status: vec!["Ready. Add VMF files to inspect or merge.".to_string()],
@@ -306,9 +325,32 @@ impl SourceWeaverApp {
                 .filter(|option| option.selected)
                 .map(|option| option.role.clone()),
         );
+        criteria.drop_all_entities = self.drop_all_entities;
         criteria.brush_entity_mode = self.brush_entity_mode;
         criteria.protect_critical_entities = self.protect_critical_entities;
         criteria
+    }
+
+    fn apply_deletion_criteria_to_controls(&mut self, criteria: DeletionCriteria) {
+        self.drop_classnames = criteria
+            .classnames
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.drop_targetnames = criteria
+            .targetnames
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        for option in &mut self.role_options {
+            option.selected = criteria.brush_roles.contains(&option.role);
+        }
+        self.drop_all_entities = criteria.drop_all_entities;
+        self.brush_entity_mode = criteria.brush_entity_mode;
+        self.protect_critical_entities = criteria.protect_critical_entities;
+        self.clear_merged_preview();
     }
 
     fn clear_merged_preview(&mut self) {
@@ -649,6 +691,10 @@ impl SourceWeaverApp {
 
     fn preview_deletion(&mut self) {
         let criteria = self.build_deletion_criteria();
+        self.preview_deletion_with_criteria(criteria, "Preview");
+    }
+
+    fn preview_deletion_with_criteria(&mut self, criteria: DeletionCriteria, label: &str) {
         if criteria.is_empty() {
             self.add_status("No deletion rules selected.");
             return;
@@ -669,7 +715,7 @@ impl SourceWeaverApp {
         }
 
         self.add_status(format!(
-            "Preview: would remove {} entities, {} world solids, and {} brush-entity solids across {} map(s).{}",
+            "{label}: would remove {} entities, {} world solids, and {} brush-entity solids across {} map(s).{}",
             total.removed_entities,
             total.removed_world_solids,
             total.removed_brush_entity_solids,
@@ -979,10 +1025,47 @@ impl SourceWeaverApp {
         ui.heading("Bulk deletion rules");
         ui.label("These rules can preview removals, write a cleaned copy of the selected VMF, or be applied during merge.");
 
+        ui.collapsing("Deletion presets", |ui| {
+            ui.weak("Presets are transparent: preview them before applying, then inspect the generated rules below.");
+            for preset in deletion_presets() {
+                let criteria = deletion_preset_criteria(preset.kind);
+                ui.group(|ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong(preset.name);
+                        if ui.button(format!("Preview##{}", preset.name)).clicked() {
+                            self.preview_deletion_with_criteria(
+                                criteria.clone(),
+                                &format!("Preset `{}` preview", preset.name),
+                            );
+                        }
+                        if ui.button(format!("Apply##{}", preset.name)).clicked() {
+                            self.apply_deletion_criteria_to_controls(criteria.clone());
+                            self.add_status(format!(
+                                "Applied deletion preset `{}`. Preview deletion to verify counts before export.",
+                                preset.name
+                            ));
+                        }
+                    });
+                    ui.label(preset.description);
+                    ui.small(format!(
+                        "Generated criteria: {}",
+                        describe_deletion_criteria(&criteria)
+                    ));
+                });
+            }
+        });
+
         egui::Grid::new("cleanup_grid")
             .num_columns(2)
             .spacing([12.0, 8.0])
             .show(ui, |ui| {
+                ui.label("Drop all entities:");
+                ui.checkbox(
+                    &mut self.drop_all_entities,
+                    "Remove all non-protected top-level entities",
+                );
+                ui.end_row();
+
                 ui.label("Drop classnames:");
                 ui.add(
                     egui::TextEdit::singleline(&mut self.drop_classnames)
@@ -1930,6 +2013,159 @@ fn format_roles(roles: &[BrushRole]) -> String {
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn deletion_presets() -> [DeletionPresetSpec; 6] {
+    [
+        DeletionPresetSpec {
+            kind: DeletionPresetKind::RemoveTriggers,
+            name: "Remove triggers",
+            description: "Remove trigger brush content while leaving critical transition entities protected.",
+        },
+        DeletionPresetSpec {
+            kind: DeletionPresetKind::RemoveClips,
+            name: "Remove clips",
+            description: "Remove clip/playerclip-style brush content from world and brush entities.",
+        },
+        DeletionPresetSpec {
+            kind: DeletionPresetKind::RemoveAreaportals,
+            name: "Remove areaportals",
+            description: "Remove areaportal brush content that often needs rebuilding after stitching.",
+        },
+        DeletionPresetSpec {
+            kind: DeletionPresetKind::RemoveGameplayLogic,
+            name: "Remove gameplay logic",
+            description: "Target common trigger and logic classnames; protected critical entities remain until protection is disabled.",
+        },
+        DeletionPresetSpec {
+            kind: DeletionPresetKind::KeepWorldGeometry,
+            name: "Keep only world geometry",
+            description: "Remove non-protected entities and utility/tool world brushes, including skybox brushes.",
+        },
+        DeletionPresetSpec {
+            kind: DeletionPresetKind::KeepWorldAndSkybox,
+            name: "Keep world plus skybox",
+            description: "Remove non-protected entities and utility/tool world brushes while preserving skybox brushes.",
+        },
+    ]
+}
+
+fn deletion_preset_criteria(kind: DeletionPresetKind) -> DeletionCriteria {
+    let mut criteria = DeletionCriteria::default();
+    criteria.protect_critical_entities = true;
+
+    match kind {
+        DeletionPresetKind::RemoveTriggers => {
+            criteria.brush_roles.insert(BrushRole::Trigger);
+            criteria.brush_entity_mode = BrushEntityDeletionMode::MatchingSolids;
+        }
+        DeletionPresetKind::RemoveClips => {
+            criteria.brush_roles.insert(BrushRole::Clip);
+            criteria.brush_entity_mode = BrushEntityDeletionMode::MatchingSolids;
+        }
+        DeletionPresetKind::RemoveAreaportals => {
+            criteria.brush_roles.insert(BrushRole::Areaportal);
+            criteria.brush_entity_mode = BrushEntityDeletionMode::MatchingSolids;
+        }
+        DeletionPresetKind::RemoveGameplayLogic => {
+            criteria.classnames.extend([
+                "trigger_once".to_string(),
+                "trigger_multiple".to_string(),
+                "logic_auto".to_string(),
+                "logic_relay".to_string(),
+                "logic_timer".to_string(),
+                "math_counter".to_string(),
+                "point_template".to_string(),
+                "env_global".to_string(),
+                "game_text".to_string(),
+            ]);
+            criteria.brush_roles.insert(BrushRole::Trigger);
+            criteria.brush_entity_mode = BrushEntityDeletionMode::WholeEntity;
+        }
+        DeletionPresetKind::KeepWorldGeometry => {
+            criteria.drop_all_entities = true;
+            criteria.brush_roles.extend([
+                BrushRole::Trigger,
+                BrushRole::Clip,
+                BrushRole::Areaportal,
+                BrushRole::Skybox,
+                BrushRole::Occluder,
+                BrushRole::Hint,
+                BrushRole::Skip,
+                BrushRole::Nodraw,
+                BrushRole::Water,
+                BrushRole::BrushEntity,
+            ]);
+            criteria.brush_entity_mode = BrushEntityDeletionMode::MatchingSolids;
+        }
+        DeletionPresetKind::KeepWorldAndSkybox => {
+            criteria.drop_all_entities = true;
+            criteria.brush_roles.extend([
+                BrushRole::Trigger,
+                BrushRole::Clip,
+                BrushRole::Areaportal,
+                BrushRole::Occluder,
+                BrushRole::Hint,
+                BrushRole::Skip,
+                BrushRole::Nodraw,
+                BrushRole::Water,
+                BrushRole::BrushEntity,
+            ]);
+            criteria.brush_entity_mode = BrushEntityDeletionMode::MatchingSolids;
+        }
+    }
+
+    criteria
+}
+
+fn describe_deletion_criteria(criteria: &DeletionCriteria) -> String {
+    let mut parts = Vec::new();
+    if criteria.drop_all_entities {
+        parts.push("all non-protected entities".to_string());
+    }
+    if !criteria.classnames.is_empty() {
+        parts.push(format!(
+            "classnames [{}]",
+            criteria
+                .classnames
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !criteria.targetnames.is_empty() {
+        parts.push(format!(
+            "targetnames [{}]",
+            criteria
+                .targetnames
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !criteria.brush_roles.is_empty() {
+        parts.push(format!(
+            "roles [{}]",
+            criteria
+                .brush_roles
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    parts.push(format!("brush entities: {}", criteria.brush_entity_mode));
+    parts.push(format!(
+        "critical protection: {}",
+        if criteria.protect_critical_entities {
+            "on"
+        } else {
+            "off"
+        }
+    ));
+    parts.join("; ")
 }
 
 fn landmark_status_label(status: &LandmarkTargetStatus) -> (String, egui::Color32) {

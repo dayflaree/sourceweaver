@@ -24,6 +24,7 @@ report = "sourceweaver-report.json"
 classnames = ["prop_static"]
 targetnames = ["cleanup_me"]
 roles = ["trigger", "clip"]
+all_entities = false
 brush_entity_mode = "whole-entity"
 protect_critical_entities = true
 ```
@@ -61,7 +62,7 @@ Job files must make brush-entity role behavior explicit with `delete.brush_entit
 - `whole-entity` preserves the original behavior: when a brush entity matches a selected brush role, the whole entity is removed.
 - `matching-solids` keeps brush entities and removes only contained solids that match selected brush roles. When the selected role is `brush-entity`, all contained solids in brush entities are removed.
 
-`delete.protect_critical_entities` defaults to `true`. Protected classnames include transition/player/logic entities such as `info_landmark`, `trigger_changelevel`, `info_player_start`, `logic_auto`, and related control entities. Set it to `false` only when a job intentionally removes those entities.
+`delete.all_entities` removes all non-protected top-level entities and is used by world-only cleanup presets. `delete.protect_critical_entities` defaults to `true`. Protected classnames include transition/player/logic entities such as `info_landmark`, `trigger_changelevel`, `info_player_start`, `logic_auto`, and related control entities. Set it to `false` only when a job intentionally removes those entities.
 
 ## Clean a single VMF
 

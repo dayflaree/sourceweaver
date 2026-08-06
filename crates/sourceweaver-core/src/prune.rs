@@ -7,6 +7,7 @@ pub struct DeletionCriteria {
     pub classnames: BTreeSet<String>,
     pub targetnames: BTreeSet<String>,
     pub brush_roles: BTreeSet<BrushRole>,
+    pub drop_all_entities: bool,
     pub brush_entity_mode: BrushEntityDeletionMode,
     pub protect_critical_entities: bool,
 }
@@ -17,6 +18,7 @@ impl Default for DeletionCriteria {
             classnames: BTreeSet::new(),
             targetnames: BTreeSet::new(),
             brush_roles: BTreeSet::new(),
+            drop_all_entities: false,
             brush_entity_mode: BrushEntityDeletionMode::WholeEntity,
             protect_critical_entities: true,
         }
@@ -25,7 +27,10 @@ impl Default for DeletionCriteria {
 
 impl DeletionCriteria {
     pub fn is_empty(&self) -> bool {
-        self.classnames.is_empty() && self.targetnames.is_empty() && self.brush_roles.is_empty()
+        !self.drop_all_entities
+            && self.classnames.is_empty()
+            && self.targetnames.is_empty()
+            && self.brush_roles.is_empty()
     }
 }
 
@@ -107,6 +112,10 @@ fn should_delete_entity(node: &Node, criteria: &DeletionCriteria) -> bool {
 
     if criteria.protect_critical_entities && is_protected_entity_body(body) {
         return false;
+    }
+
+    if criteria.drop_all_entities {
+        return true;
     }
 
     if let Some(classname) = Node::get_property(body, "classname") {
@@ -335,5 +344,27 @@ entity { "id" "2" "classname" "info_landmark" "targetname" "lm" }
 
         assert_eq!(report.removed_entities, 0);
         assert_eq!(doc.top_level_blocks("entity").count(), 1);
+    }
+
+    #[test]
+    fn drop_all_entities_keeps_protected_entities_until_explicitly_allowed() {
+        let mut doc = parse_document(
+            r#"
+world { "id" "1" }
+entity { "id" "2" "classname" "info_landmark" "targetname" "lm" }
+entity { "id" "3" "classname" "prop_static" }
+"#,
+        )
+        .unwrap();
+        let criteria = DeletionCriteria {
+            drop_all_entities: true,
+            ..DeletionCriteria::default()
+        };
+
+        let report = prune_document(&mut doc, &criteria);
+
+        assert_eq!(report.removed_entities, 1);
+        assert_eq!(doc.top_level_blocks("entity").count(), 1);
+        assert!(doc.to_vmf_string().contains("info_landmark"));
     }
 }
