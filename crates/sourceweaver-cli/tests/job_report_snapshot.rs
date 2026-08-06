@@ -26,12 +26,34 @@ fn fixture_job_report_matches_golden_snapshot() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let actual: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let mut actual: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let golden_text =
         std::fs::read_to_string(repo_path("tests/golden/fixture-job-report.json")).unwrap();
-    let golden: serde_json::Value = serde_json::from_str(&golden_text).unwrap();
+    let mut golden: serde_json::Value = serde_json::from_str(&golden_text).unwrap();
+
+    normalize_json_path_separators(&mut actual);
+    normalize_json_path_separators(&mut golden);
 
     assert_eq!(actual, golden);
+}
+
+fn normalize_json_path_separators(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => {
+            *text = text.replace('\\', "/");
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                normalize_json_path_separators(value);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values_mut() {
+                normalize_json_path_separators(value);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[test]
