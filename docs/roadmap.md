@@ -30,8 +30,9 @@ Status: implemented.
 - Add role-colored brush overlays and entity origin markers.
 - Add landmark discovery dropdown and missing/duplicate landmark warnings.
 - Add VMF integrity checks before writing merged output.
+- Add checkbox bulk selection to the entity table.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, and integrity warnings implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, landmark warnings, integrity warnings, and entity table selection implemented.
 
 ## Milestone 3: Source/Hammer validation
 

@@ -24,6 +24,7 @@ Current capabilities:
 - Preserve incoming point entities and brush entities.
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
 - View individual world/entity records with classname, targetname, origin, solid count, and detected roles.
+- Select multiple entity-table rows with checkboxes for future cleanup actions.
 - Preview scanned VMFs in Hammer-style 2D orthographic views.
 - Preview the in-memory merged output before writing a VMF.
 - Switch preview projection between top X/Y, front X/Z, and side Y/Z views.
@@ -78,7 +79,7 @@ The executable will be under `target\release\sourceweaver-desktop.exe` on Window
 7. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
 8. Click **Preview selected merge** to build the exact current merge in memory without writing a file.
 9. Switch **Preview source** between the selected VMF and the merged result.
-10. Inspect the selected map's entities and classnames in the inspection tables.
+10. Inspect the selected map's entities and classnames in the inspection tables. Entity rows can be selected with checkboxes; selections persist while switching tabs.
 11. Optionally add deletion rules by classname, targetname, or brush role.
 12. Click **Preview deletion** to see how much content the cleanup rules would remove.
 13. Click **Save cleaned selected VMF...** to export a cleaned copy of one VMF, or **Merge selected VMFs** to apply the rules during merge.

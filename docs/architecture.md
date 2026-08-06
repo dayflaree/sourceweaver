@@ -31,8 +31,8 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - Hammer-style 2D orthographic VMF preview
 - in-memory merged-output preview before export
 - top, front, and side preview projections
-- entity inspection table
-- classname summary table
+- entity/classname inspection tables
+- entity table row-selection state for future cleanup actions
 - deletion-rule controls
 - deletion preview
 - cleaned-copy export

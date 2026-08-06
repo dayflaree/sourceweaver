@@ -53,6 +53,8 @@ The tool must list every top-level VMF `entity` block and expose its Hammer `cla
 
 Source Weaver must not rely on a fixed Hammer entity whitelist. Unknown or game-specific classnames must still be shown.
 
+Entity-table row selection must support multiple selected rows through checkboxes, select-all and clear controls, and a visible selected count. Selection keys must include the VMF path and row identity data so later deletion actions can target selected rows without confusing rows from different maps.
+
 ### Landmark discovery
 
 The core engine must expose `info_landmark` discovery independently from the desktop UI. A discovered landmark record includes the targetname, parsed origin when available, and source entity index. Duplicate landmark targetnames within a map must be reported with counts so UI and automation layers can warn before merge.

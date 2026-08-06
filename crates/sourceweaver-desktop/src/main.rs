@@ -6,7 +6,7 @@ use sourceweaver_core::{
     merge_maps, preview_document, prune_document, summarize_entity_types,
     validate_document_integrity,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -45,6 +45,7 @@ struct SourceWeaverApp {
     preview_show_solids: bool,
     preview_show_entities: bool,
     preview_show_grid: bool,
+    selected_entity_rows: BTreeSet<EntitySelectionKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +127,15 @@ struct RoleOption {
     selected: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct EntitySelectionKey {
+    map_path: String,
+    record_index: usize,
+    block_name: String,
+    classname: Option<String>,
+    targetname: Option<String>,
+}
+
 impl SourceWeaverApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self {
@@ -159,6 +169,7 @@ impl SourceWeaverApp {
             preview_show_solids: true,
             preview_show_entities: true,
             preview_show_grid: true,
+            selected_entity_rows: BTreeSet::new(),
         }
     }
 
@@ -188,6 +199,7 @@ impl SourceWeaverApp {
                 self.selected_map = Some(0);
             }
             self.base_index = self.base_index.min(self.maps.len().saturating_sub(1));
+            self.retain_valid_entity_selections();
             self.clear_merged_preview();
             self.add_status(format!("Added {added} VMF file(s)."));
         }
@@ -198,6 +210,7 @@ impl SourceWeaverApp {
             let path = map.path.clone();
             *map = MapEntry::load(path);
         }
+        self.retain_valid_entity_selections();
         self.clear_merged_preview();
         self.add_status("Re-scanned selected VMFs from disk.");
     }
@@ -206,6 +219,7 @@ impl SourceWeaverApp {
         self.maps.clear();
         self.selected_map = None;
         self.base_index = 0;
+        self.selected_entity_rows.clear();
         self.preview_pan = egui::Vec2::ZERO;
         self.preview_zoom = 1.0;
         self.clear_merged_preview();
@@ -226,6 +240,7 @@ impl SourceWeaverApp {
                 self.selected_map = Some(index.min(self.maps.len() - 1));
                 self.base_index = self.base_index.min(self.maps.len() - 1);
             }
+            self.retain_valid_entity_selections();
             self.clear_merged_preview();
         }
     }
@@ -263,6 +278,27 @@ impl SourceWeaverApp {
         if self.preview_scope == PreviewScope::MergedResult {
             self.preview_scope = PreviewScope::SelectedMap;
         }
+    }
+
+    fn current_entity_selection_keys(&self) -> BTreeSet<EntitySelectionKey> {
+        let mut keys = BTreeSet::new();
+        for entry in &self.maps {
+            let Ok(analysis) = &entry.analysis else {
+                continue;
+            };
+            keys.extend(
+                analysis
+                    .entity_records
+                    .iter()
+                    .map(|record| entity_selection_key(&entry.path, record)),
+            );
+        }
+        keys
+    }
+
+    fn retain_valid_entity_selections(&mut self) {
+        let valid = self.current_entity_selection_keys();
+        self.selected_entity_rows.retain(|key| valid.contains(key));
     }
 
     fn discovered_landmark_options(&self) -> Vec<LandmarkOption> {
@@ -952,7 +988,8 @@ impl SourceWeaverApp {
             return;
         };
 
-        let path = display_path(&entry.path);
+        let entry_path = entry.path.clone();
+        let path = display_path(&entry_path);
         let analysis = entry.analysis.clone();
         match analysis {
             Ok(analysis) => match self.active_table {
@@ -984,7 +1021,12 @@ impl SourceWeaverApp {
                 }
                 TableMode::Entities => {
                     ui.label(&path);
-                    draw_entity_table(ui, &analysis.entity_records);
+                    draw_entity_table(
+                        ui,
+                        &entry_path,
+                        &analysis.entity_records,
+                        &mut self.selected_entity_rows,
+                    );
                 }
                 TableMode::Classnames => {
                     ui.label(&path);
@@ -1249,14 +1291,52 @@ impl PreviewTransform {
     }
 }
 
-fn draw_entity_table(ui: &mut egui::Ui, records: &[EntityRecord]) {
-    ui.label(format!("{} world/entity records", records.len()));
+fn draw_entity_table(
+    ui: &mut egui::Ui,
+    map_path: &Path,
+    records: &[EntityRecord],
+    selected_rows: &mut BTreeSet<EntitySelectionKey>,
+) {
+    let row_keys = records
+        .iter()
+        .map(|record| entity_selection_key(map_path, record))
+        .collect::<Vec<_>>();
+    let current_selected = row_keys
+        .iter()
+        .filter(|key| selected_rows.contains(key))
+        .count();
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label(format!("{} world/entity records", records.len()));
+        ui.separator();
+        ui.label(format!(
+            "{} selected in this map, {} selected total",
+            current_selected,
+            selected_rows.len()
+        ));
+        ui.separator();
+        if ui.button("Select all rows").clicked() {
+            selected_rows.extend(row_keys.iter().cloned());
+        }
+        if ui.button("Clear current map").clicked() {
+            for key in &row_keys {
+                selected_rows.remove(key);
+            }
+        }
+        if ui.button("Clear all selections").clicked() {
+            selected_rows.clear();
+        }
+    });
+
+    ui.weak("Selections are tracked by VMF path, row index, block name, classname, and targetname so later deletion actions can target rows safely.");
+
     egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
         egui::Grid::new("entity_table")
             .striped(true)
-            .num_columns(7)
+            .num_columns(8)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
+                ui.strong("Select");
                 ui.strong("#");
                 ui.strong("Block");
                 ui.strong("Classname");
@@ -1266,7 +1346,15 @@ fn draw_entity_table(ui: &mut egui::Ui, records: &[EntityRecord]) {
                 ui.strong("Roles");
                 ui.end_row();
 
-                for record in records {
+                for (record, key) in records.iter().zip(row_keys.iter()) {
+                    let mut selected = selected_rows.contains(key);
+                    if ui.checkbox(&mut selected, "").changed() {
+                        if selected {
+                            selected_rows.insert(key.clone());
+                        } else {
+                            selected_rows.remove(key);
+                        }
+                    }
                     ui.label(record.index.to_string());
                     ui.label(&record.block_name);
                     ui.label(record.classname.as_deref().unwrap_or("-"));
@@ -1283,6 +1371,16 @@ fn draw_entity_table(ui: &mut egui::Ui, records: &[EntityRecord]) {
                 }
             });
     });
+}
+
+fn entity_selection_key(map_path: &Path, record: &EntityRecord) -> EntitySelectionKey {
+    EntitySelectionKey {
+        map_path: display_path(map_path),
+        record_index: record.index,
+        block_name: record.block_name.clone(),
+        classname: record.classname.clone(),
+        targetname: record.targetname.clone(),
+    }
 }
 
 fn draw_classname_table(ui: &mut egui::Ui, type_counts: &BTreeMap<String, usize>) {
