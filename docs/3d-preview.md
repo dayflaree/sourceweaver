@@ -15,6 +15,16 @@ The 3D preview uses the same `PreviewDocument` data as the 2D views:
 
 This keeps the 3D view consistent with preview/export behavior because it reuses the same parsed VMF and in-memory merge path.
 
+## Preview detail and performance
+
+Large BSPSource-decompiled VMFs can contain thousands of brushes and many more side triangles. Use the preview **Detail** selector to keep interaction responsive:
+
+- **Fast boxes** draws projected brush bounds only.
+- **Auto** keeps full detail for small maps, skips side-edge overlays on medium maps, and switches to boxes for large maps.
+- **Full faces** draws reconstructed faces and side-edge overlays for inspection.
+
+Use **Fast boxes** or **Auto** when previewing combined campaign maps or very large decompiled VMFs.
+
 ## Camera controls
 
 Select **3D iso** in the preview toolbar. The 3D camera controls appear below the view selector:

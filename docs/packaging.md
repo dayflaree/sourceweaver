@@ -12,6 +12,9 @@ sourceweaver-vX.Y.Z-linux-x86_64.tar.gz
 
 The archive contains:
 
+- `SourceWeaver` double-click shell launcher
+- `SourceWeaver.desktop` double-click desktop launcher for file managers that trust executable desktop files
+- `install-linux.sh` user-level app-menu installer
 - `bin/sourceweaver-desktop`
 - `bin/sourceweaver`
 - `share/applications/io.github.dayflaree.SourceWeaver.desktop`
@@ -20,14 +23,23 @@ The archive contains:
 - `README.md`
 - `LICENSE`
 
-Run from the extracted archive:
+Run from the extracted archive by double-clicking `SourceWeaver` or `SourceWeaver.desktop`, or from a terminal:
 
 ```bash
+./SourceWeaver
 ./bin/sourceweaver-desktop
 ./bin/sourceweaver --help
 ```
 
-To install manually, copy `share/applications/io.github.dayflaree.SourceWeaver.desktop` to `~/.local/share/applications/`, copy the icon to `~/.local/share/icons/hicolor/scalable/apps/`, and add the archive's `bin` directory to your `PATH` or edit the desktop entry `Exec=` path.
+Some Linux file managers require right-clicking `SourceWeaver.desktop`, opening Properties, and enabling **Allow executing file as program** before double-click launchers are trusted.
+
+Install into the current user's app menu:
+
+```bash
+./install-linux.sh
+```
+
+The installer copies the package to `${XDG_DATA_HOME:-~/.local/share}/sourceweaver`, installs an application entry under `${XDG_DATA_HOME:-~/.local/share}/applications`, installs the SVG icon, and creates `~/.local/bin/sourceweaver` / `~/.local/bin/sourceweaver-desktop` symlinks.
 
 ### Linux system libraries
 

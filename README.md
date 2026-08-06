@@ -74,6 +74,14 @@ Install the Rust stable toolchain, then run:
 cargo run -p sourceweaver-desktop
 ```
 
+To build a double-clickable Linux package locally:
+
+```bash
+scripts/package-linux.sh v0.1.0-local
+```
+
+Extract the archive under `target/package/`, then double-click `SourceWeaver` or run `./install-linux.sh` to add **Source Weaver** to your user app menu.
+
 Some Linux distributions require desktop GUI development libraries for egui/eframe and native file dialogs. On Debian/Ubuntu-style systems, install the common build dependencies if the GUI stack fails to compile:
 
 ```bash

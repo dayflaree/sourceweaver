@@ -57,6 +57,7 @@ struct SourceWeaverApp {
     preview_show_solids: bool,
     preview_show_entities: bool,
     preview_show_grid: bool,
+    preview_detail_mode: PreviewDetailMode,
     preview_deletion_mode: DeletionPreviewMode,
     selected_entity_rows: BTreeSet<EntitySelectionKey>,
     entity_search: String,
@@ -166,6 +167,13 @@ enum PreviewView {
     Front,
     Side,
     ThreeD,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreviewDetailMode {
+    Fast,
+    Auto,
+    Full,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -356,6 +364,7 @@ impl SourceWeaverApp {
             preview_show_solids: true,
             preview_show_entities: true,
             preview_show_grid: true,
+            preview_detail_mode: PreviewDetailMode::Auto,
             preview_deletion_mode: DeletionPreviewMode::HighlightRemoved,
             selected_entity_rows: BTreeSet::new(),
             entity_search: String::new(),
@@ -2004,6 +2013,26 @@ impl SourceWeaverApp {
             ui.checkbox(&mut self.preview_show_grid, "Grid");
             ui.checkbox(&mut self.preview_show_solids, "Solids");
             ui.checkbox(&mut self.preview_show_entities, "Entities");
+            ui.label("Detail:");
+            egui::ComboBox::from_id_salt("preview_detail_mode")
+                .selected_text(preview_detail_mode_label(self.preview_detail_mode))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.preview_detail_mode,
+                        PreviewDetailMode::Fast,
+                        preview_detail_mode_label(PreviewDetailMode::Fast),
+                    );
+                    ui.selectable_value(
+                        &mut self.preview_detail_mode,
+                        PreviewDetailMode::Auto,
+                        preview_detail_mode_label(PreviewDetailMode::Auto),
+                    );
+                    ui.selectable_value(
+                        &mut self.preview_detail_mode,
+                        PreviewDetailMode::Full,
+                        preview_detail_mode_label(PreviewDetailMode::Full),
+                    );
+                });
             if ui.button("Reset view").clicked() {
                 self.preview_zoom = 1.0;
                 self.preview_pan = egui::Vec2::ZERO;
@@ -2066,6 +2095,11 @@ impl SourceWeaverApp {
             ui.label(format!("{} entity origins", preview.entities.len()));
             ui.separator();
             ui.label(format!("{} landmarks", preview.landmarks.len()));
+            ui.separator();
+            ui.label(format!(
+                "detail: {}",
+                preview_detail_mode_description(self.preview_detail_mode, preview.solids.len())
+            ));
             ui.separator();
             ui.add(egui::Slider::new(&mut self.preview_zoom, 0.1..=12.0).text("Zoom"));
             ui.add(
@@ -2215,9 +2249,13 @@ impl SourceWeaverApp {
                     &painter,
                     &transform,
                     solid,
-                    deletion_overlay_mode,
-                    removed,
-                    selected,
+                    PreviewSolidDrawOptions {
+                        deletion_mode: deletion_overlay_mode,
+                        removed,
+                        selected,
+                        detail_mode: self.preview_detail_mode,
+                        solid_count: preview.solids.len(),
+                    },
                 );
             }
         }
@@ -3091,15 +3129,17 @@ fn draw_preview_solid(
     painter: &egui::Painter,
     transform: &PreviewTransform,
     solid: &PreviewSolid,
-    deletion_mode: DeletionPreviewMode,
-    removed: bool,
-    selected: bool,
+    options: PreviewSolidDrawOptions,
 ) {
     let rect = preview_solid_screen_rect(solid, transform);
+    if !rect.intersects(transform.rect) {
+        return;
+    }
+
     let mut role_color = solid_color(solid);
     let mut fill_color = solid.source_index.map(source_color).unwrap_or(role_color);
-    if removed {
-        match deletion_mode {
+    if options.removed {
+        match options.deletion_mode {
             DeletionPreviewMode::Off | DeletionPreviewMode::HideRemoved => {}
             DeletionPreviewMode::HighlightRemoved => {
                 role_color = egui::Color32::from_rgb(255, 40, 40);
@@ -3113,35 +3153,38 @@ fn draw_preview_solid(
     }
 
     let stroke = egui::Stroke::new(
-        if selected {
+        if options.selected {
             2.5_f32
-        } else if removed {
+        } else if options.removed {
             2.0_f32
         } else {
             1.25_f32
         },
-        if selected {
+        if options.selected {
             egui::Color32::YELLOW
         } else {
             role_color
         },
     );
+    let fill = fill_color.gamma_multiply(if options.removed { 0.32 } else { 0.22 });
+    let draw_faces =
+        should_draw_reconstructed_faces(options.detail_mode, options.solid_count, options.selected);
+    let draw_plane_edges =
+        should_draw_plane_edges(options.detail_mode, options.solid_count, options.selected);
 
-    let drew_reconstructed_faces = draw_reconstructed_faces(
-        painter,
-        transform,
-        solid,
-        fill_color.gamma_multiply(if removed { 0.32 } else { 0.22 }),
-        stroke,
-    );
+    let drew_reconstructed_faces = if draw_faces {
+        draw_reconstructed_faces(painter, transform, solid, fill, stroke)
+    } else {
+        false
+    };
 
-    if !drew_reconstructed_faces && rect.intersects(transform.rect) {
-        painter.rect_filled(
-            rect,
-            0.0,
-            fill_color.gamma_multiply(if removed { 0.32 } else { 0.22 }),
-        );
+    if !drew_reconstructed_faces {
+        painter.rect_filled(rect, 0.0, fill);
         draw_rect_outline(painter, rect, stroke);
+    }
+
+    if !draw_plane_edges {
+        return;
     }
 
     for chunk in solid.points.chunks(3) {
@@ -3163,6 +3206,41 @@ fn draw_preview_solid(
             );
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PreviewSolidDrawOptions {
+    deletion_mode: DeletionPreviewMode,
+    removed: bool,
+    selected: bool,
+    detail_mode: PreviewDetailMode,
+    solid_count: usize,
+}
+
+fn should_draw_reconstructed_faces(
+    detail_mode: PreviewDetailMode,
+    solid_count: usize,
+    selected: bool,
+) -> bool {
+    selected
+        || match detail_mode {
+            PreviewDetailMode::Fast => false,
+            PreviewDetailMode::Auto => solid_count <= 1_200,
+            PreviewDetailMode::Full => true,
+        }
+}
+
+fn should_draw_plane_edges(
+    detail_mode: PreviewDetailMode,
+    solid_count: usize,
+    selected: bool,
+) -> bool {
+    selected
+        || match detail_mode {
+            PreviewDetailMode::Fast => false,
+            PreviewDetailMode::Auto => solid_count <= 350,
+            PreviewDetailMode::Full => true,
+        }
 }
 
 fn draw_reconstructed_faces(
@@ -3442,6 +3520,24 @@ fn deletion_preview_mode_label(mode: DeletionPreviewMode) -> &'static str {
         DeletionPreviewMode::HighlightRemoved => "Highlight removed red",
         DeletionPreviewMode::DimRemoved => "Dim removed",
         DeletionPreviewMode::HideRemoved => "Hide removed",
+    }
+}
+
+fn preview_detail_mode_label(mode: PreviewDetailMode) -> &'static str {
+    match mode {
+        PreviewDetailMode::Fast => "Fast boxes",
+        PreviewDetailMode::Auto => "Auto",
+        PreviewDetailMode::Full => "Full faces",
+    }
+}
+
+fn preview_detail_mode_description(mode: PreviewDetailMode, solid_count: usize) -> &'static str {
+    match mode {
+        PreviewDetailMode::Fast => "bounding boxes only",
+        PreviewDetailMode::Auto if solid_count > 1_200 => "auto fast boxes for large VMF",
+        PreviewDetailMode::Auto if solid_count > 350 => "auto faces, side-edge overlay skipped",
+        PreviewDetailMode::Auto => "auto full detail",
+        PreviewDetailMode::Full => "all faces and side edges",
     }
 }
 
