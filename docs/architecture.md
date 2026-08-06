@@ -112,7 +112,7 @@ The first selected VMF is the base document. For each additional VMF:
 7. Translate incoming brush `plane` values.
 8. Translate displacement `startposition` values when present, including square-bracket VMF displacement syntax.
 9. Adjust `uaxis`/`vaxis` texture offsets to keep textures locked to translated brushes.
-10. Renumber incoming `id` keys.
+10. Renumber incoming `id` keys and remap known ID reference fields.
 11. Append incoming world solids into the base `world` block.
 12. Append incoming top-level entities after existing base nodes.
 
@@ -127,6 +127,10 @@ Campaign suggestion builds a lightweight graph from selected VMF labels and `tri
 ## Source tool validation
 
 The CLI `validate` command loads a VMF, runs integrity checks, optionally executes a configured VBSP command, and parses captured compiler logs. CI uses the portable mode plus fixture logs because hosted Linux/Windows runners do not include Hammer or game-specific Source tool installations.
+
+## ID renumbering
+
+Each incoming map gets an old-to-new ID map during merge. Known reference fields such as `parentid`, `groupid`, `visgroupid`, `sideid`, `solidid`, `entityid`, `nodeid`, and overlay `sides` are rewritten when the old ID has exactly one new target. Ambiguous duplicate old IDs are intentionally left unchanged instead of guessed. See `docs/id-renumbering.md`.
 
 ## Deletion model
 

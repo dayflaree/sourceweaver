@@ -50,6 +50,7 @@ Current capabilities:
 - Guard parser, merge, prune, preview, and automation behavior with VMF fixture/golden regression tests.
 - Translate displacement side planes and `dispinfo` `startposition` values during landmark-aligned moves.
 - Adjust VMF `uaxis`/`vaxis` texture shifts during brush translation to preserve texture-lock behavior.
+- Renumber incoming VMF IDs and remap known ID reference fields during merge.
 
 ## Build and run the desktop app
 
@@ -220,6 +221,8 @@ Known limitations:
 - No FGD-backed property labels yet.
 - No automatic compile pipeline yet.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
+
+Incoming IDs are renumbered during merge and known reference fields are remapped; see `docs/id-renumbering.md`.
 - Very large merged maps can still hit Hammer or Source compiler limits.
 
 ## Design principle

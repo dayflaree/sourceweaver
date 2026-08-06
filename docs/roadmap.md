@@ -46,8 +46,9 @@ Status: implemented.
 - Expand VMF fixtures and golden output regression tests.
 - Harden displacement `startposition` translation with fixture coverage.
 - Adjust texture-axis offsets during brush translation.
+- Remap known VMF ID reference fields during merge renumbering.
 
-Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, visual deletion overlays, preview/table click synchronization, pending cleanup confirmation, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, compiler-log validation, displacement translation hardening, texture-axis translation, and fixture/golden regression tests implemented.
+Status: first native Linux/Windows UI, 2D preview slices, merged-output preview, source-colored preview provenance, landmark markers/offset arrows, visual deletion overlays, preview/table click synchronization, pending cleanup confirmation, landmark warnings, integrity warnings, entity table selection, inspection-table filtering/sorting, safe deletion modes, deletion presets, project save/load, transition detection, campaign-order suggestions, compiler-log validation, displacement translation hardening, texture-axis translation, ID-reference remapping, and fixture/golden regression tests implemented.
 
 ## Milestone 3: Source/Hammer validation
 

@@ -1,7 +1,7 @@
 use crate::integrity::validate_merge_inputs;
 use crate::transform::{Vec3, find_landmark_origin, translate_block};
 use crate::vmf::{Document, Node};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone)]
 pub struct MergeInput {
@@ -80,13 +80,20 @@ pub fn merge_maps(
             }
         }
 
+        let mut id_remap = IdRemap::default();
         for child in &mut incoming_world_children {
             translate_block(child, offset);
-            renumber_ids(child, &mut next_id, &mut used_ids);
+            renumber_ids(child, &mut next_id, &mut used_ids, &mut id_remap);
         }
         for entity in &mut incoming_entities {
             translate_block(entity, offset);
-            renumber_ids(entity, &mut next_id, &mut used_ids);
+            renumber_ids(entity, &mut next_id, &mut used_ids, &mut id_remap);
+        }
+        for child in &mut incoming_world_children {
+            remap_id_references(child, &id_remap);
+        }
+        for entity in &mut incoming_entities {
+            remap_id_references(entity, &id_remap);
         }
 
         let world = base
@@ -149,23 +156,93 @@ fn collect_ids_from_node(node: &Node, ids: &mut BTreeSet<i64>) {
     }
 }
 
-fn renumber_ids(node: &mut Node, next_id: &mut i64, used_ids: &mut BTreeSet<i64>) {
+#[derive(Debug, Default)]
+struct IdRemap {
+    ids: BTreeMap<i64, Vec<i64>>,
+}
+
+impl IdRemap {
+    fn insert(&mut self, old_id: i64, new_id: i64) {
+        self.ids.entry(old_id).or_default().push(new_id);
+    }
+
+    fn unique(&self, old_id: i64) -> Option<i64> {
+        let new_ids = self.ids.get(&old_id)?;
+        (new_ids.len() == 1).then_some(new_ids[0])
+    }
+}
+
+fn renumber_ids(
+    node: &mut Node,
+    next_id: &mut i64,
+    used_ids: &mut BTreeSet<i64>,
+    id_remap: &mut IdRemap,
+) {
     match node {
         Node::Property { key, value } if key == "id" => {
+            let old_id = value.parse::<i64>().ok();
             while used_ids.contains(next_id) {
                 *next_id = next_id.saturating_add(1);
             }
-            *value = next_id.to_string();
-            used_ids.insert(*next_id);
+            let new_id = *next_id;
+            *value = new_id.to_string();
+            used_ids.insert(new_id);
+            if let Some(old_id) = old_id {
+                id_remap.insert(old_id, new_id);
+            }
             *next_id = next_id.saturating_add(1);
         }
         Node::Block { body, .. } => {
             for child in body {
-                renumber_ids(child, next_id, used_ids);
+                renumber_ids(child, next_id, used_ids, id_remap);
             }
         }
         _ => {}
     }
+}
+
+fn remap_id_references(node: &mut Node, id_remap: &IdRemap) {
+    match node {
+        Node::Property { key, value } if is_single_id_reference_key(key) => {
+            if let Ok(old_id) = value.parse::<i64>() {
+                if let Some(new_id) = id_remap.unique(old_id) {
+                    *value = new_id.to_string();
+                }
+            }
+        }
+        Node::Property { key, value } if key == "sides" => {
+            let mut changed = false;
+            let remapped = value
+                .split_whitespace()
+                .map(|part| match part.parse::<i64>() {
+                    Ok(old_id) => match id_remap.unique(old_id) {
+                        Some(new_id) => {
+                            changed = true;
+                            new_id.to_string()
+                        }
+                        None => part.to_string(),
+                    },
+                    Err(_) => part.to_string(),
+                })
+                .collect::<Vec<_>>();
+            if changed {
+                *value = remapped.join(" ");
+            }
+        }
+        Node::Block { body, .. } => {
+            for child in body {
+                remap_id_references(child, id_remap);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_single_id_reference_key(key: &str) -> bool {
+    matches!(
+        key,
+        "parentid" | "groupid" | "visgroupid" | "sideid" | "solidid" | "entityid" | "nodeid"
+    )
 }
 
 #[cfg(test)]
@@ -210,5 +287,93 @@ entity { "id" "5" "classname" "prop_static" "origin" "128 0 0" }
         assert_eq!(report.appended_entities, 2);
         let vmf = merged.to_vmf_string();
         assert!(vmf.contains("\"origin\" \"28 0 0\""));
+    }
+
+    #[test]
+    fn remaps_known_id_references_after_renumbering() {
+        let base = parse_document(r#"world { "id" "100" }"#).unwrap();
+        let add = parse_document(
+            r#"
+world {
+  "id" "1"
+  solid {
+    "id" "10"
+    side { "id" "11" "plane" "(0 0 0) (1 0 0) (1 1 0)" }
+    editor { "groupid" "20" "visgroupid" "30" }
+  }
+}
+entity { "id" "20" "classname" "func_detail" "parentid" "10" solid { "id" "21" side { "id" "22" "plane" "(0 0 0) (1 0 0) (1 1 0)" } } }
+entity { "id" "31" "classname" "info_overlay" "sides" "11 22 999" "sideid" "11" "solidid" "10" "entityid" "20" "nodeid" "21" "visgroupid" "30" }
+"#,
+        )
+        .unwrap();
+
+        let (merged, _) = merge_maps(
+            vec![
+                MergeInput {
+                    label: "base".into(),
+                    document: base,
+                },
+                MergeInput {
+                    label: "add".into(),
+                    document: add,
+                },
+            ],
+            &MergeOptions::default(),
+        )
+        .unwrap();
+
+        let vmf = merged.to_vmf_string();
+        assert!(vmf.contains("\"id\" \"101\""));
+        assert!(vmf.contains("\"id\" \"102\""));
+        assert!(vmf.contains("\"id\" \"103\""));
+        assert!(vmf.contains("\"id\" \"104\""));
+        assert!(vmf.contains("\"id\" \"105\""));
+        assert!(vmf.contains("\"id\" \"106\""));
+        assert!(vmf.contains("\"groupid\" \"103\""));
+        assert!(vmf.contains("\"parentid\" \"101\""));
+        assert!(vmf.contains("\"sides\" \"102 105 999\""));
+        assert!(vmf.contains("\"sideid\" \"102\""));
+        assert!(vmf.contains("\"solidid\" \"101\""));
+        assert!(vmf.contains("\"entityid\" \"103\""));
+        assert!(vmf.contains("\"nodeid\" \"104\""));
+        assert!(vmf.contains("\"visgroupid\" \"30\""));
+    }
+
+    #[test]
+    fn leaves_ambiguous_duplicate_id_references_unmapped() {
+        let base = parse_document(r#"world { "id" "100" }"#).unwrap();
+        let add = parse_document(
+            r#"
+world {
+  "id" "1"
+  solid { "id" "10" side { "id" "11" "plane" "(0 0 0) (1 0 0) (1 1 0)" } }
+  solid { "id" "12" side { "id" "11" "plane" "(0 0 2) (1 0 2) (1 1 2)" } }
+}
+entity { "id" "20" "classname" "info_overlay" "sides" "11" "sideid" "11" }
+"#,
+        )
+        .unwrap();
+
+        let (merged, _) = merge_maps(
+            vec![
+                MergeInput {
+                    label: "base".into(),
+                    document: base,
+                },
+                MergeInput {
+                    label: "add".into(),
+                    document: add,
+                },
+            ],
+            &MergeOptions::default(),
+        )
+        .unwrap();
+
+        let vmf = merged.to_vmf_string();
+        assert!(vmf.contains("\"id\" \"102\""));
+        assert!(vmf.contains("\"id\" \"104\""));
+        assert!(vmf.contains("\"sides\" \"11\""));
+        assert!(vmf.contains("\"sideid\" \"11\""));
     }
 }

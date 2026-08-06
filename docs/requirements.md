@@ -57,6 +57,10 @@ Landmark-aligned translation must move displacement-bearing brush sides consiste
 
 Landmark-aligned brush translation must preserve texture-lock behavior for VMF side axes. When translating a brush by offset `t`, `uaxis` and `vaxis` shift values must be adjusted by `-dot(axis_vector, t)` while preserving axis vectors and scale values. Fixture tests must cover positive and negative axes.
 
+## ID references
+
+Merge renumbering must keep known VMF ID references consistent. Incoming `id` keys must be renumbered to avoid base-map collisions, and known reference keys such as `parentid`, `groupid`, `visgroupid`, `sideid`, `solidid`, `entityid`, `nodeid`, and overlay `sides` must be rewritten when the old ID maps uniquely to a new ID. Ambiguous duplicate old IDs must not be guessed; they should remain visible through integrity warnings and documented behavior.
+
 ### Skybox preservation
 
 World solids from incoming maps must be appended to the base map, including brushes using skybox tool materials. This ensures each selected map can contribute its skybox shell.
