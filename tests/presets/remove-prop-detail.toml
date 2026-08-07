@@ -1,0 +1,6 @@
+name = "Remove prop_detail"
+description = "Drops prop_detail entities while preserving critical gameplay entities."
+
+[delete]
+classnames = ["prop_detail"]
+protect_critical_entities = true

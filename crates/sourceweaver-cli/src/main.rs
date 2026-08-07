@@ -2802,6 +2802,8 @@ struct CampaignPlanStep {
     #[serde(default)]
     preserve_external_transition: Vec<ChangelevelPreserveRuleConfig>,
     #[serde(default)]
+    delete_preset: Option<PathBuf>,
+    #[serde(default)]
     delete: DeleteConfig,
 }
 
@@ -2856,6 +2858,7 @@ fn execute_campaign_plan(
             changelevel_policy: step.changelevel_policy.clone(),
             changelevel_scope: step.changelevel_scope.clone(),
             preserve_external_transition: step.preserve_external_transition.clone(),
+            delete_preset: step.delete_preset.clone(),
             delete: step.delete.clone(),
             dry_run: plan.dry_run,
             report: step.report.clone(),
@@ -2934,6 +2937,8 @@ struct AutomationJob {
     #[serde(default)]
     preserve_external_transition: Vec<ChangelevelPreserveRuleConfig>,
     #[serde(default)]
+    delete_preset: Option<PathBuf>,
+    #[serde(default)]
     delete: DeleteConfig,
     #[serde(default)]
     dry_run: bool,
@@ -2952,7 +2957,7 @@ struct ChangelevelPreserveRuleConfig {
     targetname: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DeleteConfig {
     #[serde(default)]
@@ -2969,6 +2974,16 @@ struct DeleteConfig {
     protect_critical_entities: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct CustomDeletionPresetFile {
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    delete: DeleteConfig,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct AutomationReport {
     operation: String,
@@ -2978,6 +2993,7 @@ struct AutomationReport {
     base: String,
     inputs: Vec<String>,
     landmark: Option<String>,
+    deletion_preset: Option<String>,
     deletion: DeletionSnapshot,
     per_map: Vec<MapJobReport>,
     integrity: IntegritySnapshot,
@@ -3527,7 +3543,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         return Err("job needs `output` unless dry_run is true".to_string());
     }
 
-    let criteria = criteria_from_delete_config(&job.delete)?;
+    let (criteria, delete_preset_path) = criteria_from_job_delete_config(job, base_dir)?;
     let base_path = resolve_job_path(base_dir, &job.base);
     let mut map_paths = vec![base_path.clone()];
     map_paths.extend(
@@ -3683,6 +3699,9 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
             .landmark
             .clone()
             .filter(|value| !value.trim().is_empty()),
+        deletion_preset: delete_preset_path
+            .as_ref()
+            .map(|path| path.display().to_string()),
         deletion: DeletionSnapshot {
             classnames: sorted_strings(criteria.classnames.iter()),
             targetnames: sorted_strings(criteria.targetnames.iter()),
@@ -3717,6 +3736,37 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         result_entity_types,
         result_entity_records,
     })
+}
+
+fn criteria_from_job_delete_config(
+    job: &AutomationJob,
+    base_dir: &Path,
+) -> Result<(DeletionCriteria, Option<PathBuf>), String> {
+    let Some(preset_path) = &job.delete_preset else {
+        return Ok((criteria_from_delete_config(&job.delete)?, None));
+    };
+    let resolved = resolve_job_path(base_dir, preset_path);
+    let text = fs::read_to_string(&resolved).map_err(|error| {
+        format!(
+            "failed to read deletion preset {}: {error}",
+            resolved.display()
+        )
+    })?;
+    let preset: CustomDeletionPresetFile = toml::from_str(&text).map_err(|error| {
+        format!(
+            "failed to parse deletion preset {}: {error}",
+            resolved.display()
+        )
+    })?;
+    let mut criteria = criteria_from_delete_config(&preset.delete)?;
+    let extra = criteria_from_delete_config(&job.delete)?;
+    criteria.classnames.extend(extra.classnames);
+    criteria.targetnames.extend(extra.targetnames);
+    criteria.brush_roles.extend(extra.brush_roles);
+    criteria.drop_all_entities |= extra.drop_all_entities;
+    criteria.protect_critical_entities = extra.protect_critical_entities;
+    criteria.brush_entity_mode = extra.brush_entity_mode;
+    Ok((criteria, Some(resolved)))
 }
 
 fn criteria_from_delete_config(delete: &DeleteConfig) -> Result<DeletionCriteria, String> {

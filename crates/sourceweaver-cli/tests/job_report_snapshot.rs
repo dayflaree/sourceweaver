@@ -534,6 +534,37 @@ fn campaign_run_help_mentions_plan_and_dry_run() {
     assert!(stdout.contains("Dry-run"), "{stdout}");
 }
 
+#[test]
+fn job_applies_custom_deletion_preset() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["run", "--job", "tests/jobs/deletion-preset.toml"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        report["deletion_preset"]
+            .as_str()
+            .unwrap()
+            .contains("remove-prop-detail.toml")
+    );
+    assert_eq!(
+        report["deletion"]["classnames"],
+        serde_json::json!(["prop_detail"])
+    );
+    assert_eq!(report["deletion"]["removed_entities"], 1);
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

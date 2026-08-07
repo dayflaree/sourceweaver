@@ -31,6 +31,8 @@ brush_entity_mode = "whole-entity"
 protect_critical_entities = true
 ```
 
+Jobs can also reference a reusable cleanup preset with `delete_preset = "path/to/preset.toml"`. Preset files use the same `[delete]` table shape and are documented in `docs/deletion-presets.md`.
+
 Relative paths are resolved from the directory containing the job file. This makes jobs portable inside project folders. The desktop app can save and load the same project/job shape: UI-created files include `base`, `inputs`, `output`, `landmark`, `changelevel_policy`, and `[delete]` fields that are compatible with `sourceweaver run --job` where possible.
 
 ## Run a job

@@ -1,0 +1,7 @@
+base = "../fixtures/deletion_preset.vmf"
+output = "../../target/test-output/deletion_preset.vmf"
+delete_preset = "../presets/remove-prop-detail.toml"
+dry_run = true
+
+[delete]
+protect_critical_entities = true

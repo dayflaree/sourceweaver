@@ -44,6 +44,7 @@
     ],
     "targetnames": []
   },
+  "deletion_preset": null,
   "dry_run": true,
   "inputs": [
     "tests/jobs/../fixtures/incoming.vmf"

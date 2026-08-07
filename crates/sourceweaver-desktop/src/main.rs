@@ -54,6 +54,9 @@ struct SourceWeaverApp {
     drop_all_entities: bool,
     brush_entity_mode: BrushEntityDeletionMode,
     protect_critical_entities: bool,
+    custom_delete_preset_name: String,
+    custom_delete_preset_description: String,
+    custom_delete_preset_path: String,
     pending_deletion_review: Option<PendingDeletionReview>,
     cleanup_export_confirmed: bool,
     status: Vec<String>,
@@ -538,6 +541,16 @@ struct ProjectFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ProjectDeletionPresetFile {
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    delete: ProjectDeleteConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ProjectDeleteConfig {
     #[serde(default)]
     classnames: Vec<String>,
@@ -654,6 +667,9 @@ impl SourceWeaverApp {
             drop_all_entities: false,
             brush_entity_mode: BrushEntityDeletionMode::WholeEntity,
             protect_critical_entities: true,
+            custom_delete_preset_name: String::new(),
+            custom_delete_preset_description: String::new(),
+            custom_delete_preset_path: String::new(),
             pending_deletion_review: None,
             cleanup_export_confirmed: false,
             status: vec!["Ready. Add VMF files to inspect or merge.".to_string()],
@@ -1148,6 +1164,97 @@ impl SourceWeaverApp {
         self.pending_deletion_review = None;
         self.cleanup_export_confirmed = false;
         self.clear_merged_preview();
+    }
+
+    fn save_custom_deletion_preset(&mut self) {
+        let Some(path) = blank_to_none(&self.custom_delete_preset_path).map(PathBuf::from) else {
+            self.add_status("Set a deletion preset path before saving/exporting.");
+            return;
+        };
+        let Some(name) = blank_to_none(&self.custom_delete_preset_name) else {
+            self.add_status("Set a deletion preset name before saving/exporting.");
+            return;
+        };
+        let preset = ProjectDeletionPresetFile {
+            name,
+            description: blank_to_none(&self.custom_delete_preset_description),
+            delete: ProjectDeleteConfig::from_criteria(&self.build_deletion_criteria()),
+        };
+        let text = match toml::to_string_pretty(&preset) {
+            Ok(text) => text,
+            Err(error) => {
+                self.add_status(format!("Failed to encode deletion preset TOML: {error}"));
+                return;
+            }
+        };
+        if let Some(parent) = path.parent() {
+            match fs::create_dir_all(parent) {
+                Ok(()) => {}
+                Err(error) => {
+                    self.add_status(format!(
+                        "Failed to create deletion preset directory {}: {error}",
+                        parent.display()
+                    ));
+                    return;
+                }
+            }
+        }
+        match fs::write(&path, text) {
+            Ok(()) => self.add_status(format!(
+                "Saved deletion preset `{}` to {}.",
+                preset.name,
+                path.display()
+            )),
+            Err(error) => self.add_status(format!(
+                "Failed to write deletion preset {}: {error}",
+                path.display()
+            )),
+        }
+    }
+
+    fn load_custom_deletion_preset(&mut self) {
+        let Some(path) = blank_to_none(&self.custom_delete_preset_path).map(PathBuf::from) else {
+            self.add_status("Set a deletion preset path before loading/importing.");
+            return;
+        };
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) => {
+                self.add_status(format!(
+                    "Failed to read deletion preset {}: {error}",
+                    path.display()
+                ));
+                return;
+            }
+        };
+        let preset = match toml::from_str::<ProjectDeletionPresetFile>(&text) {
+            Ok(preset) => preset,
+            Err(error) => {
+                self.add_status(format!(
+                    "Failed to parse deletion preset {}: {error}",
+                    path.display()
+                ));
+                return;
+            }
+        };
+        let criteria = match preset.delete.to_criteria() {
+            Ok(criteria) => criteria,
+            Err(error) => {
+                self.add_status(format!(
+                    "Deletion preset `{}` has invalid criteria: {error}",
+                    preset.name
+                ));
+                return;
+            }
+        };
+        self.custom_delete_preset_name = preset.name.clone();
+        self.custom_delete_preset_description = preset.description.clone().unwrap_or_default();
+        self.apply_deletion_criteria_to_controls(criteria);
+        self.add_status(format!(
+            "Loaded deletion preset `{}` from {}. Preview deletion to verify counts before export.",
+            preset.name,
+            path.display()
+        ));
     }
 
     fn require_cleanup_confirmation(&mut self, criteria: &DeletionCriteria) -> bool {
@@ -3697,6 +3804,28 @@ impl SourceWeaverApp {
                     ));
                 });
             }
+        });
+
+        ui.collapsing("Custom deletion presets", |ui| {
+            ui.weak("Custom presets use the same [delete] TOML fields as CLI jobs and desktop projects. Save/export current filters or load/import a preset file, then preview deletion before export.");
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Name:");
+                ui.add(egui::TextEdit::singleline(&mut self.custom_delete_preset_name).desired_width(180.0));
+                ui.label("Path:");
+                ui.add(egui::TextEdit::singleline(&mut self.custom_delete_preset_path).desired_width(320.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Description:");
+                ui.add(egui::TextEdit::singleline(&mut self.custom_delete_preset_description).desired_width(f32::INFINITY));
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Save/export current preset").clicked() {
+                    self.save_custom_deletion_preset();
+                }
+                if ui.button("Load/import preset").clicked() {
+                    self.load_custom_deletion_preset();
+                }
+            });
         });
 
         egui::Grid::new("cleanup_grid")

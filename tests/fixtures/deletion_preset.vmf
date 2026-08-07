@@ -1,0 +1,26 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "prop_detail"
+	"targetname" "drop_me"
+	"origin" "0 0 0"
+}
+entity
+{
+	"id" "3"
+	"classname" "info_player_start"
+	"targetname" "keep_me"
+	"origin" "64 0 0"
+}
