@@ -43,6 +43,7 @@
 - BSPZIP/BSPZIP++ context profiles, wrapper examples, and pack CLI fields for tool working directories, LD_LIBRARY_PATH, and explicit wrapper-compatible `-game` forwarding.
 - External `model-decompile` headless-wrapper runner with placeholder argument expansion, log capture, output discovery, structured reports, and documented Crowbar bundling/validation boundary.
 - Native `model-inspect` bodypart/model/mesh metadata parsing for supported Source MDL layouts with version-aware warnings and synthetic fixture coverage.
+- Native `model-inspect` local animation and sequence descriptor metadata parsing for supported Source MDL layouts, without deep animation-frame decoding.
 
 ### Changed
 

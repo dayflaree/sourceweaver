@@ -2337,7 +2337,12 @@ fn model_inspect_parses_synthetic_source_mdl_mesh_metadata() {
         report["mesh_metadata"]["bodyparts"][0]["models"][1]["meshes"][0]["material"],
         9
     );
-    assert!(report["warnings"].as_array().unwrap().is_empty());
+    assert!(
+        report["mesh_metadata"]["errors"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
@@ -2382,6 +2387,209 @@ fn model_inspect_warns_for_unsupported_mdl_mesh_version() {
             .unwrap()
             .iter()
             .any(|warning| warning.as_str().unwrap().contains("versions 44-49"))
+    );
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn model_inspect_parses_synthetic_source_mdl_animation_sequence_metadata() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn put_i32(data: &mut [u8], offset: usize, value: i32) {
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_f32(data: &mut [u8], offset: usize, value: f32) {
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_name64(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    fn put_cstring(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+        data[offset + bytes.len()] = 0;
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-animation-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let mdl_path = temp_dir.join("synthetic_animation_sequences.mdl");
+
+    let mut data = vec![0_u8; 1400];
+    data[0..4].copy_from_slice(b"IDST");
+    put_i32(&mut data, 4, 48);
+    put_i32(&mut data, 8, 98765);
+    put_name64(&mut data, 12, "synthetic/animation_fixture.mdl");
+    let data_len = data.len() as i32;
+    put_i32(&mut data, 76, data_len);
+    put_i32(&mut data, 180, 2);
+    put_i32(&mut data, 184, 300);
+    put_i32(&mut data, 188, 2);
+    put_i32(&mut data, 192, 600);
+    put_i32(&mut data, 232, 0);
+    put_i32(&mut data, 236, 0);
+
+    let anim0 = 300;
+    put_i32(&mut data, anim0 + 4, 700);
+    put_f32(&mut data, anim0 + 8, 30.0);
+    put_i32(&mut data, anim0 + 12, 1);
+    put_i32(&mut data, anim0 + 16, 90);
+    put_i32(&mut data, anim0 + 20, 2);
+    put_i32(&mut data, anim0 + 24, 0);
+    put_i32(&mut data, anim0 + 52, 0);
+    put_i32(&mut data, anim0 + 56, 512);
+    put_i32(&mut data, anim0 + 60, 1);
+    put_i32(&mut data, anim0 + 84, 0);
+
+    let anim1 = 400;
+    put_i32(&mut data, anim1 + 4, 620);
+    put_f32(&mut data, anim1 + 8, 24.0);
+    put_i32(&mut data, anim1 + 12, 0);
+    put_i32(&mut data, anim1 + 16, 45);
+    put_i32(&mut data, anim1 + 20, 0);
+    put_i32(&mut data, anim1 + 24, 0);
+    put_i32(&mut data, anim1 + 52, 1);
+    put_i32(&mut data, anim1 + 56, 600);
+    put_i32(&mut data, anim1 + 60, 0);
+    put_i32(&mut data, anim1 + 84, 10);
+
+    let seq0 = 600;
+    put_i32(&mut data, seq0 + 4, 500);
+    put_i32(&mut data, seq0 + 8, 520);
+    put_i32(&mut data, seq0 + 12, 4);
+    put_i32(&mut data, seq0 + 16, 5);
+    put_i32(&mut data, seq0 + 20, 10);
+    put_i32(&mut data, seq0 + 24, 2);
+    put_i32(&mut data, seq0 + 56, 1);
+    put_i32(&mut data, seq0 + 68, 1);
+    put_i32(&mut data, seq0 + 72, 1);
+    put_f32(&mut data, seq0 + 104, 0.2);
+    put_f32(&mut data, seq0 + 108, 0.3);
+    put_f32(&mut data, seq0 + 132, 89.0);
+    put_i32(&mut data, seq0 + 136, -1);
+    put_i32(&mut data, seq0 + 140, 0);
+    put_i32(&mut data, seq0 + 144, 1);
+    put_i32(&mut data, seq0 + 148, 2);
+    put_i32(&mut data, seq0 + 164, 1);
+    put_i32(&mut data, seq0 + 176, 12);
+    put_i32(&mut data, seq0 + 188, 1);
+
+    let seq1 = 812;
+    put_i32(&mut data, seq1 + 4, 328);
+    put_i32(&mut data, seq1 + 8, 348);
+    put_i32(&mut data, seq1 + 12, 0);
+    put_i32(&mut data, seq1 + 16, 7);
+    put_i32(&mut data, seq1 + 20, 1);
+    put_i32(&mut data, seq1 + 24, 0);
+    put_i32(&mut data, seq1 + 56, 2);
+    put_i32(&mut data, seq1 + 68, 2);
+    put_i32(&mut data, seq1 + 72, 1);
+    put_f32(&mut data, seq1 + 104, 0.1);
+    put_f32(&mut data, seq1 + 108, 0.1);
+    put_f32(&mut data, seq1 + 132, 44.0);
+    put_i32(&mut data, seq1 + 136, -1);
+    put_i32(&mut data, seq1 + 140, 1);
+    put_i32(&mut data, seq1 + 144, 0);
+    put_i32(&mut data, seq1 + 148, 0);
+    put_i32(&mut data, seq1 + 164, 0);
+    put_i32(&mut data, seq1 + 176, 0);
+    put_i32(&mut data, seq1 + 188, 0);
+
+    put_cstring(&mut data, 1000, "idle_anim");
+    put_cstring(&mut data, 1020, "walk_anim");
+    put_cstring(&mut data, 1100, "idle_sequence");
+    put_cstring(&mut data, 1120, "ACT_IDLE");
+    put_cstring(&mut data, 1140, "walk_sequence");
+    put_cstring(&mut data, 1160, "ACT_WALK");
+
+    std::fs::write(&mdl_path, data).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args(["model-inspect", mdl_path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["animation_metadata"]["supported_version"], true);
+    assert_eq!(report["animation_metadata"]["num_local_animations"], 2);
+    assert_eq!(report["animation_metadata"]["local_animation_index"], 300);
+    assert_eq!(report["animation_metadata"]["num_local_sequences"], 2);
+    assert_eq!(report["animation_metadata"]["local_sequence_index"], 600);
+    assert_eq!(
+        report["animation_metadata"]["animations"][0]["name"],
+        "idle_anim"
+    );
+    assert_eq!(report["animation_metadata"]["animations"][0]["fps"], 30.0);
+    assert_eq!(
+        report["animation_metadata"]["animations"][0]["num_frames"],
+        90
+    );
+    assert_eq!(
+        report["animation_metadata"]["animations"][1]["name"],
+        "walk_anim"
+    );
+    assert_eq!(
+        report["animation_metadata"]["animations"][1]["anim_block"],
+        1
+    );
+    assert_eq!(
+        report["animation_metadata"]["animations"][1]["section_frames"],
+        10
+    );
+    assert_eq!(
+        report["animation_metadata"]["sequences"][0]["label"],
+        "idle_sequence"
+    );
+    assert_eq!(
+        report["animation_metadata"]["sequences"][0]["activity_name"],
+        "ACT_IDLE"
+    );
+    assert_eq!(report["animation_metadata"]["sequences"][0]["activity"], 5);
+    assert_eq!(
+        report["animation_metadata"]["sequences"][0]["activity_weight"],
+        10
+    );
+    assert_eq!(
+        report["animation_metadata"]["sequences"][0]["num_events"],
+        2
+    );
+    assert_eq!(
+        report["animation_metadata"]["sequences"][0]["num_auto_layers"],
+        2
+    );
+    assert_eq!(
+        report["animation_metadata"]["sequences"][1]["label"],
+        "walk_sequence"
+    );
+    assert_eq!(
+        report["animation_metadata"]["sequences"][1]["activity_name"],
+        "ACT_WALK"
+    );
+    assert_eq!(
+        report["animation_metadata"]["sequences"][1]["groupsize_x"],
+        2
+    );
+    assert!(
+        report["animation_metadata"]["errors"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
 
     let _ = std::fs::remove_dir_all(temp_dir);

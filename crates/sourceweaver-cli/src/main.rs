@@ -1784,6 +1784,10 @@ fn model_inspect_command(args: &[String]) -> Result<(), String> {
             println!("meshes: {}", mesh.total_meshes);
             println!("mesh vertices: {}", mesh.total_vertices);
         }
+        if let Some(animation) = &report.animation_metadata {
+            println!("local animations: {}", animation.num_local_animations);
+            println!("local sequences: {}", animation.num_local_sequences);
+        }
         for warning in &report.warnings {
             println!("warning\t{warning}");
         }
@@ -1915,10 +1919,10 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
     let file_size = data.len();
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
-    let (header, mesh_metadata) = if data.len() < 80 {
+    let (header, mesh_metadata, animation_metadata) = if data.len() < 80 {
         errors
             .push("file is too small to contain a Source/GoldSource MDL header prefix".to_string());
-        (None, None)
+        (None, None, None)
     } else {
         let magic = String::from_utf8_lossy(&data[0..4]).to_string();
         if !matches!(magic.as_str(), "IDST" | "IDSQ") {
@@ -1947,6 +1951,16 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
                 metadata.warnings.dedup();
                 metadata
             });
+        let animation_metadata =
+            inspect_mdl_animation_metadata(&data, &magic, version).map(|mut metadata| {
+                warnings.extend(metadata.warnings.iter().cloned());
+                if !metadata.errors.is_empty() {
+                    warnings.extend(metadata.errors.iter().cloned());
+                }
+                metadata.warnings.sort();
+                metadata.warnings.dedup();
+                metadata
+            });
         (
             Some(MdlHeaderSnapshot {
                 magic,
@@ -1957,6 +1971,7 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
                 supported_magic: matches!(&data[0..4], b"IDST" | b"IDSQ"),
             }),
             mesh_metadata,
+            animation_metadata,
         )
     };
     warnings.sort();
@@ -1967,6 +1982,7 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
         file_size,
         header,
         mesh_metadata,
+        animation_metadata,
         warnings,
         errors,
     })
@@ -2210,6 +2226,197 @@ fn inspect_mdl_mesh_metadata(
     })
 }
 
+fn inspect_mdl_animation_metadata(
+    data: &[u8],
+    magic: &str,
+    version: i32,
+) -> Option<MdlAnimationMetadataSnapshot> {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    if magic != "IDST" {
+        return Some(MdlAnimationMetadataSnapshot {
+            supported_version: false,
+            source_layout: "Source studiohdr_t animation/sequence parsing requires IDST MDL data"
+                .to_string(),
+            num_local_animations: 0,
+            local_animation_index: 0,
+            num_local_sequences: 0,
+            local_sequence_index: 0,
+            animations: Vec::new(),
+            sequences: Vec::new(),
+            warnings: vec![format!(
+                "animation metadata parsing skipped for MDL magic `{magic}`; expected Source IDST"
+            )],
+            errors,
+        });
+    }
+    let supported_version = (44..=49).contains(&version);
+    if !supported_version {
+        warnings.push(format!(
+            "animation metadata parsing is version-aware for Source MDL versions 44-49; version {version} is reported as unsupported"
+        ));
+        return Some(MdlAnimationMetadataSnapshot {
+            supported_version,
+            source_layout: "unsupported Source MDL version; header prefix only".to_string(),
+            num_local_animations: 0,
+            local_animation_index: 0,
+            num_local_sequences: 0,
+            local_sequence_index: 0,
+            animations: Vec::new(),
+            sequences: Vec::new(),
+            warnings,
+            errors,
+        });
+    }
+    if data.len() < STUDIOHDR_EVENTS_INDEXED_OFFSET + 4 {
+        warnings.push(
+            "file is too small to contain Source studiohdr_t local animation/sequence fields"
+                .to_string(),
+        );
+        return Some(MdlAnimationMetadataSnapshot {
+            supported_version,
+            source_layout: "Source SDK 2013 studiohdr_t animation/sequence offsets".to_string(),
+            num_local_animations: 0,
+            local_animation_index: 0,
+            num_local_sequences: 0,
+            local_sequence_index: 0,
+            animations: Vec::new(),
+            sequences: Vec::new(),
+            warnings,
+            errors,
+        });
+    }
+    let num_local_animations = read_i32_le(data, STUDIOHDR_NUM_LOCAL_ANIM_OFFSET);
+    let local_animation_index = read_i32_le(data, STUDIOHDR_LOCAL_ANIM_INDEX_OFFSET);
+    let num_local_sequences = read_i32_le(data, STUDIOHDR_NUM_LOCAL_SEQ_OFFSET);
+    let local_sequence_index = read_i32_le(data, STUDIOHDR_LOCAL_SEQ_INDEX_OFFSET);
+    if num_local_animations < 0 || local_animation_index < 0 {
+        errors.push(format!(
+            "invalid local animation table fields: count={num_local_animations} index={local_animation_index}"
+        ));
+    }
+    if num_local_sequences < 0 || local_sequence_index < 0 {
+        errors.push(format!(
+            "invalid local sequence table fields: count={num_local_sequences} index={local_sequence_index}"
+        ));
+    }
+    let mut animations = Vec::new();
+    if errors.is_empty() {
+        if num_local_animations == 0 {
+            warnings.push("model declares zero local animations".to_string());
+        } else if !range_fits(
+            data.len(),
+            local_animation_index as usize,
+            num_local_animations as usize,
+            MSTUDIO_ANIMDESC_SIZE,
+        ) {
+            errors.push(format!(
+                "local animation table is out of bounds: index={local_animation_index} count={num_local_animations} entry_size={MSTUDIO_ANIMDESC_SIZE} file_size={}",
+                data.len()
+            ));
+        } else {
+            for animation_ordinal in 0..num_local_animations as usize {
+                let offset =
+                    local_animation_index as usize + animation_ordinal * MSTUDIO_ANIMDESC_SIZE;
+                let name_index = read_i32_le(data, offset + 4);
+                let name = read_relative_cstring(data, offset, name_index).unwrap_or_else(|| {
+                    warnings.push(format!(
+                        "local animation {animation_ordinal} name index {name_index} is out of bounds"
+                    ));
+                    String::new()
+                });
+                animations.push(MdlAnimationSnapshot {
+                    index: animation_ordinal as i32,
+                    offset,
+                    name,
+                    fps: read_f32_le(data, offset + 8),
+                    flags: read_i32_le(data, offset + 12),
+                    num_frames: read_i32_le(data, offset + 16),
+                    num_movements: read_i32_le(data, offset + 20),
+                    movement_index: read_i32_le(data, offset + 24),
+                    anim_block: read_i32_le(data, offset + 52),
+                    anim_index: read_i32_le(data, offset + 56),
+                    num_ik_rules: read_i32_le(data, offset + 60),
+                    section_frames: read_i32_le(data, offset + 84),
+                });
+            }
+        }
+    }
+    let mut sequences = Vec::new();
+    if errors.is_empty() {
+        if num_local_sequences == 0 {
+            warnings.push("model declares zero local sequences".to_string());
+        } else if !range_fits(
+            data.len(),
+            local_sequence_index as usize,
+            num_local_sequences as usize,
+            MSTUDIO_SEQDESC_SIZE,
+        ) {
+            errors.push(format!(
+                "local sequence table is out of bounds: index={local_sequence_index} count={num_local_sequences} entry_size={MSTUDIO_SEQDESC_SIZE} file_size={}",
+                data.len()
+            ));
+        } else {
+            for sequence_ordinal in 0..num_local_sequences as usize {
+                let offset =
+                    local_sequence_index as usize + sequence_ordinal * MSTUDIO_SEQDESC_SIZE;
+                let label_index = read_i32_le(data, offset + 4);
+                let activity_name_index = read_i32_le(data, offset + 8);
+                let label = read_relative_cstring(data, offset, label_index).unwrap_or_else(|| {
+                    warnings.push(format!(
+                        "local sequence {sequence_ordinal} label index {label_index} is out of bounds"
+                    ));
+                    String::new()
+                });
+                let activity_name =
+                    read_relative_cstring(data, offset, activity_name_index).unwrap_or_else(|| {
+                        warnings.push(format!(
+                            "local sequence {sequence_ordinal} activity name index {activity_name_index} is out of bounds"
+                        ));
+                        String::new()
+                    });
+                sequences.push(MdlSequenceSnapshot {
+                    index: sequence_ordinal as i32,
+                    offset,
+                    label,
+                    activity_name,
+                    flags: read_i32_le(data, offset + 12),
+                    activity: read_i32_le(data, offset + 16),
+                    activity_weight: read_i32_le(data, offset + 20),
+                    num_events: read_i32_le(data, offset + 24),
+                    num_blends: read_i32_le(data, offset + 56),
+                    groupsize_x: read_i32_le(data, offset + 68),
+                    groupsize_y: read_i32_le(data, offset + 72),
+                    fade_in_time: read_f32_le(data, offset + 104),
+                    fade_out_time: read_f32_le(data, offset + 108),
+                    last_frame: read_f32_le(data, offset + 132),
+                    next_sequence: read_i32_le(data, offset + 136),
+                    pose: read_i32_le(data, offset + 140),
+                    num_ik_rules: read_i32_le(data, offset + 144),
+                    num_auto_layers: read_i32_le(data, offset + 148),
+                    num_ik_locks: read_i32_le(data, offset + 164),
+                    keyvalue_size: read_i32_le(data, offset + 176),
+                    num_activity_modifiers: read_i32_le(data, offset + 188),
+                });
+            }
+        }
+    }
+    Some(MdlAnimationMetadataSnapshot {
+        supported_version,
+        source_layout:
+            "Source SDK 2013 studiohdr_t/mstudioanimdesc_t/mstudioseqdesc_t compatible offsets"
+                .to_string(),
+        num_local_animations,
+        local_animation_index,
+        num_local_sequences,
+        local_sequence_index,
+        animations,
+        sequences,
+        warnings,
+        errors,
+    })
+}
+
 fn range_fits(file_size: usize, base: usize, count: usize, stride: usize) -> bool {
     count
         .checked_mul(stride)
@@ -2238,16 +2445,29 @@ fn read_relative_cstring(data: &[u8], base: usize, relative_offset: i32) -> Opti
     )
 }
 
+const STUDIOHDR_NUM_LOCAL_ANIM_OFFSET: usize = 180;
+const STUDIOHDR_LOCAL_ANIM_INDEX_OFFSET: usize = 184;
+const STUDIOHDR_NUM_LOCAL_SEQ_OFFSET: usize = 188;
+const STUDIOHDR_LOCAL_SEQ_INDEX_OFFSET: usize = 192;
+const STUDIOHDR_EVENTS_INDEXED_OFFSET: usize = 200;
 const STUDIOHDR_NUM_BODYPARTS_OFFSET: usize = 232;
 const STUDIOHDR_BODYPART_INDEX_OFFSET: usize = 236;
 const MSTUDIO_BODYPART_SIZE: usize = 16;
 const MSTUDIO_MODEL_SIZE: usize = 148;
 const MSTUDIO_MESH_SIZE: usize = 116;
+const MSTUDIO_ANIMDESC_SIZE: usize = 100;
+const MSTUDIO_SEQDESC_SIZE: usize = 212;
 
 fn read_i32_le(data: &[u8], offset: usize) -> i32 {
     let mut bytes = [0_u8; 4];
     bytes.copy_from_slice(&data[offset..offset + 4]);
     i32::from_le_bytes(bytes)
+}
+
+fn read_f32_le(data: &[u8], offset: usize) -> f32 {
+    let mut bytes = [0_u8; 4];
+    bytes.copy_from_slice(&data[offset..offset + 4]);
+    f32::from_le_bytes(bytes)
 }
 
 fn trim_nul_utf8(data: &[u8]) -> String {
@@ -4389,6 +4609,7 @@ struct ModelInspectReport {
     file_size: usize,
     header: Option<MdlHeaderSnapshot>,
     mesh_metadata: Option<MdlMeshMetadataSnapshot>,
+    animation_metadata: Option<MdlAnimationMetadataSnapshot>,
     warnings: Vec<String>,
     errors: Vec<String>,
 }
@@ -4451,6 +4672,61 @@ struct MdlMeshSnapshot {
     vertex_offset: i32,
     num_flexes: i32,
     mesh_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlAnimationMetadataSnapshot {
+    supported_version: bool,
+    source_layout: String,
+    num_local_animations: i32,
+    local_animation_index: i32,
+    num_local_sequences: i32,
+    local_sequence_index: i32,
+    animations: Vec<MdlAnimationSnapshot>,
+    sequences: Vec<MdlSequenceSnapshot>,
+    warnings: Vec<String>,
+    errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlAnimationSnapshot {
+    index: i32,
+    offset: usize,
+    name: String,
+    fps: f32,
+    flags: i32,
+    num_frames: i32,
+    num_movements: i32,
+    movement_index: i32,
+    anim_block: i32,
+    anim_index: i32,
+    num_ik_rules: i32,
+    section_frames: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlSequenceSnapshot {
+    index: i32,
+    offset: usize,
+    label: String,
+    activity_name: String,
+    flags: i32,
+    activity: i32,
+    activity_weight: i32,
+    num_events: i32,
+    num_blends: i32,
+    groupsize_x: i32,
+    groupsize_y: i32,
+    fade_in_time: f32,
+    fade_out_time: f32,
+    last_frame: f32,
+    next_sequence: i32,
+    pose: i32,
+    num_ik_rules: i32,
+    num_auto_layers: i32,
+    num_ik_locks: i32,
+    keyvalue_size: i32,
+    num_activity_modifiers: i32,
 }
 
 #[derive(Debug, Clone, Default)]

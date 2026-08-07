@@ -58,9 +58,14 @@ The report includes:
   - model names, mesh counts, vertex counts, mesh table offsets, and vertex offsets;
   - mesh material indexes, vertex counts, vertex offsets, flex counts, and mesh IDs;
   - totals for bodyparts, models, meshes, and model-level vertices;
+- Source MDL animation and sequence metadata for supported v44-v49 `IDST` layouts:
+  - local animation count and animation table offset;
+  - animation names, FPS, flags, frame counts, movement counts, animation block/index fields, IK-rule counts, and section frame counts;
+  - local sequence count and sequence table offset;
+  - sequence labels, activity names, activity IDs/weights, event counts, blend counts, group sizes, fade times, last frame values, next-sequence/pose indexes, IK/autolayer/IK-lock counts, keyvalue size, and activity-modifier counts;
 - warnings and errors.
 
-This is a metadata sanity check only. It parses the MDL bodypart/model/mesh tables with bounds checks and version-aware warnings. It does not read VVD/VTX vertex buffers, PHY collision data, QC/SMD/DMX source, animations, material names, or external tool output.
+This is a metadata sanity check only. It parses the MDL bodypart/model/mesh and local animation/sequence descriptor tables with bounds checks and version-aware warnings. It does not decode animation frame data, bone curves, event payloads, VVD/VTX vertex buffers, PHY collision data, QC/SMD/DMX source, material names, or external tool output.
 
 ## CLI: compile QC through external StudioMDL
 
@@ -123,7 +128,7 @@ Use precise wording:
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
+This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
 
 ## Desktop model tooling panel
 
