@@ -37,6 +37,51 @@ fn main() -> eframe::Result {
     )
 }
 
+const BSPSOURCE_DESKTOP_PRESETS: &[(&str, &str, &str, &str)] = &[
+    (
+        "default",
+        "BSPSource defaults",
+        "",
+        "Upstream default behavior; no extra flags.",
+    ),
+    (
+        "extract-embedded",
+        "Extract embedded assets",
+        "-unpack_embedded",
+        "Extracts embedded materials/models for review; can write many files.",
+    ),
+    (
+        "extract-embedded-all",
+        "Extract embedded assets without smart filtering",
+        "-unpack_embedded -no_smart_unpack",
+        "Audit-oriented extraction; may include cubemap/generated/noisy content.",
+    ),
+    (
+        "manual-areaportal",
+        "Force manual areaportal mapping",
+        "-force_manual_areaportal",
+        "Useful for difficult areaportal reconstruction review; inspect output manually.",
+    ),
+    (
+        "disable-tool-texture-fix",
+        "Disable tool texture fixing",
+        "--no_ttfix",
+        "Leaves tool texture fixup disabled for raw-output comparison.",
+    ),
+    (
+        "disable-cubemap-texture-fix",
+        "Disable cubemap texture fixing",
+        "--no_cubemaptexfix",
+        "Leaves cubemap texture fixup disabled for material-reference audit.",
+    ),
+    (
+        "audit-raw-output",
+        "Audit raw-ish output",
+        "--no_ttfix --no_cubemaptexfix",
+        "Disables tool/cubemap fixups; raw tool args remain available.",
+    ),
+];
+
 struct SourceWeaverApp {
     maps: Vec<MapEntry>,
     selected_map: Option<usize>,
@@ -93,6 +138,7 @@ struct SourceWeaverApp {
     bsp_decompile_jar_path: String,
     bsp_decompile_java_path: String,
     bsp_decompile_wrapper_path: String,
+    bsp_decompile_preset: String,
     bsp_decompile_tool_args: String,
     bsp_decompile_log_path: String,
     bsp_decompile_report_path: String,
@@ -435,6 +481,7 @@ struct DesktopBspDecompileRequest {
     bspsource_jar: Option<PathBuf>,
     java: Option<PathBuf>,
     wrapper: Option<PathBuf>,
+    preset: Option<String>,
     tool_args: Vec<String>,
     log_path: Option<PathBuf>,
     report_path: PathBuf,
@@ -742,6 +789,7 @@ impl SourceWeaverApp {
             bsp_decompile_jar_path: String::new(),
             bsp_decompile_java_path: String::new(),
             bsp_decompile_wrapper_path: String::new(),
+            bsp_decompile_preset: "default".to_string(),
             bsp_decompile_tool_args: String::new(),
             bsp_decompile_log_path: String::new(),
             bsp_decompile_report_path: String::new(),
@@ -2414,6 +2462,8 @@ impl SourceWeaverApp {
             bspsource_jar,
             java: blank_to_none(&self.bsp_decompile_java_path).map(PathBuf::from),
             wrapper,
+            preset: (self.bsp_decompile_preset != "default")
+                .then(|| self.bsp_decompile_preset.clone()),
             tool_args: self
                 .bsp_decompile_tool_args
                 .split_whitespace()
@@ -3333,10 +3383,21 @@ impl SourceWeaverApp {
                     self.choose_bsp_decompile_wrapper();
                 }
             });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Preset:");
+                egui::ComboBox::from_id_salt("bsp_decompile_preset_combo")
+                    .selected_text(desktop_bspsource_preset_label(&self.bsp_decompile_preset))
+                    .show_ui(ui, |ui| {
+                        for (id, label, _args, _tradeoff) in BSPSOURCE_DESKTOP_PRESETS {
+                            ui.selectable_value(&mut self.bsp_decompile_preset, (*id).to_string(), *label);
+                        }
+                    });
+                ui.weak(desktop_bspsource_preset_tradeoff(&self.bsp_decompile_preset));
+            });
             ui.horizontal(|ui| {
-                ui.label("Tool args:");
+                ui.label("Raw tool args:");
                 ui.add(egui::TextEdit::singleline(&mut self.bsp_decompile_tool_args).desired_width(f32::INFINITY))
-                    .on_hover_text("Whitespace-separated args forwarded before -o for BSPSource. Use the CLI for complex quoting.");
+                    .on_hover_text("Whitespace-separated args appended after the selected preset and before -o for BSPSource. Use the CLI for complex quoting.");
             });
         });
         ui.horizontal(|ui| {
@@ -4593,6 +4654,10 @@ fn desktop_bsp_decompile_command_preview(request: &DesktopBspDecompileRequest) -
         parts.push("--tool".to_string());
         parts.push(wrapper.display().to_string());
     }
+    if let Some(preset) = &request.preset {
+        parts.push("--preset".to_string());
+        parts.push(preset.clone());
+    }
     for arg in &request.tool_args {
         parts.push("--tool-arg".to_string());
         parts.push(arg.clone());
@@ -4630,6 +4695,9 @@ fn run_desktop_bsp_decompile_request(
     }
     if let Some(wrapper) = &request.wrapper {
         command.arg("--tool").arg(wrapper);
+    }
+    if let Some(preset) = &request.preset {
+        command.arg("--preset").arg(preset);
     }
     for arg in &request.tool_args {
         command.arg("--tool-arg").arg(arg);
@@ -5244,6 +5312,28 @@ fn default_compile_report_path_for_map(map_path: &Path) -> PathBuf {
         .and_then(|stem| stem.to_str())
         .unwrap_or("sourceweaver");
     map_path.with_file_name(format!("{stem}-compile-report.json"))
+}
+
+fn desktop_bspsource_preset_label(id: &str) -> String {
+    BSPSOURCE_DESKTOP_PRESETS
+        .iter()
+        .find(|(preset_id, _label, _args, _tradeoff)| *preset_id == id)
+        .map(|(_id, label, args, _tradeoff)| {
+            if args.is_empty() {
+                (*label).to_string()
+            } else {
+                format!("{label} ({args})")
+            }
+        })
+        .unwrap_or_else(|| id.to_string())
+}
+
+fn desktop_bspsource_preset_tradeoff(id: &str) -> &'static str {
+    BSPSOURCE_DESKTOP_PRESETS
+        .iter()
+        .find(|(preset_id, _label, _args, _tradeoff)| *preset_id == id)
+        .map(|(_id, _label, _args, tradeoff)| *tradeoff)
+        .unwrap_or("Unknown preset; raw args remain available.")
 }
 
 fn sourceweaver_cli_executable() -> PathBuf {

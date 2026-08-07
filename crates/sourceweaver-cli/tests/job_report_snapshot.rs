@@ -754,6 +754,132 @@ fn bspsource_download_requires_explicit_policy_acceptance() {
     assert!(stderr.contains("--accept-download-policy"), "{stderr}");
 }
 
+#[test]
+fn bsp_import_presets_list_known_arguments() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["bsp-import-presets", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["raw_tool_arg_supported"], true);
+    let presets = report["presets"].as_array().unwrap();
+    assert!(presets.iter().any(|preset| {
+        preset["id"] == "extract-embedded"
+            && preset["args"] == serde_json::json!(["-unpack_embedded"])
+    }));
+    assert!(presets.iter().any(|preset| {
+        preset["id"] == "audit-raw-output"
+            && preset["args"] == serde_json::json!(["--no_ttfix", "--no_cubemaptexfix"])
+    }));
+}
+
+#[cfg(unix)]
+#[test]
+fn bsp_import_applies_presets_before_raw_tool_args() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-bspsource-preset-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let fake_bspsource = temp_dir.join("bspsrc.sh");
+    let fixture_vmf = repo_path("tests/fixtures/base.vmf");
+    let script = format!(
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "--version" ]]; then
+  echo "BSPSource 1.4.8"
+  exit 0
+fi
+out=""
+for ((i=1; i<=$#; i++)); do
+  if [[ "${{!i}}" == "-o" ]]; then
+    next=$((i+1))
+    out="${{!next}}"
+  fi
+done
+if [[ -z "$out" ]]; then
+  echo "missing -o" >&2
+  exit 64
+fi
+cp '{}' "$out"
+echo "preset args accepted"
+"#,
+        fixture_vmf.display()
+    );
+    let mut file = std::fs::File::create(&fake_bspsource).unwrap();
+    file.write_all(script.as_bytes()).unwrap();
+    drop(file);
+    let mut permissions = std::fs::metadata(&fake_bspsource).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake_bspsource, permissions).unwrap();
+
+    let input_bsp = temp_dir.join("map.bsp");
+    std::fs::write(&input_bsp, b"fake bsp placeholder").unwrap();
+    let output_vmf = temp_dir.join("out.vmf");
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "bsp-import",
+            input_bsp.to_str().unwrap(),
+            "--bspsource",
+            fake_bspsource.to_str().unwrap(),
+            "--preset",
+            "extract-embedded-all",
+            "--tool-arg",
+            "--custom-raw",
+            "--output",
+            output_vmf.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["tool_arg_presets"][0]["id"], "extract-embedded-all");
+    assert_eq!(report["raw_tool_args"], serde_json::json!(["--custom-raw"]));
+    let args = report["command_args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    let unpack = args
+        .iter()
+        .position(|arg| arg == "-unpack_embedded")
+        .unwrap();
+    let no_smart = args
+        .iter()
+        .position(|arg| arg == "-no_smart_unpack")
+        .unwrap();
+    let raw = args.iter().position(|arg| arg == "--custom-raw").unwrap();
+    let output_flag = args.iter().position(|arg| arg == "-o").unwrap();
+    assert!(
+        unpack < no_smart && no_smart < raw && raw < output_flag,
+        "{args:?}"
+    );
+    assert!(output_vmf.is_file());
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

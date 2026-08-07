@@ -1,5 +1,9 @@
 mod bspsource;
+mod bspsource_presets;
 mod bspsource_quality;
+use bspsource_presets::{
+    BSPSOURCE_ARGUMENT_PRESETS, preset_args, preset_snapshot, preset_snapshots,
+};
 use bspsource_quality::{BspSourceQualitySnapshot, parse_bspsource_quality_log};
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
@@ -49,6 +53,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "model-inspect" => model_inspect_command(&args[1..]),
         "model-compile" => model_compile_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
+        "bsp-import-presets" | "bspsource-presets" => bsp_import_presets_command(&args[1..]),
         "bspsource" | "bspsrc" => bspsource::command(&args[1..]),
         "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
@@ -2014,13 +2019,49 @@ fn finish_model_compile_report(
     Ok(())
 }
 
+fn bsp_import_presets_command(args: &[String]) -> Result<(), String> {
+    let json = args.iter().any(|arg| arg == "--json");
+    if json {
+        let report = serde_json::json!({
+            "ok": true,
+            "presets": BSPSOURCE_ARGUMENT_PRESETS
+                .iter()
+                .map(preset_snapshot)
+                .collect::<Vec<_>>(),
+            "raw_tool_arg_supported": true,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|error| format!("failed to encode BSPSource preset JSON: {error}"))?
+        );
+    } else {
+        println!("BSPSource argument presets:");
+        for preset in BSPSOURCE_ARGUMENT_PRESETS {
+            println!(
+                "{}	{}	args: {}	{}",
+                preset.id,
+                preset.label,
+                if preset.args.is_empty() {
+                    "<none>".to_string()
+                } else {
+                    preset.args.join(" ")
+                },
+                preset.tradeoff
+            );
+        }
+        println!("Raw --tool-arg remains available and is appended after preset arguments.");
+    }
+    Ok(())
+}
+
 fn bsp_import_command(args: &[String]) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_bsp_import_help();
         return Ok(());
     }
     let config = parse_bsp_import_args(args)?;
-    let input = config.input.as_ref().ok_or("usage: sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
+    let input = config.input.as_ref().ok_or("usage: sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
     let output_vmf = config
         .output
         .as_ref()
@@ -2028,6 +2069,8 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
     create_parent_dir(output_vmf, "output VMF")?;
 
     let invocation = resolve_bsp_decompiler_invocation(&config, input, output_vmf)?;
+    let tool_arg_preset_snapshots = preset_snapshots(&config.tool_arg_presets)?;
+    let raw_tool_args = config.tool_args.clone();
     let tool_version = probe_bsp_decompiler_version(&config);
     let tool_output = run_bsp_decompiler(
         &invocation,
@@ -2082,6 +2125,8 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
                     tool: invocation.executable.display().to_string(),
                     tool_kind: invocation.kind.to_string(),
                     tool_version,
+                    tool_arg_presets: tool_arg_preset_snapshots.clone(),
+                    raw_tool_args: raw_tool_args.clone(),
                     command_args: invocation.args.clone(),
                     command_shape: invocation.command_shape.to_string(),
                     input_bsp: input.display().to_string(),
@@ -2119,6 +2164,8 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
         tool: invocation.executable.display().to_string(),
         tool_kind: invocation.kind.to_string(),
         tool_version,
+        tool_arg_presets: tool_arg_preset_snapshots,
+        raw_tool_args,
         command_args: invocation.args,
         command_shape: invocation.command_shape.to_string(),
         input_bsp: input.display().to_string(),
@@ -2186,6 +2233,14 @@ fn parse_bsp_import_args(args: &[String]) -> Result<BspImportConfig, String> {
                     args.get(cursor).ok_or("--timeout-seconds needs a value")?,
                 )?);
             }
+            "--preset" | "--bspsource-preset" => {
+                cursor += 1;
+                config.tool_arg_presets.push(
+                    args.get(cursor)
+                        .ok_or("--preset needs a BSPSource preset id")?
+                        .clone(),
+                );
+            }
             "--tool-arg" => {
                 cursor += 1;
                 config
@@ -2208,6 +2263,12 @@ fn parse_bsp_import_args(args: &[String]) -> Result<BspImportConfig, String> {
     Ok(config)
 }
 
+fn resolved_bsp_import_tool_args(config: &BspImportConfig) -> Result<Vec<String>, String> {
+    let mut args = preset_args(&config.tool_arg_presets)?;
+    args.extend(config.tool_args.clone());
+    Ok(args)
+}
+
 fn resolve_bsp_decompiler_invocation(
     config: &BspImportConfig,
     input: &Path,
@@ -2223,7 +2284,7 @@ fn resolve_bsp_decompiler_invocation(
     }
 
     if let Some(tool) = &config.bspsource {
-        let mut args = config.tool_args.clone();
+        let mut args = resolved_bsp_import_tool_args(config)?;
         args.push("-o".to_string());
         args.push(output_vmf.display().to_string());
         args.push(input.display().to_string());
@@ -2237,7 +2298,7 @@ fn resolve_bsp_decompiler_invocation(
 
     if let Some(jar) = &config.bspsource_jar {
         let mut args = vec!["-jar".to_string(), jar.display().to_string()];
-        args.extend(config.tool_args.clone());
+        args.extend(resolved_bsp_import_tool_args(config)?);
         args.push("-o".to_string());
         args.push(output_vmf.display().to_string());
         args.push(input.display().to_string());
@@ -2253,7 +2314,7 @@ fn resolve_bsp_decompiler_invocation(
         .tool
         .as_ref()
         .expect("generic wrapper path exists when configured count is one");
-    let mut args = config.tool_args.clone();
+    let mut args = resolved_bsp_import_tool_args(config)?;
     args.push(input.display().to_string());
     args.push(output_vmf.display().to_string());
     Ok(BspDecompilerInvocation {
@@ -3530,6 +3591,7 @@ struct BspImportConfig {
     output: Option<PathBuf>,
     log: Option<PathBuf>,
     report: Option<PathBuf>,
+    tool_arg_presets: Vec<String>,
     tool_args: Vec<String>,
     timeout_seconds: Option<u64>,
     json: bool,
@@ -3549,6 +3611,8 @@ struct BspImportReport {
     tool: String,
     tool_kind: String,
     tool_version: Option<String>,
+    tool_arg_presets: Vec<bspsource_presets::BspSourceArgumentPresetSnapshot>,
+    raw_tool_args: Vec<String>,
     command_args: Vec<String>,
     command_shape: String,
     input_bsp: String,
@@ -4366,7 +4430,7 @@ Usage:
   sourceweaver compile-profile create|validate|discover [options]
   sourceweaver model-inspect <model.mdl> [--json]
   sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
-  sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
@@ -4528,7 +4592,7 @@ Use --tool-arg once per additional StudioMDL option. External tool runs default 
 fn print_bsp_import_help() {
     println!(
         r#"Usage:
-  sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
 
 Runs a user-provided BSP decompiler and validates the generated VMF.
 

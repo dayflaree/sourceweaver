@@ -180,3 +180,32 @@ Example JSON shape:
 ```
 
 The import `ok` result still depends on the external tool exit status, generated VMF existence, and Source Weaver VMF integrity checks. Non-fatal configuration noise is reported separately and is not treated as a decompile failure by itself.
+
+
+## BSPSource argument presets
+
+Raw `--tool-arg` remains available for version-specific BSPSource flags or custom wrappers. Source Weaver also provides named presets for common BSPSource CLI argument groups:
+
+```bash
+sourceweaver bsp-import-presets --json
+sourceweaver bsp-import map.bsp --bspsource /path/to/bspsrc.sh --preset extract-embedded --tool-arg --custom-flag --output out.vmf --json
+```
+
+Preset arguments are applied before raw `--tool-arg` values and before the final `-o <out.vmf> <input.bsp>` BSPSource arguments. Desktop **BSP decompile import** exposes the same preset selector and keeps a **Raw tool args** field for the escape hatch.
+
+| Preset | Arguments | Tradeoff |
+| --- | --- | --- |
+| `default` | none | Uses the installed BSPSource version's default behavior. |
+| `extract-embedded` | `-unpack_embedded` | Extracts BSP-embedded materials/models for review; can write many files and users must still manage game/content paths manually. |
+| `extract-embedded-all` | `-unpack_embedded -no_smart_unpack` | Disables smart filtering while extracting; useful for audit but can include cubemap/generated/noisy content. |
+| `manual-areaportal` | `-force_manual_areaportal` | Forces manual areaportal mapping for difficult maps; generated output needs manual inspection. |
+| `disable-tool-texture-fix` | `--no_ttfix` | Disables BSPSource tool texture fixups for raw-output comparison or troubleshooting. |
+| `disable-cubemap-texture-fix` | `--no_cubemaptexfix` | Disables cubemap texture fixups for material-reference audit or troubleshooting. |
+| `audit-raw-output` | `--no_ttfix --no_cubemaptexfix` | Disables both fixups to compare against default output; may leave more broken or noisy texture references. |
+
+Research notes:
+
+- The upstream README documents normal CLI use as `bspsrc -o <out.vmf> <input.bsp>`.
+- BSPSource 1.4.0 release notes list `-unpack_embedded`, `-no_smart_unpack`, and `-force_manual_areaportal`.
+- BSPSource 1.4.7 and 1.4.8 release notes mention CLI toggles for tool-texture and cubemap fixing, including `--no_ttfix` and `--no_cubemaptexfix` in 1.4.8 notes.
+- Presets are command-construction conveniences. They are not real external-tool validation and are not guaranteed to be supported by every old BSPSource version. Use `bsp-import-presets --json` to inspect the exact arguments, and keep `--tool-arg` for local/version-specific adjustments.
