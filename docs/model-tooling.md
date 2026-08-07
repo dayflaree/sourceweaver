@@ -52,9 +52,15 @@ The report includes:
 - checksum;
 - embedded model name;
 - header data length;
+- Source MDL mesh metadata for supported v44-v49 `IDST` layouts:
+  - bodypart count and bodypart table offset;
+  - bodypart names, model counts, bases, and model table offsets;
+  - model names, mesh counts, vertex counts, mesh table offsets, and vertex offsets;
+  - mesh material indexes, vertex counts, vertex offsets, flex counts, and mesh IDs;
+  - totals for bodyparts, models, meshes, and model-level vertices;
 - warnings and errors.
 
-This is a metadata sanity check only. It does not parse meshes, animations, materials, VVD, VTX, PHY, or QC data.
+This is a metadata sanity check only. It parses the MDL bodypart/model/mesh tables with bounds checks and version-aware warnings. It does not read VVD/VTX vertex buffers, PHY collision data, QC/SMD/DMX source, animations, material names, or external tool output.
 
 ## CLI: compile QC through external StudioMDL
 
@@ -117,7 +123,7 @@ Use precise wording:
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
+This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
 
 ## Desktop model tooling panel
 

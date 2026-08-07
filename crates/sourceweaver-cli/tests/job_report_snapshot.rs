@@ -2210,3 +2210,179 @@ echo "WARNING: fake wrapper emitted a recoverable decompile note"
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn model_inspect_parses_synthetic_source_mdl_mesh_metadata() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn put_i32(data: &mut [u8], offset: usize, value: i32) {
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_name64(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-mesh-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let mdl_path = temp_dir.join("synthetic_meshes.mdl");
+
+    let mut data = vec![0_u8; 1500];
+    data[0..4].copy_from_slice(b"IDST");
+    put_i32(&mut data, 4, 48);
+    put_i32(&mut data, 8, 12345);
+    put_name64(&mut data, 12, "synthetic/mesh_fixture.mdl");
+    let data_len = data.len() as i32;
+    put_i32(&mut data, 76, data_len);
+    put_i32(&mut data, 232, 1);
+    put_i32(&mut data, 236, 300);
+
+    let bodypart_offset = 300;
+    put_i32(&mut data, bodypart_offset, 1000);
+    put_i32(&mut data, bodypart_offset + 4, 2);
+    put_i32(&mut data, bodypart_offset + 8, 1);
+    put_i32(&mut data, bodypart_offset + 12, 100);
+    data[1300..1310].copy_from_slice(b"body_main\0");
+
+    let model0 = 400;
+    put_name64(&mut data, model0, "reference");
+    put_i32(&mut data, model0 + 64, 0);
+    put_i32(&mut data, model0 + 72, 2);
+    put_i32(&mut data, model0 + 76, 296);
+    put_i32(&mut data, model0 + 80, 12);
+    put_i32(&mut data, model0 + 84, 64);
+
+    let model1 = 548;
+    put_name64(&mut data, model1, "lod1");
+    put_i32(&mut data, model1 + 64, 0);
+    put_i32(&mut data, model1 + 72, 1);
+    put_i32(&mut data, model1 + 76, 496);
+    put_i32(&mut data, model1 + 80, 5);
+    put_i32(&mut data, model1 + 84, 640);
+
+    let mesh0 = 696;
+    put_i32(&mut data, mesh0, 3);
+    put_i32(&mut data, mesh0 + 4, -296);
+    put_i32(&mut data, mesh0 + 8, 8);
+    put_i32(&mut data, mesh0 + 12, 0);
+    put_i32(&mut data, mesh0 + 16, 1);
+    put_i32(&mut data, mesh0 + 32, 101);
+
+    let mesh1 = 812;
+    put_i32(&mut data, mesh1, 4);
+    put_i32(&mut data, mesh1 + 4, -412);
+    put_i32(&mut data, mesh1 + 8, 4);
+    put_i32(&mut data, mesh1 + 12, 8);
+    put_i32(&mut data, mesh1 + 16, 0);
+    put_i32(&mut data, mesh1 + 32, 102);
+
+    let mesh2 = 1044;
+    put_i32(&mut data, mesh2, 9);
+    put_i32(&mut data, mesh2 + 4, -496);
+    put_i32(&mut data, mesh2 + 8, 5);
+    put_i32(&mut data, mesh2 + 12, 0);
+    put_i32(&mut data, mesh2 + 16, 2);
+    put_i32(&mut data, mesh2 + 32, 201);
+
+    std::fs::write(&mdl_path, data).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args(["model-inspect", mdl_path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["header"]["version"], 48);
+    assert_eq!(report["mesh_metadata"]["supported_version"], true);
+    assert_eq!(report["mesh_metadata"]["num_bodyparts"], 1);
+    assert_eq!(report["mesh_metadata"]["total_models"], 2);
+    assert_eq!(report["mesh_metadata"]["total_meshes"], 3);
+    assert_eq!(report["mesh_metadata"]["total_vertices"], 17);
+    assert_eq!(report["mesh_metadata"]["bodyparts"][0]["name"], "body_main");
+    assert_eq!(report["mesh_metadata"]["bodyparts"][0]["num_models"], 2);
+    assert_eq!(
+        report["mesh_metadata"]["bodyparts"][0]["models"][0]["name"],
+        "reference"
+    );
+    assert_eq!(
+        report["mesh_metadata"]["bodyparts"][0]["models"][0]["num_meshes"],
+        2
+    );
+    assert_eq!(
+        report["mesh_metadata"]["bodyparts"][0]["models"][0]["meshes"][0]["material"],
+        3
+    );
+    assert_eq!(
+        report["mesh_metadata"]["bodyparts"][0]["models"][0]["meshes"][0]["num_vertices"],
+        8
+    );
+    assert_eq!(
+        report["mesh_metadata"]["bodyparts"][0]["models"][0]["meshes"][1]["mesh_id"],
+        102
+    );
+    assert_eq!(
+        report["mesh_metadata"]["bodyparts"][0]["models"][1]["meshes"][0]["material"],
+        9
+    );
+    assert!(report["warnings"].as_array().unwrap().is_empty());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn model_inspect_warns_for_unsupported_mdl_mesh_version() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-mesh-version-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let mdl_path = temp_dir.join("unsupported_mesh_version.mdl");
+    let mut data = vec![0_u8; 240];
+    data[0..4].copy_from_slice(b"IDST");
+    data[4..8].copy_from_slice(&37_i32.to_le_bytes());
+    let data_len = data.len() as i32;
+    data[76..80].copy_from_slice(&data_len.to_le_bytes());
+    std::fs::write(&mdl_path, data).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args(["model-inspect", mdl_path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["mesh_metadata"]["supported_version"], false);
+    assert!(
+        report["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning.as_str().unwrap().contains("versions 44-49"))
+    );
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

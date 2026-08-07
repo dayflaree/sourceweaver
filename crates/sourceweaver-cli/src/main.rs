@@ -1778,6 +1778,12 @@ fn model_inspect_command(args: &[String]) -> Result<(), String> {
             println!("name: {}", header.name);
             println!("data length: {}", header.data_length);
         }
+        if let Some(mesh) = &report.mesh_metadata {
+            println!("bodyparts: {}", mesh.num_bodyparts);
+            println!("models: {}", mesh.total_models);
+            println!("meshes: {}", mesh.total_meshes);
+            println!("mesh vertices: {}", mesh.total_vertices);
+        }
         for warning in &report.warnings {
             println!("warning\t{warning}");
         }
@@ -1909,10 +1915,10 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
     let file_size = data.len();
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
-    let header = if data.len() < 80 {
+    let (header, mesh_metadata) = if data.len() < 80 {
         errors
             .push("file is too small to contain a Source/GoldSource MDL header prefix".to_string());
-        None
+        (None, None)
     } else {
         let magic = String::from_utf8_lossy(&data[0..4]).to_string();
         if !matches!(magic.as_str(), "IDST" | "IDSQ") {
@@ -1931,24 +1937,312 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
                 "header data length {data_length} exceeds file size {file_size}"
             ));
         }
-        Some(MdlHeaderSnapshot {
-            magic,
-            version,
-            checksum,
-            name,
-            data_length,
-            supported_magic: matches!(&data[0..4], b"IDST" | b"IDSQ"),
-        })
+        let mesh_metadata =
+            inspect_mdl_mesh_metadata(&data, &magic, version).map(|mut metadata| {
+                warnings.extend(metadata.warnings.iter().cloned());
+                if !metadata.errors.is_empty() {
+                    warnings.extend(metadata.errors.iter().cloned());
+                }
+                metadata.warnings.sort();
+                metadata.warnings.dedup();
+                metadata
+            });
+        (
+            Some(MdlHeaderSnapshot {
+                magic,
+                version,
+                checksum,
+                name,
+                data_length,
+                supported_magic: matches!(&data[0..4], b"IDST" | b"IDSQ"),
+            }),
+            mesh_metadata,
+        )
     };
+    warnings.sort();
+    warnings.dedup();
     Ok(ModelInspectReport {
         ok: errors.is_empty(),
         path: path.display().to_string(),
         file_size,
         header,
+        mesh_metadata,
         warnings,
         errors,
     })
 }
+
+fn inspect_mdl_mesh_metadata(
+    data: &[u8],
+    magic: &str,
+    version: i32,
+) -> Option<MdlMeshMetadataSnapshot> {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    if magic != "IDST" {
+        return Some(MdlMeshMetadataSnapshot {
+            supported_version: false,
+            source_layout: "Source studiohdr_t bodypart/model/mesh parsing requires IDST MDL data"
+                .to_string(),
+            num_bodyparts: 0,
+            bodypart_index: 0,
+            total_models: 0,
+            total_meshes: 0,
+            total_vertices: 0,
+            bodyparts: Vec::new(),
+            warnings: vec![format!(
+                "mesh metadata parsing skipped for MDL magic `{magic}`; expected Source IDST"
+            )],
+            errors,
+        });
+    }
+    let supported_version = (44..=49).contains(&version);
+    if !supported_version {
+        warnings.push(format!(
+            "mesh metadata parsing is version-aware for Source MDL versions 44-49; version {version} is reported as unsupported"
+        ));
+        return Some(MdlMeshMetadataSnapshot {
+            supported_version,
+            source_layout: "unsupported Source MDL version; header prefix only".to_string(),
+            num_bodyparts: 0,
+            bodypart_index: 0,
+            total_models: 0,
+            total_meshes: 0,
+            total_vertices: 0,
+            bodyparts: Vec::new(),
+            warnings,
+            errors,
+        });
+    }
+    if data.len() < STUDIOHDR_BODYPART_INDEX_OFFSET + 4 {
+        warnings.push(
+            "file is too small to contain Source studiohdr_t bodypart count/index fields"
+                .to_string(),
+        );
+        return Some(MdlMeshMetadataSnapshot {
+            supported_version,
+            source_layout: "Source SDK 2013 studiohdr_t bodypart/model/mesh offsets".to_string(),
+            num_bodyparts: 0,
+            bodypart_index: 0,
+            total_models: 0,
+            total_meshes: 0,
+            total_vertices: 0,
+            bodyparts: Vec::new(),
+            warnings,
+            errors,
+        });
+    }
+    let num_bodyparts = read_i32_le(data, STUDIOHDR_NUM_BODYPARTS_OFFSET);
+    let bodypart_index = read_i32_le(data, STUDIOHDR_BODYPART_INDEX_OFFSET);
+    if num_bodyparts < 0 {
+        errors.push(format!(
+            "negative bodypart count in studiohdr_t: {num_bodyparts}"
+        ));
+    }
+    if bodypart_index < 0 {
+        errors.push(format!(
+            "negative bodypart index in studiohdr_t: {bodypart_index}"
+        ));
+    }
+    if !errors.is_empty() {
+        return Some(MdlMeshMetadataSnapshot {
+            supported_version,
+            source_layout: "Source SDK 2013 studiohdr_t bodypart/model/mesh offsets".to_string(),
+            num_bodyparts: num_bodyparts.max(0),
+            bodypart_index: bodypart_index.max(0),
+            total_models: 0,
+            total_meshes: 0,
+            total_vertices: 0,
+            bodyparts: Vec::new(),
+            warnings,
+            errors,
+        });
+    }
+    let num_bodyparts_usize = num_bodyparts as usize;
+    let bodypart_index_usize = bodypart_index as usize;
+    if num_bodyparts_usize == 0 {
+        warnings.push("model declares zero bodyparts".to_string());
+    }
+    if !range_fits(
+        data.len(),
+        bodypart_index_usize,
+        num_bodyparts_usize,
+        MSTUDIO_BODYPART_SIZE,
+    ) {
+        errors.push(format!(
+            "bodypart table offset/count is out of bounds: index={bodypart_index} count={num_bodyparts} entry_size={MSTUDIO_BODYPART_SIZE} file_size={}",
+            data.len()
+        ));
+        return Some(MdlMeshMetadataSnapshot {
+            supported_version,
+            source_layout: "Source SDK 2013 studiohdr_t bodypart/model/mesh offsets".to_string(),
+            num_bodyparts,
+            bodypart_index,
+            total_models: 0,
+            total_meshes: 0,
+            total_vertices: 0,
+            bodyparts: Vec::new(),
+            warnings,
+            errors,
+        });
+    }
+
+    let mut bodyparts = Vec::new();
+    let mut total_models = 0_i32;
+    let mut total_meshes = 0_i32;
+    let mut total_vertices = 0_i32;
+    for bodypart_ordinal in 0..num_bodyparts_usize {
+        let bodypart_offset = bodypart_index_usize + bodypart_ordinal * MSTUDIO_BODYPART_SIZE;
+        let name_index = read_i32_le(data, bodypart_offset);
+        let nummodels = read_i32_le(data, bodypart_offset + 4);
+        let base = read_i32_le(data, bodypart_offset + 8);
+        let model_index = read_i32_le(data, bodypart_offset + 12);
+        let name = read_relative_cstring(data, bodypart_offset, name_index).unwrap_or_else(|| {
+            warnings.push(format!(
+                "bodypart {bodypart_ordinal} name index {name_index} is out of bounds"
+            ));
+            String::new()
+        });
+        let mut models = Vec::new();
+        if nummodels < 0 || model_index < 0 {
+            errors.push(format!(
+                "bodypart {bodypart_ordinal} has invalid model table fields: nummodels={nummodels} modelindex={model_index}"
+            ));
+        } else {
+            let model_base = bodypart_offset + model_index as usize;
+            if !range_fits(
+                data.len(),
+                model_base,
+                nummodels as usize,
+                MSTUDIO_MODEL_SIZE,
+            ) {
+                errors.push(format!(
+                    "bodypart {bodypart_ordinal} model table is out of bounds: base={model_base} count={nummodels} entry_size={MSTUDIO_MODEL_SIZE} file_size={}",
+                    data.len()
+                ));
+            } else {
+                total_models += nummodels;
+                for model_ordinal in 0..nummodels as usize {
+                    let model_offset = model_base + model_ordinal * MSTUDIO_MODEL_SIZE;
+                    let model_name = trim_nul_utf8(&data[model_offset..model_offset + 64]);
+                    let model_type = read_i32_le(data, model_offset + 64);
+                    let nummeshes = read_i32_le(data, model_offset + 72);
+                    let mesh_index = read_i32_le(data, model_offset + 76);
+                    let numvertices = read_i32_le(data, model_offset + 80);
+                    let vertex_index = read_i32_le(data, model_offset + 84);
+                    let mut meshes = Vec::new();
+                    if nummeshes < 0 || mesh_index < 0 {
+                        errors.push(format!(
+                            "bodypart {bodypart_ordinal} model {model_ordinal} has invalid mesh table fields: nummeshes={nummeshes} meshindex={mesh_index}"
+                        ));
+                    } else {
+                        let mesh_base = model_offset + mesh_index as usize;
+                        if !range_fits(data.len(), mesh_base, nummeshes as usize, MSTUDIO_MESH_SIZE)
+                        {
+                            errors.push(format!(
+                                "bodypart {bodypart_ordinal} model {model_ordinal} mesh table is out of bounds: base={mesh_base} count={nummeshes} entry_size={MSTUDIO_MESH_SIZE} file_size={}",
+                                data.len()
+                            ));
+                        } else {
+                            total_meshes += nummeshes;
+                            total_vertices += numvertices.max(0);
+                            for mesh_ordinal in 0..nummeshes as usize {
+                                let mesh_offset = mesh_base + mesh_ordinal * MSTUDIO_MESH_SIZE;
+                                let material = read_i32_le(data, mesh_offset);
+                                let mesh_model_index = read_i32_le(data, mesh_offset + 4);
+                                let mesh_numvertices = read_i32_le(data, mesh_offset + 8);
+                                let vertex_offset = read_i32_le(data, mesh_offset + 12);
+                                let numflexes = read_i32_le(data, mesh_offset + 16);
+                                let meshid = read_i32_le(data, mesh_offset + 32);
+                                if mesh_numvertices < 0 {
+                                    warnings.push(format!(
+                                        "bodypart {bodypart_ordinal} model {model_ordinal} mesh {mesh_ordinal} has negative vertex count {mesh_numvertices}"
+                                    ));
+                                }
+                                meshes.push(MdlMeshSnapshot {
+                                    index: mesh_ordinal as i32,
+                                    offset: mesh_offset,
+                                    material,
+                                    model_index: mesh_model_index,
+                                    num_vertices: mesh_numvertices,
+                                    vertex_offset,
+                                    num_flexes: numflexes,
+                                    mesh_id: meshid,
+                                });
+                            }
+                        }
+                    }
+                    models.push(MdlModelSnapshot {
+                        index: model_ordinal as i32,
+                        offset: model_offset,
+                        name: model_name,
+                        model_type,
+                        num_meshes: nummeshes,
+                        mesh_index,
+                        num_vertices: numvertices,
+                        vertex_index,
+                        meshes,
+                    });
+                }
+            }
+        }
+        bodyparts.push(MdlBodypartSnapshot {
+            index: bodypart_ordinal as i32,
+            offset: bodypart_offset,
+            name,
+            num_models: nummodels,
+            base,
+            model_index,
+            models,
+        });
+    }
+    Some(MdlMeshMetadataSnapshot {
+        supported_version,
+        source_layout: "Source SDK 2013 studiohdr_t/mstudiobodyparts_t/mstudiomodel_t/mstudiomesh_t compatible offsets".to_string(),
+        num_bodyparts,
+        bodypart_index,
+        total_models,
+        total_meshes,
+        total_vertices,
+        bodyparts,
+        warnings,
+        errors,
+    })
+}
+
+fn range_fits(file_size: usize, base: usize, count: usize, stride: usize) -> bool {
+    count
+        .checked_mul(stride)
+        .and_then(|size| base.checked_add(size))
+        .map(|end| end <= file_size)
+        .unwrap_or(false)
+}
+
+fn read_relative_cstring(data: &[u8], base: usize, relative_offset: i32) -> Option<String> {
+    if relative_offset <= 0 {
+        return Some(String::new());
+    }
+    let start = base.checked_add(relative_offset as usize)?;
+    if start >= data.len() {
+        return None;
+    }
+    let end = data[start..]
+        .iter()
+        .position(|byte| *byte == 0)
+        .map(|offset| start + offset)
+        .unwrap_or(data.len());
+    Some(
+        String::from_utf8_lossy(&data[start..end])
+            .trim()
+            .to_string(),
+    )
+}
+
+const STUDIOHDR_NUM_BODYPARTS_OFFSET: usize = 232;
+const STUDIOHDR_BODYPART_INDEX_OFFSET: usize = 236;
+const MSTUDIO_BODYPART_SIZE: usize = 16;
+const MSTUDIO_MODEL_SIZE: usize = 148;
+const MSTUDIO_MESH_SIZE: usize = 116;
 
 fn read_i32_le(data: &[u8], offset: usize) -> i32 {
     let mut bytes = [0_u8; 4];
@@ -4094,6 +4388,7 @@ struct ModelInspectReport {
     path: String,
     file_size: usize,
     header: Option<MdlHeaderSnapshot>,
+    mesh_metadata: Option<MdlMeshMetadataSnapshot>,
     warnings: Vec<String>,
     errors: Vec<String>,
 }
@@ -4106,6 +4401,56 @@ struct MdlHeaderSnapshot {
     name: String,
     data_length: i32,
     supported_magic: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlMeshMetadataSnapshot {
+    supported_version: bool,
+    source_layout: String,
+    num_bodyparts: i32,
+    bodypart_index: i32,
+    total_models: i32,
+    total_meshes: i32,
+    total_vertices: i32,
+    bodyparts: Vec<MdlBodypartSnapshot>,
+    warnings: Vec<String>,
+    errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlBodypartSnapshot {
+    index: i32,
+    offset: usize,
+    name: String,
+    num_models: i32,
+    base: i32,
+    model_index: i32,
+    models: Vec<MdlModelSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlModelSnapshot {
+    index: i32,
+    offset: usize,
+    name: String,
+    model_type: i32,
+    num_meshes: i32,
+    mesh_index: i32,
+    num_vertices: i32,
+    vertex_index: i32,
+    meshes: Vec<MdlMeshSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlMeshSnapshot {
+    index: i32,
+    offset: usize,
+    material: i32,
+    model_index: i32,
+    num_vertices: i32,
+    vertex_offset: i32,
+    num_flexes: i32,
+    mesh_id: i32,
 }
 
 #[derive(Debug, Clone, Default)]
