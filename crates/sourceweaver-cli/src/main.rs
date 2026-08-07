@@ -1747,10 +1747,18 @@ fn model_inspect_command(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let mut input = None;
+    let mut asset_roots = Vec::new();
     let mut json = false;
-    for arg in args {
-        match arg.as_str() {
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
             "--json" => json = true,
+            "--asset-root" | "--content-root" => {
+                cursor += 1;
+                asset_roots.push(PathBuf::from(
+                    args.get(cursor).ok_or("--asset-root needs a directory")?,
+                ));
+            }
             value if value.starts_with('-') => {
                 return Err(format!("unknown model-inspect flag `{value}`"));
             }
@@ -1761,9 +1769,11 @@ fn model_inspect_command(args: &[String]) -> Result<(), String> {
                 input = Some(PathBuf::from(value));
             }
         }
+        cursor += 1;
     }
-    let input = input.ok_or("usage: sourceweaver model-inspect <model.mdl> [--json]")?;
-    let report = inspect_mdl_header(&input)?;
+    let input =
+        input.ok_or("usage: sourceweaver model-inspect <model.mdl> [--asset-root dir] [--json]")?;
+    let report = inspect_mdl_header(&input, &asset_roots)?;
     let encoded = serde_json::to_string_pretty(&report)
         .map_err(|error| format!("failed to encode model inspect report: {error}"))?;
     if json {
@@ -1787,6 +1797,16 @@ fn model_inspect_command(args: &[String]) -> Result<(), String> {
         if let Some(animation) = &report.animation_metadata {
             println!("local animations: {}", animation.num_local_animations);
             println!("local sequences: {}", animation.num_local_sequences);
+        }
+        if let Some(materials) = &report.material_dependencies {
+            println!("textures: {}", materials.num_textures);
+            println!("material directories: {}", materials.num_cd_textures);
+            println!("material candidates: {}", materials.materials.len());
+            println!("missing materials: {}", materials.missing_materials.len());
+            println!(
+                "ambiguous materials: {}",
+                materials.ambiguous_materials.len()
+            );
         }
         for warning in &report.warnings {
             println!("warning\t{warning}");
@@ -1913,16 +1933,16 @@ fn parse_model_compile_args(args: &[String]) -> Result<ModelCompileConfig, Strin
     Ok(config)
 }
 
-fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
+fn inspect_mdl_header(path: &Path, asset_roots: &[PathBuf]) -> Result<ModelInspectReport, String> {
     let data = fs::read(path)
         .map_err(|error| format!("failed to read model {}: {error}", path.display()))?;
     let file_size = data.len();
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
-    let (header, mesh_metadata, animation_metadata) = if data.len() < 80 {
+    let (header, mesh_metadata, animation_metadata, material_dependencies) = if data.len() < 80 {
         errors
             .push("file is too small to contain a Source/GoldSource MDL header prefix".to_string());
-        (None, None, None)
+        (None, None, None, None)
     } else {
         let magic = String::from_utf8_lossy(&data[0..4]).to_string();
         if !matches!(magic.as_str(), "IDST" | "IDSQ") {
@@ -1961,6 +1981,18 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
                 metadata.warnings.dedup();
                 metadata
             });
+        let material_dependencies =
+            inspect_mdl_material_dependencies(&data, &magic, version, asset_roots).map(
+                |mut metadata| {
+                    warnings.extend(metadata.warnings.iter().cloned());
+                    if !metadata.errors.is_empty() {
+                        warnings.extend(metadata.errors.iter().cloned());
+                    }
+                    metadata.warnings.sort();
+                    metadata.warnings.dedup();
+                    metadata
+                },
+            );
         (
             Some(MdlHeaderSnapshot {
                 magic,
@@ -1972,6 +2004,7 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
             }),
             mesh_metadata,
             animation_metadata,
+            material_dependencies,
         )
     };
     warnings.sort();
@@ -1983,6 +2016,7 @@ fn inspect_mdl_header(path: &Path) -> Result<ModelInspectReport, String> {
         header,
         mesh_metadata,
         animation_metadata,
+        material_dependencies,
         warnings,
         errors,
     })
@@ -2226,6 +2260,319 @@ fn inspect_mdl_mesh_metadata(
     })
 }
 
+fn stringify_paths(paths: &[PathBuf]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect()
+}
+
+fn read_absolute_cstring(data: &[u8], offset: i32) -> Option<String> {
+    if offset < 0 {
+        return None;
+    }
+    let start = offset as usize;
+    if start >= data.len() {
+        return None;
+    }
+    let end = data[start..]
+        .iter()
+        .position(|byte| *byte == 0)
+        .map(|relative| start + relative)
+        .unwrap_or(data.len());
+    Some(
+        String::from_utf8_lossy(&data[start..end])
+            .trim()
+            .to_string(),
+    )
+}
+
+fn normalize_material_directory(directory: &str) -> String {
+    let mut directory = directory
+        .replace('\\', "/")
+        .trim()
+        .trim_start_matches('/')
+        .to_string();
+    if let Some(stripped) = directory.strip_prefix("materials/") {
+        directory = stripped.to_string();
+    }
+    if !directory.is_empty() && !directory.ends_with('/') {
+        directory.push('/');
+    }
+    directory
+}
+
+fn material_internal_path(directory: &str, texture_name: &str) -> String {
+    let mut texture = texture_name
+        .replace('\\', "/")
+        .trim()
+        .trim_start_matches('/')
+        .to_string();
+    if let Some(stripped) = texture.strip_prefix("materials/") {
+        texture = stripped.to_string();
+    }
+    if let Some(stripped) = texture.strip_suffix(".vmt") {
+        texture = stripped.to_string();
+    }
+    let path = if texture.contains('/') {
+        texture
+    } else {
+        format!("{}{}", directory, texture)
+    };
+    format!("materials/{path}.vmt")
+}
+
+fn material_candidates_for(asset_roots: &[PathBuf], internal_path: &str) -> Vec<String> {
+    asset_roots
+        .iter()
+        .map(|root| root.join(Path::new(internal_path)))
+        .filter(|path| path.is_file())
+        .map(|path| path.display().to_string())
+        .collect()
+}
+
+fn inspect_mdl_material_dependencies(
+    data: &[u8],
+    magic: &str,
+    version: i32,
+    asset_roots: &[PathBuf],
+) -> Option<MdlMaterialDependencySnapshot> {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    if magic != "IDST" {
+        return Some(MdlMaterialDependencySnapshot {
+            supported_version: false,
+            source_layout: "Source studiohdr_t texture/material parsing requires IDST MDL data"
+                .to_string(),
+            asset_roots: stringify_paths(asset_roots),
+            num_textures: 0,
+            texture_index: 0,
+            num_cd_textures: 0,
+            cd_texture_index: 0,
+            texture_names: Vec::new(),
+            material_directories: Vec::new(),
+            materials: Vec::new(),
+            missing_materials: Vec::new(),
+            ambiguous_materials: Vec::new(),
+            warnings: vec![format!(
+                "material dependency parsing skipped for MDL magic `{magic}`; expected Source IDST"
+            )],
+            errors,
+        });
+    }
+    let supported_version = (44..=49).contains(&version);
+    if !supported_version {
+        warnings.push(format!(
+            "material dependency parsing is version-aware for Source MDL versions 44-49; version {version} is reported as unsupported"
+        ));
+        return Some(MdlMaterialDependencySnapshot {
+            supported_version,
+            source_layout: "unsupported Source MDL version; header prefix only".to_string(),
+            asset_roots: stringify_paths(asset_roots),
+            num_textures: 0,
+            texture_index: 0,
+            num_cd_textures: 0,
+            cd_texture_index: 0,
+            texture_names: Vec::new(),
+            material_directories: Vec::new(),
+            materials: Vec::new(),
+            missing_materials: Vec::new(),
+            ambiguous_materials: Vec::new(),
+            warnings,
+            errors,
+        });
+    }
+    if data.len() < STUDIOHDR_TEXTURE_INDEX_OFFSET + 4 {
+        warnings.push(
+            "file is too small to contain Source studiohdr_t texture/material fields".to_string(),
+        );
+        return Some(MdlMaterialDependencySnapshot {
+            supported_version,
+            source_layout: "Source SDK 2013 studiohdr_t texture/material offsets".to_string(),
+            asset_roots: stringify_paths(asset_roots),
+            num_textures: 0,
+            texture_index: 0,
+            num_cd_textures: 0,
+            cd_texture_index: 0,
+            texture_names: Vec::new(),
+            material_directories: Vec::new(),
+            materials: Vec::new(),
+            missing_materials: Vec::new(),
+            ambiguous_materials: Vec::new(),
+            warnings,
+            errors,
+        });
+    }
+    let num_textures = read_i32_le(data, STUDIOHDR_NUM_TEXTURES_OFFSET);
+    let texture_index = read_i32_le(data, STUDIOHDR_TEXTURE_INDEX_OFFSET);
+    let num_cd_textures = read_i32_le(data, STUDIOHDR_NUM_CD_TEXTURES_OFFSET);
+    let cd_texture_index = read_i32_le(data, STUDIOHDR_CD_TEXTURE_INDEX_OFFSET);
+    if num_textures < 0 || texture_index < 0 {
+        errors.push(format!(
+            "invalid texture table fields: count={num_textures} index={texture_index}"
+        ));
+    }
+    if num_cd_textures < 0 || cd_texture_index < 0 {
+        errors.push(format!(
+            "invalid material directory table fields: count={num_cd_textures} index={cd_texture_index}"
+        ));
+    }
+
+    let mut texture_names = Vec::new();
+    let mut material_directories = Vec::new();
+    if errors.is_empty() {
+        if num_textures == 0 {
+            warnings.push("model declares zero material texture names".to_string());
+        } else if !range_fits(
+            data.len(),
+            texture_index as usize,
+            num_textures as usize,
+            MSTUDIO_TEXTURE_SIZE,
+        ) {
+            errors.push(format!(
+                "texture table is out of bounds: index={texture_index} count={num_textures} entry_size={MSTUDIO_TEXTURE_SIZE} file_size={}",
+                data.len()
+            ));
+        } else {
+            for texture_ordinal in 0..num_textures as usize {
+                let offset = texture_index as usize + texture_ordinal * MSTUDIO_TEXTURE_SIZE;
+                let name_index = read_i32_le(data, offset);
+                let name = read_relative_cstring(data, offset, name_index).unwrap_or_else(|| {
+                    warnings.push(format!(
+                        "texture {texture_ordinal} name index {name_index} is out of bounds"
+                    ));
+                    String::new()
+                });
+                if name.is_empty() {
+                    warnings.push(format!(
+                        "texture {texture_ordinal} has an empty material name"
+                    ));
+                }
+                texture_names.push(MdlTextureNameSnapshot {
+                    index: texture_ordinal as i32,
+                    offset,
+                    name,
+                    flags: read_i32_le(data, offset + 4),
+                    used: read_i32_le(data, offset + 8),
+                });
+            }
+        }
+        if num_cd_textures == 0 {
+            warnings.push("model declares zero material search directories".to_string());
+        } else if !range_fits(
+            data.len(),
+            cd_texture_index as usize,
+            num_cd_textures as usize,
+            4,
+        ) {
+            errors.push(format!(
+                "material directory table is out of bounds: index={cd_texture_index} count={num_cd_textures} file_size={}",
+                data.len()
+            ));
+        } else {
+            for directory_ordinal in 0..num_cd_textures as usize {
+                let offset = cd_texture_index as usize + directory_ordinal * 4;
+                let directory_offset = read_i32_le(data, offset);
+                let directory = read_absolute_cstring(data, directory_offset).unwrap_or_else(|| {
+                    warnings.push(format!(
+                        "material directory {directory_ordinal} offset {directory_offset} is out of bounds"
+                    ));
+                    String::new()
+                });
+                material_directories.push(MdlMaterialDirectorySnapshot {
+                    index: directory_ordinal as i32,
+                    offset,
+                    directory_offset,
+                    directory: normalize_material_directory(&directory),
+                });
+            }
+        }
+    }
+    let mut materials = Vec::new();
+    if errors.is_empty() {
+        let directories = if material_directories.is_empty() {
+            vec![MdlMaterialDirectorySnapshot {
+                index: -1,
+                offset: 0,
+                directory_offset: 0,
+                directory: String::new(),
+            }]
+        } else {
+            material_directories.clone()
+        };
+        for texture in &texture_names {
+            if texture.name.is_empty() {
+                continue;
+            }
+            for directory in &directories {
+                let internal_path = material_internal_path(&directory.directory, &texture.name);
+                let candidates = material_candidates_for(asset_roots, &internal_path);
+                let status = match candidates.len() {
+                    0 => "missing",
+                    1 => "resolved",
+                    _ => "ambiguous",
+                };
+                materials.push(MdlMaterialDependencyEntry {
+                    texture_index: texture.index,
+                    directory_index: directory.index,
+                    texture_name: texture.name.clone(),
+                    material_directory: directory.directory.clone(),
+                    internal_path,
+                    selected_path: candidates.first().cloned(),
+                    candidates,
+                    status: status.to_string(),
+                });
+            }
+        }
+    }
+    let mut missing_materials = materials
+        .iter()
+        .filter(|material| material.status == "missing")
+        .map(|material| material.internal_path.clone())
+        .collect::<Vec<_>>();
+    missing_materials.sort();
+    missing_materials.dedup();
+    let mut ambiguous_materials = materials
+        .iter()
+        .filter(|material| material.status == "ambiguous")
+        .map(|material| material.internal_path.clone())
+        .collect::<Vec<_>>();
+    ambiguous_materials.sort();
+    ambiguous_materials.dedup();
+    if asset_roots.is_empty() && !materials.is_empty() {
+        warnings.push(
+            "no --asset-root values were supplied, so material dependencies are reported without filesystem resolution".to_string(),
+        );
+    }
+    for material in &missing_materials {
+        warnings.push(format!(
+            "model material `{material}` was not found under any asset root"
+        ));
+    }
+    for material in &ambiguous_materials {
+        warnings.push(format!(
+            "model material `{material}` exists under more than one asset root; the first root wins"
+        ));
+    }
+    Some(MdlMaterialDependencySnapshot {
+        supported_version,
+        source_layout: "Source SDK 2013 studiohdr_t/mstudiotexture_t material dependency offsets"
+            .to_string(),
+        asset_roots: stringify_paths(asset_roots),
+        num_textures,
+        texture_index,
+        num_cd_textures,
+        cd_texture_index,
+        texture_names,
+        material_directories,
+        materials,
+        missing_materials,
+        ambiguous_materials,
+        warnings,
+        errors,
+    })
+}
+
 fn inspect_mdl_animation_metadata(
     data: &[u8],
     magic: &str,
@@ -2450,6 +2797,10 @@ const STUDIOHDR_LOCAL_ANIM_INDEX_OFFSET: usize = 184;
 const STUDIOHDR_NUM_LOCAL_SEQ_OFFSET: usize = 188;
 const STUDIOHDR_LOCAL_SEQ_INDEX_OFFSET: usize = 192;
 const STUDIOHDR_EVENTS_INDEXED_OFFSET: usize = 200;
+const STUDIOHDR_NUM_TEXTURES_OFFSET: usize = 204;
+const STUDIOHDR_TEXTURE_INDEX_OFFSET: usize = 208;
+const STUDIOHDR_NUM_CD_TEXTURES_OFFSET: usize = 212;
+const STUDIOHDR_CD_TEXTURE_INDEX_OFFSET: usize = 216;
 const STUDIOHDR_NUM_BODYPARTS_OFFSET: usize = 232;
 const STUDIOHDR_BODYPART_INDEX_OFFSET: usize = 236;
 const MSTUDIO_BODYPART_SIZE: usize = 16;
@@ -2457,6 +2808,7 @@ const MSTUDIO_MODEL_SIZE: usize = 148;
 const MSTUDIO_MESH_SIZE: usize = 116;
 const MSTUDIO_ANIMDESC_SIZE: usize = 100;
 const MSTUDIO_SEQDESC_SIZE: usize = 212;
+const MSTUDIO_TEXTURE_SIZE: usize = 64;
 
 fn read_i32_le(data: &[u8], offset: usize) -> i32 {
     let mut bytes = [0_u8; 4];
@@ -4610,6 +4962,7 @@ struct ModelInspectReport {
     header: Option<MdlHeaderSnapshot>,
     mesh_metadata: Option<MdlMeshMetadataSnapshot>,
     animation_metadata: Option<MdlAnimationMetadataSnapshot>,
+    material_dependencies: Option<MdlMaterialDependencySnapshot>,
     warnings: Vec<String>,
     errors: Vec<String>,
 }
@@ -4672,6 +5025,53 @@ struct MdlMeshSnapshot {
     vertex_offset: i32,
     num_flexes: i32,
     mesh_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlMaterialDependencySnapshot {
+    supported_version: bool,
+    source_layout: String,
+    asset_roots: Vec<String>,
+    num_textures: i32,
+    texture_index: i32,
+    num_cd_textures: i32,
+    cd_texture_index: i32,
+    texture_names: Vec<MdlTextureNameSnapshot>,
+    material_directories: Vec<MdlMaterialDirectorySnapshot>,
+    materials: Vec<MdlMaterialDependencyEntry>,
+    missing_materials: Vec<String>,
+    ambiguous_materials: Vec<String>,
+    warnings: Vec<String>,
+    errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlTextureNameSnapshot {
+    index: i32,
+    offset: usize,
+    name: String,
+    flags: i32,
+    used: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlMaterialDirectorySnapshot {
+    index: i32,
+    offset: usize,
+    directory_offset: i32,
+    directory: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MdlMaterialDependencyEntry {
+    texture_index: i32,
+    directory_index: i32,
+    texture_name: String,
+    material_directory: String,
+    internal_path: String,
+    selected_path: Option<String>,
+    candidates: Vec<String>,
+    status: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -5677,7 +6077,7 @@ Usage:
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver cubemap-workflow <map.bsp> [--profile generic|hl2-hdr|tf2-source2013mp|csgo|l4d|portal2] [--game-executable path | --steam-app-id id] [--game-dir dir] [--write-cfg cfg] [--report report.json] [--json]
   sourceweaver compile-profile create|validate|discover [options]
-  sourceweaver model-inspect <model.mdl> [--json]
+  sourceweaver model-inspect <model.mdl> [--asset-root dir] [--json]
   sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
@@ -5816,7 +6216,7 @@ When --output is set, writes a profile using the first discovered candidate per 
 fn print_model_inspect_help() {
     println!(
         r#"Usage:
-  sourceweaver model-inspect <model.mdl> [--json]
+  sourceweaver model-inspect <model.mdl> [--asset-root dir] [--json]
 
 Reads a small Source/GoldSource MDL header prefix without decompiling assets.
 This is a native metadata check only; it does not replace Crowbar or other model tools.

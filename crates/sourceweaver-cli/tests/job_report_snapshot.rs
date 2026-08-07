@@ -2594,3 +2594,161 @@ fn model_inspect_parses_synthetic_source_mdl_animation_sequence_metadata() {
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn model_inspect_resolves_synthetic_mdl_material_dependencies() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn put_i32(data: &mut [u8], offset: usize, value: i32) {
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_name64(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    fn put_cstring(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+        data[offset + bytes.len()] = 0;
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-material-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let mdl_path = temp_dir.join("synthetic_materials.mdl");
+
+    let mut data = vec![0_u8; 1200];
+    data[0..4].copy_from_slice(b"IDST");
+    put_i32(&mut data, 4, 48);
+    put_i32(&mut data, 8, 45678);
+    put_name64(&mut data, 12, "synthetic/material_fixture.mdl");
+    let data_len = data.len() as i32;
+    put_i32(&mut data, 76, data_len);
+    put_i32(&mut data, 180, 0);
+    put_i32(&mut data, 184, 0);
+    put_i32(&mut data, 188, 0);
+    put_i32(&mut data, 192, 0);
+    put_i32(&mut data, 204, 2);
+    put_i32(&mut data, 208, 300);
+    put_i32(&mut data, 212, 1);
+    put_i32(&mut data, 216, 600);
+    put_i32(&mut data, 232, 0);
+    put_i32(&mut data, 236, 0);
+
+    let texture0 = 300;
+    put_i32(&mut data, texture0, 700);
+    put_i32(&mut data, texture0 + 4, 1);
+    put_i32(&mut data, texture0 + 8, 11);
+    let texture1 = 364;
+    put_i32(&mut data, texture1, 656);
+    put_i32(&mut data, texture1 + 4, 2);
+    put_i32(&mut data, texture1 + 8, 22);
+    put_i32(&mut data, 600, 1040);
+    put_cstring(&mut data, 1000, "crate_body");
+    put_cstring(&mut data, 1020, "crate_missing");
+    put_cstring(&mut data, 1040, "models/props/");
+
+    std::fs::write(&mdl_path, data).unwrap();
+    let asset_root_a = temp_dir.join("game_a");
+    let asset_root_b = temp_dir.join("game_b");
+    for root in [&asset_root_a, &asset_root_b] {
+        std::fs::create_dir_all(root.join("materials/models/props")).unwrap();
+    }
+    std::fs::write(
+        asset_root_a.join("materials/models/props/crate_body.vmt"),
+        b"VertexLitGeneric {}",
+    )
+    .unwrap();
+    std::fs::write(
+        asset_root_b.join("materials/models/props/crate_body.vmt"),
+        b"VertexLitGeneric {}",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "model-inspect",
+            mdl_path.to_str().unwrap(),
+            "--asset-root",
+            asset_root_a.to_str().unwrap(),
+            "--asset-root",
+            asset_root_b.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["material_dependencies"]["supported_version"], true);
+    assert_eq!(report["material_dependencies"]["num_textures"], 2);
+    assert_eq!(report["material_dependencies"]["texture_index"], 300);
+    assert_eq!(report["material_dependencies"]["num_cd_textures"], 1);
+    assert_eq!(report["material_dependencies"]["cd_texture_index"], 600);
+    assert_eq!(
+        report["material_dependencies"]["texture_names"][0]["name"],
+        "crate_body"
+    );
+    assert_eq!(
+        report["material_dependencies"]["texture_names"][0]["flags"],
+        1
+    );
+    assert_eq!(
+        report["material_dependencies"]["texture_names"][0]["used"],
+        11
+    );
+    assert_eq!(
+        report["material_dependencies"]["material_directories"][0]["directory"],
+        "models/props/"
+    );
+    let materials = report["material_dependencies"]["materials"]
+        .as_array()
+        .unwrap();
+    let body = materials
+        .iter()
+        .find(|entry| entry["internal_path"] == "materials/models/props/crate_body.vmt")
+        .expect("crate body material reported");
+    assert_eq!(body["status"], "ambiguous");
+    assert_eq!(body["candidates"].as_array().unwrap().len(), 2);
+    let missing = materials
+        .iter()
+        .find(|entry| entry["internal_path"] == "materials/models/props/crate_missing.vmt")
+        .expect("crate missing material reported");
+    assert_eq!(missing["status"], "missing");
+    assert!(
+        report["material_dependencies"]["missing_materials"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "materials/models/props/crate_missing.vmt")
+    );
+    assert!(
+        report["material_dependencies"]["ambiguous_materials"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "materials/models/props/crate_body.vmt")
+    );
+    assert!(
+        report["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning.as_str().unwrap().contains("crate_missing"))
+    );
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

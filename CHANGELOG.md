@@ -44,6 +44,7 @@
 - External `model-decompile` headless-wrapper runner with placeholder argument expansion, log capture, output discovery, structured reports, and documented Crowbar bundling/validation boundary.
 - Native `model-inspect` bodypart/model/mesh metadata parsing for supported Source MDL layouts with version-aware warnings and synthetic fixture coverage.
 - Native `model-inspect` local animation and sequence descriptor metadata parsing for supported Source MDL layouts, without deep animation-frame decoding.
+- Native `model-inspect` material dependency parsing from Source MDL texture/material-directory tables, with optional asset-root resolution and missing/ambiguous reports.
 
 ### Changed
 

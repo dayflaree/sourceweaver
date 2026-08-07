@@ -63,9 +63,28 @@ The report includes:
   - animation names, FPS, flags, frame counts, movement counts, animation block/index fields, IK-rule counts, and section frame counts;
   - local sequence count and sequence table offset;
   - sequence labels, activity names, activity IDs/weights, event counts, blend counts, group sizes, fade times, last frame values, next-sequence/pose indexes, IK/autolayer/IK-lock counts, keyvalue size, and activity-modifier counts;
+- Source MDL material dependency metadata for supported v44-v49 `IDST` layouts:
+  - texture/material-name count and table offset;
+  - material search directory count and directory table offset;
+  - texture names, flags, and used counters;
+  - normalized material directories;
+  - generated `materials/*.vmt` internal paths;
+  - optional filesystem resolution against repeated `--asset-root` values;
+  - missing and ambiguous material reports for future packing/UI workflows;
 - warnings and errors.
 
-This is a metadata sanity check only. It parses the MDL bodypart/model/mesh and local animation/sequence descriptor tables with bounds checks and version-aware warnings. It does not decode animation frame data, bone curves, event payloads, VVD/VTX vertex buffers, PHY collision data, QC/SMD/DMX source, material names, or external tool output.
+This is a metadata sanity check only. It parses the MDL bodypart/model/mesh, local animation/sequence descriptor, and texture/material-directory tables with bounds checks and version-aware warnings. It does not decode animation frame data, bone curves, event payloads, VVD/VTX vertex buffers, PHY collision data, QC/SMD/DMX source, VMT shader data, VTF texture data, or external tool output.
+
+Resolve model material dependencies against local content roots:
+
+```bash
+sourceweaver model-inspect models/props/example.mdl \
+  --asset-root /path/to/game \
+  --asset-root /path/to/mod \
+  --json
+```
+
+Material dependencies are reported as Source-internal `materials/*.vmt` paths. A path is `resolved` when exactly one configured asset root contains it, `missing` when none contain it, and `ambiguous` when more than one asset root contains the same internal path. Source Weaver reports the first configured root as the selected path for ambiguous entries and records a warning.
 
 ## CLI: compile QC through external StudioMDL
 
@@ -128,7 +147,7 @@ Use precise wording:
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
+This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
 
 ## Desktop model tooling panel
 
