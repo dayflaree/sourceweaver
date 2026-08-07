@@ -195,7 +195,7 @@ scripts\package-windows.ps1 -Version v0.1.0 -SkipInstaller
 
 The GitHub release workflow installs NSIS with Chocolatey, builds both Windows artifacts, then runs `scripts\validate-windows-installer.ps1` to silently install into a runner temp directory, verify installed files and shortcuts, run `sourceweaver.exe --help`, and silently uninstall.
 
-Windows artifacts are not code-signed in this repository state. If Windows Defender or SmartScreen warns on unsigned artifacts, users can inspect the release checksum and build provenance in GitHub Actions.
+Windows Authenticode signing is supported when release maintainers configure a PFX certificate and SignTool in CI. Without those secrets, Windows artifacts are intentionally left unsigned. If Windows Defender or SmartScreen warns on unsigned artifacts, users can inspect the release checksum, build provenance in GitHub Actions, and the signing status documented in the release notes. See `docs/code-signing.md` for the full signing plan, key ownership model, rotation process, and verification commands.
 
 ## Local packaging commands
 
@@ -217,7 +217,7 @@ Windows PowerShell zip and NSIS setup:
 scripts\package-windows.ps1 -Version v0.1.0 -RequireInstaller
 ```
 
-All packaging scripts write artifacts under `target/package/`.
+All packaging scripts write artifacts under `target/package/`. Tag releases also generate `SHA256SUMS` for published artifacts and may publish `SHA256SUMS.asc` when an OpenPGP release key is configured.
 
 ## Why portable archives remain available
 

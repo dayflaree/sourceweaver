@@ -54,6 +54,11 @@ jobs:
         run: choco install nsis -y --no-progress
       - name: Build Windows zip and NSIS installer
         shell: pwsh
+        env:
+          SOURCEWEAVER_WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.SOURCEWEAVER_WINDOWS_SIGNING_PFX_BASE64 }}
+          SOURCEWEAVER_WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.SOURCEWEAVER_WINDOWS_SIGNING_PFX_PASSWORD }}
+          SOURCEWEAVER_WINDOWS_TIMESTAMP_URL: ${{ vars.SOURCEWEAVER_WINDOWS_TIMESTAMP_URL }}
+          SOURCEWEAVER_WINDOWS_SIGNTOOL: ${{ vars.SOURCEWEAVER_WINDOWS_SIGNTOOL }}
         run: scripts/package-windows.ps1 -Version "$env:GITHUB_REF_NAME" -RequireInstaller
       - name: Validate Windows installer install/uninstall
         shell: pwsh
@@ -79,12 +84,15 @@ jobs:
         with:
           path: target/release-artifacts
           merge-multiple: true
+      - name: Create release checksums
+        run: scripts/create-release-checksums.sh target/release-artifacts
+      - name: Sign release checksums when OpenPGP key is configured
+        env:
+          SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64: ${{ secrets.SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64 }}
+          SOURCEWEAVER_GPG_PASSPHRASE: ${{ secrets.SOURCEWEAVER_GPG_PASSPHRASE }}
+        run: scripts/sign-release-checksums.sh target/release-artifacts
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           body_path: CHANGELOG.md
-          files: |
-            target/release-artifacts/*.tar.gz
-            target/release-artifacts/*.AppImage
-            target/release-artifacts/*.zip
-            target/release-artifacts/*-setup.exe
+          files: target/release-artifacts/*

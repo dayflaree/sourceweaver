@@ -64,11 +64,11 @@ Current capabilities:
 - Adjust VMF `uaxis`/`vaxis` texture shifts during brush translation to preserve texture-lock behavior.
 - Renumber incoming VMF IDs, remap known ID reference fields during merge, and warn on unsupported suspected ID-reference keys.
 - Preserve base editor metadata while intentionally ignoring conflicting incoming top-level editor sections.
-- Package Linux tarball/AppImage and Windows zip/NSIS setup releases from version tags.
+- Package Linux tarball/AppImage and Windows zip/NSIS setup releases from version tags, with release checksums and signing-ready workflow hooks.
 
 ## Build and run the desktop app
 
-Download packaged releases from the GitHub Releases page, or build locally from source. Linux releases are `.tar.gz` archives plus `.AppImage` files, and Windows releases are portable `.zip` archives plus NSIS `-setup.exe` installers. See `docs/packaging.md` and `docs/release.md` for package contents, runtime notes, and the tag-based release process.
+Download packaged releases from the GitHub Releases page, or build locally from source. Linux releases are `.tar.gz` archives plus `.AppImage` files, and Windows releases are portable `.zip` archives plus NSIS `-setup.exe` installers. Tag releases include `SHA256SUMS`; optional Windows Authenticode and OpenPGP signatures require configured signing credentials. See `docs/packaging.md`, `docs/release.md`, and `docs/code-signing.md` for package contents, runtime notes, signing status, and the tag-based release process.
 
 ### Linux
 
@@ -106,7 +106,7 @@ A release executable can be built with:
 cargo build --release -p sourceweaver-desktop
 ```
 
-The executable will be under `target\\release\\sourceweaver-desktop.exe` on Windows and `target/release/sourceweaver-desktop` on Linux. The `Desktop Release Builds` GitHub Actions workflow packages Linux and Windows release archives, Linux AppImages, and Windows NSIS setup installers for tags and manual runs.
+The executable will be under `target\\release\\sourceweaver-desktop.exe` on Windows and `target/release/sourceweaver-desktop` on Linux. The `Desktop Release Builds` GitHub Actions workflow packages Linux and Windows release archives, Linux AppImages, and Windows NSIS setup installers for tags and manual runs. Tag releases also create checksum manifests and can sign configured Windows/OpenPGP artifacts.
 
 ## Desktop workflow
 

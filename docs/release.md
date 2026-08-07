@@ -26,8 +26,9 @@ The workflow:
 5. Packages Windows CLI/desktop artifacts into `sourceweaver-<tag>-windows-x86_64.zip`.
 6. Installs NSIS, packages the Windows setup executable into `sourceweaver-<tag>-windows-x86_64-setup.exe`, and validates silent install/uninstall.
 7. Uploads all packages as workflow artifacts.
-8. Creates or updates a GitHub Release for the tag.
-9. Uploads the tarball, AppImage, zip, and Windows setup executable to the GitHub Release.
+8. Creates `SHA256SUMS` for the release artifacts and signs it as `SHA256SUMS.asc` when an OpenPGP release key is configured.
+9. Creates or updates a GitHub Release for the tag.
+10. Uploads the tarball, AppImage, zip, Windows setup executable, `SHA256SUMS`, and optional `SHA256SUMS.asc` to the GitHub Release.
 
 ## Changelog
 
@@ -69,14 +70,16 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 2. Confirm CLI job-runner dry-run JSON validation passes.
 3. Confirm `sourceweaver validate` can validate the fixture merged VMF with the sample VBSP log.
 4. Update `CHANGELOG.md`.
-5. Push a `vMAJOR.MINOR.PATCH` tag.
-6. Wait for Linux and Windows release jobs to pass.
-7. Confirm the Windows job reports setup install/uninstall validation.
-8. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
+5. Review `docs/code-signing.md` and confirm whether signing secrets are configured for this release.
+6. Push a `vMAJOR.MINOR.PATCH` tag.
+7. Wait for Linux and Windows release jobs to pass.
+8. Confirm the Windows job reports setup install/uninstall validation.
+9. Confirm `SHA256SUMS` was generated and, when configured, `SHA256SUMS.asc` verifies with the release public key.
+10. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
 
 ## Current packaging limitations
 
 - Linux AppImage packaging is wired into the release workflow, but clean Linux GUI smoke evidence must be recorded per release.
 - Windows NSIS installer packaging is wired into the release workflow, but interactive GUI smoke evidence outside silent CI install/uninstall must be recorded per release.
-- Release artifacts are not code-signed.
+- Release artifacts are unsigned unless Windows code-signing and OpenPGP release-signing secrets are configured; see `docs/code-signing.md`.
 - Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims.
