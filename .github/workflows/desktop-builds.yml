@@ -49,14 +49,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build Windows zip
+      - name: Install NSIS
         shell: pwsh
-        run: scripts/package-windows.ps1 -Version "$env:GITHUB_REF_NAME"
+        run: choco install nsis -y --no-progress
+      - name: Build Windows zip and NSIS installer
+        shell: pwsh
+        run: scripts/package-windows.ps1 -Version "$env:GITHUB_REF_NAME" -RequireInstaller
+      - name: Validate Windows installer install/uninstall
+        shell: pwsh
+        run: scripts/validate-windows-installer.ps1
       - name: Upload Windows package artifact
         uses: actions/upload-artifact@v4
         with:
           name: sourceweaver-windows-x86_64
-          path: target/package/*.zip
+          path: |
+            target/package/*.zip
+            target/package/*-setup.exe
           if-no-files-found: error
 
   release:
@@ -79,3 +87,4 @@ jobs:
             target/release-artifacts/*.tar.gz
             target/release-artifacts/*.AppImage
             target/release-artifacts/*.zip
+            target/release-artifacts/*-setup.exe

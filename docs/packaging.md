@@ -114,15 +114,16 @@ The GitHub release workflow downloads `appimagetool-x86_64.AppImage` from the Ap
 - Some systems need FUSE support to run AppImages normally. AppImage runtime extraction modes may be used by testers when FUSE is unavailable.
 - AppImage artifacts are not code-signed in this repository state.
 
-## Windows package format
+## Windows package formats
 
-Windows releases use a zip archive:
+Windows releases keep the portable zip archive and also build a per-user NSIS setup executable:
 
 ```text
 sourceweaver-vX.Y.Z-windows-x86_64.zip
+sourceweaver-vX.Y.Z-windows-x86_64-setup.exe
 ```
 
-The archive contains:
+The portable zip archive contains:
 
 - `sourceweaver-desktop.exe`
 - `sourceweaver.exe`
@@ -130,6 +131,7 @@ The archive contains:
 - `docs/`
 - `README.md`
 - `LICENSE`
+- `RUNNING_ON_WINDOWS.md`
 
 Run from the extracted zip:
 
@@ -138,7 +140,62 @@ Run from the extracted zip:
 .\sourceweaver.exe --help
 ```
 
-No installer is required. The binary is built with the Rust stable Windows toolchain on the hosted `windows-latest` GitHub Actions runner. If Windows Defender or SmartScreen warns on unsigned artifacts, users can inspect the release checksum and build provenance in GitHub Actions.
+The NSIS installer copies the same CLI, desktop app, docs, icon, README, and license into the current user's local programs directory by default:
+
+```text
+%LOCALAPPDATA%\Programs\Source Weaver
+```
+
+It also creates:
+
+- a **Source Weaver** Start menu shortcut for `sourceweaver-desktop.exe`;
+- a **Source Weaver CLI Help** Start menu shortcut for `sourceweaver.exe --help`;
+- a **Source Weaver** desktop shortcut;
+- a per-user Apps & Features uninstall entry.
+
+Install interactively by double-clicking the setup executable, or run it from PowerShell:
+
+```powershell
+.\sourceweaver-vX.Y.Z-windows-x86_64-setup.exe
+```
+
+Silent per-user install is supported by NSIS. Keep `/D=` as the final argument and do not quote the value:
+
+```powershell
+& .\sourceweaver-vX.Y.Z-windows-x86_64-setup.exe /S "/D=$env:LOCALAPPDATA\Programs\Source Weaver"
+```
+
+Silent uninstall from the installed directory:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Source Weaver\Uninstall Source Weaver.exe" /S
+```
+
+### Windows installer build details
+
+Source Weaver uses NSIS instead of MSI/MSIX for the first Windows installer because the release workflow can install NSIS on `windows-latest`, compile a small checked-in `.nsi` script with `makensis`, preserve the existing zip artifact, and validate silent per-user install/uninstall without signing or enterprise deployment infrastructure.
+
+Build the zip and installer locally from PowerShell when NSIS is installed:
+
+```powershell
+scripts\package-windows.ps1 -Version v0.1.0 -RequireInstaller
+```
+
+If `makensis` is not on `PATH`, pass the executable path explicitly:
+
+```powershell
+scripts\package-windows.ps1 -Version v0.1.0 -MakensisPath "C:\Program Files (x86)\NSIS\makensis.exe" -RequireInstaller
+```
+
+Build only the portable zip:
+
+```powershell
+scripts\package-windows.ps1 -Version v0.1.0 -SkipInstaller
+```
+
+The GitHub release workflow installs NSIS with Chocolatey, builds both Windows artifacts, then runs `scripts\validate-windows-installer.ps1` to silently install into a runner temp directory, verify installed files and shortcuts, run `sourceweaver.exe --help`, and silently uninstall.
+
+Windows artifacts are not code-signed in this repository state. If Windows Defender or SmartScreen warns on unsigned artifacts, users can inspect the release checksum and build provenance in GitHub Actions.
 
 ## Local packaging commands
 
@@ -154,14 +211,14 @@ Linux AppImage:
 scripts/package-appimage.sh v0.1.0
 ```
 
-Windows PowerShell:
+Windows PowerShell zip and NSIS setup:
 
 ```powershell
-scripts\package-windows.ps1 -Version v0.1.0
+scripts\package-windows.ps1 -Version v0.1.0 -RequireInstaller
 ```
 
-Both scripts write archives under `target/package/`.
+All packaging scripts write artifacts under `target/package/`.
 
-## Why tarball/zip first?
+## Why portable archives remain available
 
-Tarball and zip packages are deterministic, low-maintenance, and work with GitHub Actions without extra signing or installer infrastructure. AppImage, MSI, or code-signed installers can be added later once Source Weaver has stable release demand and signing keys.
+Tarball and zip packages are deterministic, low-maintenance, easy to inspect, and useful for users who do not want an installer. The Linux AppImage and Windows NSIS setup are additive release formats; they do not replace the portable archives. Code-signed installers can be added later once Source Weaver has stable release demand and signing keys.

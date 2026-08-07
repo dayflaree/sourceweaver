@@ -56,6 +56,7 @@
 - Verified Proton compile setup documentation for the Garry's Mod Source++ real compiler row, including compatdata and evidence paths.
 - Wine compile blocker documentation with command evidence showing no Wine runtime available in the current environment.
 - Linux AppImage packaging script and release workflow integration, with AppDir validation and packaging documentation.
+- Windows NSIS installer packaging script, CI install/uninstall validation, release workflow integration, and packaging documentation while retaining portable zip releases.
 
 ### Changed
 
@@ -64,7 +65,7 @@
 
 ### Known limitations
 
-- Linux releases are tarballs rather than AppImages.
-- Windows releases are zip archives rather than installers.
+- Linux AppImage GUI smoke evidence must be recorded per release on a clean Linux environment.
+- Windows setup installers are unsigned and need interactive GUI smoke evidence outside silent CI install/uninstall.
 - Release artifacts are not code-signed.
 - Real Hammer/VBSP validation requires installed Source tooling or captured compile logs.

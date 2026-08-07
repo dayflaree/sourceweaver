@@ -24,9 +24,10 @@ The workflow:
 3. Packages Linux CLI/desktop artifacts into `sourceweaver-<tag>-linux-x86_64.AppImage`.
 4. Builds Windows release binaries on `windows-latest`.
 5. Packages Windows CLI/desktop artifacts into `sourceweaver-<tag>-windows-x86_64.zip`.
-6. Uploads all packages as workflow artifacts.
-7. Creates or updates a GitHub Release for the tag.
-8. Uploads the tarball, AppImage, and zip to the GitHub Release.
+6. Installs NSIS, packages the Windows setup executable into `sourceweaver-<tag>-windows-x86_64-setup.exe`, and validates silent install/uninstall.
+7. Uploads all packages as workflow artifacts.
+8. Creates or updates a GitHub Release for the tag.
+9. Uploads the tarball, AppImage, zip, and Windows setup executable to the GitHub Release.
 
 ## Changelog
 
@@ -49,10 +50,17 @@ scripts/package-appimage.sh v0.1.0-local --appdir-only
 APPIMAGETOOL=/path/to/appimagetool-x86_64.AppImage scripts/package-appimage.sh v0.1.0-local
 ```
 
-Local Windows package dry run from PowerShell:
+Local Windows package dry run from PowerShell with NSIS installed:
 
 ```powershell
-scripts\package-windows.ps1 -Version v0.1.0-local
+scripts\package-windows.ps1 -Version v0.1.0-local -RequireInstaller
+scripts\validate-windows-installer.ps1
+```
+
+Local Windows portable-zip-only dry run:
+
+```powershell
+scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 ```
 
 ## Release checklist
@@ -63,11 +71,12 @@ scripts\package-windows.ps1 -Version v0.1.0-local
 4. Update `CHANGELOG.md`.
 5. Push a `vMAJOR.MINOR.PATCH` tag.
 6. Wait for Linux and Windows release jobs to pass.
-7. Download and smoke-test the published release archives when access to the relevant OS is available.
+7. Confirm the Windows job reports setup install/uninstall validation.
+8. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
 
 ## Current packaging limitations
 
 - Linux AppImage packaging is wired into the release workflow, but clean Linux GUI smoke evidence must be recorded per release.
-- Windows is packaged as a zip, not an MSI installer.
+- Windows NSIS installer packaging is wired into the release workflow, but interactive GUI smoke evidence outside silent CI install/uninstall must be recorded per release.
 - Release artifacts are not code-signed.
 - Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims.
