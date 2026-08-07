@@ -23,7 +23,8 @@ pub mod validation_rules;
 pub mod vmf;
 
 pub use campaign::{
-    CampaignLandmarkPairSuggestion, CampaignMapInput, CampaignOrderSuggestion,
+    CampaignAdjacencyEdge, CampaignAdjacencyGraph, CampaignLandmarkPairSuggestion,
+    CampaignMapInput, CampaignOrderSuggestion, build_campaign_adjacency_graph,
     suggest_campaign_order,
 };
 pub use changelevel::{

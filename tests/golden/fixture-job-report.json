@@ -1,5 +1,19 @@
 {
   "base": "tests/jobs/../fixtures/base.vmf",
+  "campaign_adjacency": {
+    "edges": [
+      {
+        "confidence": "medium",
+        "evidence": "both maps contain unique info_landmark targetname `map_transition`; direction is heuristic",
+        "evidence_kind": "shared_landmark",
+        "from_map": "tests/jobs/../fixtures/base.vmf",
+        "to_map": "tests/jobs/../fixtures/incoming.vmf"
+      }
+    ],
+    "warnings": [
+      "tests/jobs/../fixtures/incoming.vmf trigger_changelevel #2 targets missing map `d1_trainstation_03`; explicit evidence remains separate from heuristics."
+    ]
+  },
   "campaign_order": {
     "landmark_pairs": [],
     "ordered_labels": [

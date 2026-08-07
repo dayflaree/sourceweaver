@@ -1,0 +1,27 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "info_landmark"
+	"targetname" "adj_lm"
+	"origin" "0 0 0"
+}
+entity
+{
+	"id" "3"
+	"classname" "trigger_changelevel"
+	"targetname" "to_02"
+	"map" "campaign_adjacency_02"
+	"landmark" "adj_lm"
+}

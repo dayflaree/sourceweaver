@@ -1,0 +1,8 @@
+base = "../fixtures/campaign_adjacency_01.vmf"
+inputs = ["../fixtures/campaign_adjacency_02.vmf", "../fixtures/campaign_adjacency_03.vmf"]
+output = "../target/test-output/campaign_adjacency_merged.vmf"
+landmark = "adj_lm"
+dry_run = true
+
+[delete]
+protect_critical_entities = true

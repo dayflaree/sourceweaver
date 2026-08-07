@@ -1,0 +1,19 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "10"
+}
+entity
+{
+	"id" "11"
+	"classname" "info_landmark"
+	"targetname" "adj_lm"
+	"origin" "128 0 0"
+}

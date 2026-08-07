@@ -415,6 +415,62 @@ stderr:
     assert!(merged.contains("\"targetname\" \"to_external\""));
 }
 
+#[test]
+fn job_reports_campaign_adjacency_graph() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["run", "--job", "tests/jobs/campaign-adjacency.toml"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let edges = report["campaign_adjacency"]["edges"].as_array().unwrap();
+    assert!(edges.iter().any(|edge| {
+        edge["evidence_kind"] == "trigger_changelevel"
+            && edge["confidence"] == "high"
+            && edge["from_map"]
+                .as_str()
+                .unwrap()
+                .ends_with("campaign_adjacency_01.vmf")
+            && edge["to_map"]
+                .as_str()
+                .unwrap()
+                .ends_with("campaign_adjacency_02.vmf")
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge["evidence_kind"] == "filename_sequence"
+            && edge["confidence"] == "low"
+            && edge["from_map"]
+                .as_str()
+                .unwrap()
+                .ends_with("campaign_adjacency_02.vmf")
+            && edge["to_map"]
+                .as_str()
+                .unwrap()
+                .ends_with("campaign_adjacency_03.vmf")
+    }));
+    assert!(!edges.iter().any(|edge| {
+        edge["evidence_kind"] != "trigger_changelevel"
+            && edge["from_map"]
+                .as_str()
+                .unwrap()
+                .ends_with("campaign_adjacency_01.vmf")
+            && edge["to_map"]
+                .as_str()
+                .unwrap()
+                .ends_with("campaign_adjacency_02.vmf")
+    }));
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

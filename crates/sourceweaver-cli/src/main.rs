@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
-    BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
-    CampaignTransition, ChangelevelChange, ChangelevelPolicy, ChangelevelPolicyOptions,
-    ChangelevelPolicyReport, ChangelevelPreserveRule, ChangelevelPreservedTransition,
-    ChangelevelScope, DeletionCriteria, DeletionReport, Document, EntitySemanticsReport,
-    IntegrityReport, MapComplexityReport, MergeInput, MergeOptions, MergeReport,
-    RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport, discover_landmarks,
-    discover_transitions, format_integrity_issue, inspect_entities, merge_maps, parse_compile_log,
-    prune_document, suggest_campaign_order, summarize_entity_types, validate_document_integrity,
-    validate_for_source_tools, validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
+    BrushEntityDeletionMode, BrushRole, CampaignAdjacencyGraph, CampaignMapInput,
+    CampaignOrderSuggestion, CampaignTransition, ChangelevelChange, ChangelevelPolicy,
+    ChangelevelPolicyOptions, ChangelevelPolicyReport, ChangelevelPreserveRule,
+    ChangelevelPreservedTransition, ChangelevelScope, DeletionCriteria, DeletionReport, Document,
+    EntitySemanticsReport, IntegrityReport, MapComplexityReport, MergeInput, MergeOptions,
+    MergeReport, RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport,
+    discover_landmarks, discover_transitions, format_integrity_issue, inspect_entities, merge_maps,
+    parse_compile_log, prune_document, suggest_campaign_order, summarize_entity_types,
+    validate_document_integrity, validate_for_source_tools,
+    validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
     validation_rule_set_choices,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -2763,6 +2764,7 @@ struct AutomationReport {
     integrity: IntegritySnapshot,
     transitions: Vec<TransitionSnapshot>,
     campaign_order: CampaignOrderSnapshot,
+    campaign_adjacency: CampaignAdjacencySnapshot,
     merge: Option<MergeSnapshot>,
     changelevel: ChangelevelPolicySnapshot,
     result_entity_types: BTreeMap<String, usize>,
@@ -2858,6 +2860,21 @@ struct CampaignOrderSnapshot {
     ordered_labels: Vec<String>,
     landmark_pairs: Vec<CampaignLandmarkPairSnapshot>,
     warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CampaignAdjacencySnapshot {
+    edges: Vec<CampaignAdjacencyEdgeSnapshot>,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CampaignAdjacencyEdgeSnapshot {
+    from_map: String,
+    to_map: String,
+    evidence_kind: String,
+    confidence: String,
+    evidence: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3430,6 +3447,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
     };
 
     let campaign_order = suggest_campaign_order(&campaign_inputs);
+    let campaign_adjacency = sourceweaver_core::build_campaign_adjacency_graph(&campaign_inputs);
 
     Ok(AutomationReport {
         operation,
@@ -3465,6 +3483,7 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         integrity: snapshot_integrity_report(&integrity_report),
         transitions: transition_reports,
         campaign_order: snapshot_campaign_order(&campaign_order),
+        campaign_adjacency: snapshot_campaign_adjacency(&campaign_adjacency),
         changelevel: merge_snapshot
             .as_ref()
             .map(|merge| merge.changelevel.clone())
@@ -3678,6 +3697,23 @@ fn snapshot_transition(
         landmark: transition.landmark.clone(),
         origin: transition.origin.map(|origin| origin.to_string()),
         solid_count: transition.solid_count,
+    }
+}
+
+fn snapshot_campaign_adjacency(graph: &CampaignAdjacencyGraph) -> CampaignAdjacencySnapshot {
+    CampaignAdjacencySnapshot {
+        edges: graph
+            .edges
+            .iter()
+            .map(|edge| CampaignAdjacencyEdgeSnapshot {
+                from_map: edge.from_map.clone(),
+                to_map: edge.to_map.clone(),
+                evidence_kind: edge.evidence_kind.clone(),
+                confidence: edge.confidence.clone(),
+                evidence: edge.evidence.clone(),
+            })
+            .collect(),
+        warnings: graph.warnings.clone(),
     }
 }
 
