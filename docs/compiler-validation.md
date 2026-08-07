@@ -109,3 +109,13 @@ CI cannot assume licensed Source tools are installed. Instead, CI builds a merge
 ## Validation notes for issue #47
 
 This repository was validated on Linux with portable checks and synthetic VBSP log fixtures. Real Hammer/Hammer++ opening and VBSP execution still require a machine with the relevant Source game/tool installation. When such logs are captured, attach the JSON output from `sourceweaver validate --compile-log <log> --json` to the issue or release notes.
+
+## Desktop compile profile wizard
+
+The desktop **Optional external compile** panel includes a **Compile profile wizard** section. It shells out to the existing Source Weaver CLI profile commands and shows the command, JSON result, and stdout/stderr tails:
+
+- **Create + validate profile** runs `sourceweaver compile-profile create --output <profile.toml> ... --validate --json` from explicit VBSP, VVIS, VRAD, game path, log directory, step list, and timeout fields.
+- **Validate profile** runs `sourceweaver compile-profile validate --profile <profile.toml> --json` and reports actionable missing-tool, non-executable-tool, invalid-step, and missing-game-path messages from the CLI validator.
+- **Discover from directory** runs `sourceweaver compile-profile discover --search-dir <dir> --output <profile.toml> ... --json`, matching the CLI discovery behavior where practical.
+
+The wizard saves profile TOML through the CLI and, after a successful action, copies the profile path into the compile profile selector. Validation checks paths/settings only. It does not run VBSP, VVIS, VRAD, Hammer, Hammer++, a game runtime, or any SDK tool.

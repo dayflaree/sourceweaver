@@ -96,6 +96,17 @@ struct SourceWeaverApp {
     recent_vmfs: Vec<PathBuf>,
     recent_projects: Vec<PathBuf>,
     compile_profile_path: String,
+    profile_wizard_output_path: String,
+    profile_wizard_vbsp_path: String,
+    profile_wizard_vvis_path: String,
+    profile_wizard_vrad_path: String,
+    profile_wizard_game_path: String,
+    profile_wizard_log_dir: String,
+    profile_wizard_steps: String,
+    profile_wizard_timeout_seconds: String,
+    profile_wizard_discover_dir: String,
+    profile_wizard_status: DesktopProfileWizardStatus,
+    profile_wizard_receiver: Option<Receiver<DesktopProfileWizardMessage>>,
     compile_steps: String,
     compile_log_dir: String,
     compile_report_path: String,
@@ -183,6 +194,48 @@ struct PendingDeletionReview {
     maps_checked: usize,
     failures: usize,
     label: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DesktopProfileWizardStatus {
+    running: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopProfileWizardRequest {
+    cli_path: PathBuf,
+    action: DesktopProfileWizardAction,
+    profile_path: PathBuf,
+    vbsp: Option<PathBuf>,
+    vvis: Option<PathBuf>,
+    vrad: Option<PathBuf>,
+    game: Option<PathBuf>,
+    log_dir: Option<PathBuf>,
+    steps: Option<String>,
+    timeout_seconds: Option<u64>,
+    search_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DesktopProfileWizardAction {
+    CreateValidate,
+    Validate,
+    Discover,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopProfileWizardMessage {
+    ok: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -648,6 +701,20 @@ impl SourceWeaverApp {
             recent_vmfs: Vec::new(),
             recent_projects: Vec::new(),
             compile_profile_path: String::new(),
+            profile_wizard_output_path: String::new(),
+            profile_wizard_vbsp_path: String::new(),
+            profile_wizard_vvis_path: String::new(),
+            profile_wizard_vrad_path: String::new(),
+            profile_wizard_game_path: String::new(),
+            profile_wizard_log_dir: String::new(),
+            profile_wizard_steps: "vbsp,vvis,vrad".to_string(),
+            profile_wizard_timeout_seconds: "900".to_string(),
+            profile_wizard_discover_dir: String::new(),
+            profile_wizard_status: DesktopProfileWizardStatus {
+                summary: "Compile profile wizard idle. Create, validate, or discover user-provided tools.".to_string(),
+                ..Default::default()
+            },
+            profile_wizard_receiver: None,
             compile_steps: "vbsp,vvis,vrad".to_string(),
             compile_log_dir: String::new(),
             compile_report_path: String::new(),
@@ -2307,6 +2374,107 @@ impl SourceWeaverApp {
         }
     }
 
+    fn profile_wizard_request(
+        &mut self,
+        action: DesktopProfileWizardAction,
+    ) -> Option<DesktopProfileWizardRequest> {
+        if self.profile_wizard_status.running {
+            self.add_status("A compile profile wizard action is already running.");
+            return None;
+        }
+        let profile_path = blank_to_none(&self.profile_wizard_output_path)
+            .or_else(|| blank_to_none(&self.compile_profile_path))
+            .map(PathBuf::from);
+        let Some(profile_path) = profile_path else {
+            self.add_status("Set a compile profile output/validation path first.");
+            return None;
+        };
+        let timeout_seconds = match blank_to_none(&self.profile_wizard_timeout_seconds) {
+            Some(value) => match value.parse::<u64>() {
+                Ok(seconds) if seconds > 0 => Some(seconds),
+                _ => {
+                    self.add_status(
+                        "Profile timeout must be a positive integer number of seconds.",
+                    );
+                    return None;
+                }
+            },
+            None => None,
+        };
+        Some(DesktopProfileWizardRequest {
+            cli_path: sourceweaver_cli_executable(),
+            action,
+            profile_path,
+            vbsp: blank_to_none(&self.profile_wizard_vbsp_path).map(PathBuf::from),
+            vvis: blank_to_none(&self.profile_wizard_vvis_path).map(PathBuf::from),
+            vrad: blank_to_none(&self.profile_wizard_vrad_path).map(PathBuf::from),
+            game: blank_to_none(&self.profile_wizard_game_path).map(PathBuf::from),
+            log_dir: blank_to_none(&self.profile_wizard_log_dir).map(PathBuf::from),
+            steps: blank_to_none(&self.profile_wizard_steps),
+            timeout_seconds,
+            search_dir: blank_to_none(&self.profile_wizard_discover_dir).map(PathBuf::from),
+        })
+    }
+
+    fn launch_profile_wizard(&mut self, action: DesktopProfileWizardAction) {
+        let Some(request) = self.profile_wizard_request(action) else {
+            return;
+        };
+        let command_preview = desktop_profile_wizard_command_preview(&request);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let message = run_desktop_profile_wizard_request(request);
+            let _ = sender.send(message);
+        });
+        self.profile_wizard_receiver = Some(receiver);
+        self.profile_wizard_status = DesktopProfileWizardStatus {
+            running: true,
+            summary: "Compile profile wizard running in background.".to_string(),
+            command: command_preview.clone(),
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        };
+        self.add_status(format!(
+            "Started compile profile wizard: {}",
+            command_preview.join(" ")
+        ));
+    }
+
+    fn poll_profile_wizard_status(&mut self) {
+        let Some(receiver) = self.profile_wizard_receiver.take() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(message) => {
+                self.profile_wizard_status.running = false;
+                self.profile_wizard_status.summary = message.summary.clone();
+                self.profile_wizard_status.command = message.command;
+                self.profile_wizard_status.report_json = message.report_json;
+                self.profile_wizard_status.stdout_tail = message.stdout_tail;
+                self.profile_wizard_status.stderr_tail = message.stderr_tail;
+                self.add_status(message.summary);
+                if message.ok {
+                    if let Some(path) = blank_to_none(&self.profile_wizard_output_path) {
+                        self.compile_profile_path = path;
+                    }
+                } else {
+                    self.last_error_dialog = Some("Compile profile wizard reported missing tools/game paths or invalid settings. Review the JSON/output details.".to_string());
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => self.profile_wizard_receiver = Some(receiver),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.profile_wizard_status.running = false;
+                self.profile_wizard_status.summary =
+                    "Compile profile wizard worker disconnected before reporting a result."
+                        .to_string();
+                self.add_status(
+                    "Compile profile wizard worker disconnected before reporting a result.",
+                );
+            }
+        }
+    }
+
     fn launch_compile_for_current_output(&mut self) {
         if self.output_path.trim().is_empty() {
             self.add_status("Choose or export an output VMF before launching compile.");
@@ -2697,6 +2865,7 @@ impl eframe::App for SourceWeaverApp {
             ctx.set_visuals(egui::Visuals::light());
         }
         self.handle_dropped_files(ctx);
+        self.poll_profile_wizard_status();
         self.poll_compile_status();
         self.poll_bsp_decompile_status();
         self.poll_bsp_pack_status();
@@ -3090,6 +3259,8 @@ impl SourceWeaverApp {
     fn compile_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Optional external compile");
         ui.label("This runs user-provided VBSP/VVIS/VRAD tools through a Source Weaver compile profile. Hammer and Valve tools are not bundled or required for normal VMF merge/edit use.");
+        self.compile_profile_wizard_panel(ui);
+        ui.separator();
         ui.horizontal(|ui| {
             ui.label("Compile profile:");
             ui.add(
@@ -3177,6 +3348,88 @@ impl SourceWeaverApp {
         self.bsp_pack_panel(ui);
         ui.separator();
         self.model_tooling_panel(ui);
+    }
+
+    fn compile_profile_wizard_panel(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("Compile profile wizard", |ui| {
+            ui.weak("Creates, discovers, and validates profile TOML for user-provided tools. It checks paths and settings; it does not run VBSP/VVIS/VRAD.");
+            ui.horizontal(|ui| {
+                ui.label("Profile TOML:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_output_path).desired_width(f32::INFINITY));
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("VBSP:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_vbsp_path).desired_width(180.0));
+                ui.label("VVIS:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_vvis_path).desired_width(180.0));
+                ui.label("VRAD:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_vrad_path).desired_width(180.0));
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Game path:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_game_path).desired_width(240.0));
+                ui.label("Log dir:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_log_dir).desired_width(180.0));
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Steps:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_steps).desired_width(160.0));
+                ui.label("Timeout seconds:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_timeout_seconds).desired_width(80.0));
+                ui.label("Discover dir:");
+                ui.add(egui::TextEdit::singleline(&mut self.profile_wizard_discover_dir).desired_width(180.0));
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(!self.profile_wizard_status.running, egui::Button::new("Create + validate profile"))
+                    .clicked()
+                {
+                    self.launch_profile_wizard(DesktopProfileWizardAction::CreateValidate);
+                }
+                if ui
+                    .add_enabled(!self.profile_wizard_status.running, egui::Button::new("Validate profile"))
+                    .clicked()
+                {
+                    self.launch_profile_wizard(DesktopProfileWizardAction::Validate);
+                }
+                if ui
+                    .add_enabled(!self.profile_wizard_status.running, egui::Button::new("Discover from directory"))
+                    .clicked()
+                {
+                    self.launch_profile_wizard(DesktopProfileWizardAction::Discover);
+                }
+            });
+            if self.profile_wizard_status.running {
+                ui.add(egui::Spinner::new());
+            }
+            ui.label(&self.profile_wizard_status.summary);
+            if !self.profile_wizard_status.command.is_empty() {
+                ui.collapsing("Profile wizard command", |ui| {
+                    ui.monospace(self.profile_wizard_status.command.join(" "));
+                });
+            }
+            if let Some(report_json) = &self.profile_wizard_status.report_json {
+                ui.collapsing("Profile validation/discovery JSON", |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut report_json.clone())
+                            .desired_rows(12)
+                            .code_editor(),
+                    );
+                });
+            }
+            if !self.profile_wizard_status.stdout_tail.is_empty()
+                || !self.profile_wizard_status.stderr_tail.is_empty()
+            {
+                ui.collapsing("Profile wizard output tail", |ui| {
+                    for line in &self.profile_wizard_status.stdout_tail {
+                        ui.small(format!("stdout: {line}"));
+                    }
+                    for line in &self.profile_wizard_status.stderr_tail {
+                        ui.colored_label(egui::Color32::YELLOW, format!("stderr: {line}"));
+                    }
+                });
+            }
+        });
     }
 
     fn bsp_pack_panel(&mut self, ui: &mut egui::Ui) {
@@ -4218,6 +4471,123 @@ fn default_compile_report_path(output_path: &str) -> PathBuf {
         PathBuf::from("sourceweaver-compile-report.json")
     } else {
         default_compile_report_path_for_map(&PathBuf::from(output_path.trim()))
+    }
+}
+
+fn desktop_profile_wizard_command_preview(request: &DesktopProfileWizardRequest) -> Vec<String> {
+    let mut parts = vec![
+        request.cli_path.display().to_string(),
+        "compile-profile".to_string(),
+    ];
+    match request.action {
+        DesktopProfileWizardAction::CreateValidate => {
+            parts.push("create".to_string());
+            parts.push("--output".to_string());
+            parts.push(request.profile_path.display().to_string());
+            push_optional_path_arg(&mut parts, "--vbsp", &request.vbsp);
+            push_optional_path_arg(&mut parts, "--vvis", &request.vvis);
+            push_optional_path_arg(&mut parts, "--vrad", &request.vrad);
+            push_optional_path_arg(&mut parts, "--game", &request.game);
+            push_optional_path_arg(&mut parts, "--log-dir", &request.log_dir);
+            if let Some(steps) = &request.steps {
+                parts.push("--steps".to_string());
+                parts.push(steps.clone());
+            }
+            if let Some(timeout) = request.timeout_seconds {
+                parts.push("--timeout-seconds".to_string());
+                parts.push(timeout.to_string());
+            }
+            parts.push("--validate".to_string());
+            parts.push("--json".to_string());
+        }
+        DesktopProfileWizardAction::Validate => {
+            parts.push("validate".to_string());
+            parts.push("--profile".to_string());
+            parts.push(request.profile_path.display().to_string());
+            parts.push("--json".to_string());
+        }
+        DesktopProfileWizardAction::Discover => {
+            parts.push("discover".to_string());
+            push_optional_path_arg(&mut parts, "--search-dir", &request.search_dir);
+            parts.push("--output".to_string());
+            parts.push(request.profile_path.display().to_string());
+            push_optional_path_arg(&mut parts, "--game", &request.game);
+            push_optional_path_arg(&mut parts, "--log-dir", &request.log_dir);
+            if let Some(steps) = &request.steps {
+                parts.push("--steps".to_string());
+                parts.push(steps.clone());
+            }
+            if let Some(timeout) = request.timeout_seconds {
+                parts.push("--timeout-seconds".to_string());
+                parts.push(timeout.to_string());
+            }
+            parts.push("--json".to_string());
+        }
+    }
+    parts
+}
+
+fn push_optional_path_arg(parts: &mut Vec<String>, flag: &str, value: &Option<PathBuf>) {
+    if let Some(path) = value {
+        parts.push(flag.to_string());
+        parts.push(path.display().to_string());
+    }
+}
+
+fn run_desktop_profile_wizard_request(
+    request: DesktopProfileWizardRequest,
+) -> DesktopProfileWizardMessage {
+    let command_preview = desktop_profile_wizard_command_preview(&request);
+    let mut command = Command::new(&request.cli_path);
+    for arg in command_preview.iter().skip(1) {
+        command.arg(arg);
+    }
+    match command.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let report_json = stdout
+                .trim_start()
+                .starts_with('{')
+                .then_some(stdout.clone());
+            let parsed_ok = report_json
+                .as_ref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false);
+            let ok = output.status.success() && parsed_ok;
+            let summary = if ok {
+                format!(
+                    "Compile profile wizard completed successfully. Profile: {}",
+                    display_path(&request.profile_path)
+                )
+            } else {
+                format!(
+                    "Compile profile wizard reported missing tools/game paths or invalid settings. Exit code: {:?}. Profile: {}",
+                    output.status.code(),
+                    display_path(&request.profile_path)
+                )
+            };
+            DesktopProfileWizardMessage {
+                ok,
+                summary,
+                command: command_preview,
+                report_json,
+                stdout_tail: tail_lines(&stdout, 40),
+                stderr_tail: tail_lines(&stderr, 40),
+            }
+        }
+        Err(error) => DesktopProfileWizardMessage {
+            ok: false,
+            summary: format!(
+                "Failed to start Source Weaver CLI compile-profile command `{}`: {error}.",
+                request.cli_path.display()
+            ),
+            command: command_preview,
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        },
     }
 }
 

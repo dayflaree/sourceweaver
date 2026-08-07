@@ -29,6 +29,7 @@
 - Multi-step campaign batch plan runner with per-step reports, summary artifact links, and dry-run planning.
 - Desktop BSP packing panel with user-configured packer tool, BSP paths, asset/filelist inputs, reports, output tails, and optional pack-after-compile.
 - Desktop model tooling panel for MDL metadata inspection and background StudioMDL-compatible model compile integrations.
+- Desktop compile profile wizard for creating, validating, and discovering user-provided VBSP/VVIS/VRAD profiles.
 
 ### Changed
 
