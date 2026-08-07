@@ -60,6 +60,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "model-decompile" | "decompile-model" => model_decompile_command(&args[1..]),
         "model-source-manifest" | "model-sources" => model_source_manifest_command(&args[1..]),
         "model-package" | "package-model" => model_package_command(&args[1..]),
+        "model-preview" | "preview-model" => model_preview_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "bsp-import-presets" | "bspsource-presets" => bsp_import_presets_command(&args[1..]),
         "external-decompiler-presets" | "decompiler-presets" => {
@@ -3135,6 +3136,252 @@ fn finish_model_compile_report(
     Ok(())
 }
 
+fn model_preview_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_model_preview_help();
+        return Ok(());
+    }
+    let config = parse_model_preview_args(args)?;
+    let model = config.input_mdl.as_ref().ok_or("usage: sourceweaver model-preview <model.mdl> [--asset-root dir] [--hlmv path] [--game-dir dir] [--launch] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
+    if !model.is_file() {
+        return Err(format!(
+            "model-preview input MDL does not exist: {}",
+            model.display()
+        ));
+    }
+    if config.launch && config.hlmv.is_none() {
+        return Err("model-preview --launch needs --hlmv <path>".to_string());
+    }
+    let inspect = inspect_mdl_header(model, &config.asset_roots)?;
+    let preview_summary = build_model_preview_summary(&inspect);
+    let hlmv_launch = if config.launch {
+        Some(run_hlmv_preview(&config, model)?)
+    } else {
+        config.hlmv.as_ref().map(|hlmv| ModelHlmvLaunchReport {
+            tool: hlmv.display().to_string(),
+            game_dir: config
+                .game_dir
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            launch_requested: false,
+            command_shape: "<hlmv> [--game-dir context is reported only] <model.mdl>".to_string(),
+            command_args: vec![model.display().to_string()],
+            exit_code: None,
+            log_path: None,
+            status: "not-launched".to_string(),
+            warnings: vec!["HLMV path was recorded, but --launch was not supplied".to_string()],
+        })
+    };
+    let ok = hlmv_launch
+        .as_ref()
+        .map(|launch| launch.status != "failed")
+        .unwrap_or(true);
+    let report = ModelPreviewReport {
+        ok,
+        input_mdl: model.display().to_string(),
+        asset_roots: stringify_paths(&config.asset_roots),
+        native_preview: ModelNativePreviewReport {
+            status: "metadata-only".to_string(),
+            supported_formats: vec!["Source MDL header/bodypart/model/mesh/material/companion metadata".to_string()],
+            unsupported_formats: vec![
+                "native textured 3D rendering".to_string(),
+                "VVD/VTX vertex-buffer rendering".to_string(),
+                "PHY collision visualization".to_string(),
+                "animation playback".to_string(),
+            ],
+            boundary: "Source Weaver does not yet provide a native textured 3D model renderer; use this report for preview cards and HLMV launch planning.".to_string(),
+        },
+        preview_summary,
+        hlmv_launch,
+        external_tool_boundary: vec![
+            "Native preview is metadata-only in this implementation.".to_string(),
+            "HLMV is launched only when the user supplies --hlmv and explicit --launch.".to_string(),
+            "No game content, SDK, Steam install, HLMV binary, or model assets are bundled by Source Weaver.".to_string(),
+        ],
+        real_tool_validation: false,
+    };
+    finish_model_preview_report(&config, report)
+}
+
+fn parse_model_preview_args(args: &[String]) -> Result<ModelPreviewConfig, String> {
+    let mut config = ModelPreviewConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--asset-root" | "--content-root" => {
+                cursor += 1;
+                config.asset_roots.push(PathBuf::from(
+                    args.get(cursor).ok_or("--asset-root needs a directory")?,
+                ));
+            }
+            "--hlmv" | "--tool" => {
+                cursor += 1;
+                config.hlmv = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--hlmv needs a path")?,
+                ));
+            }
+            "--game-dir" | "--game" => {
+                cursor += 1;
+                config.game_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game-dir needs a directory")?,
+                ));
+            }
+            "--launch" => config.launch = true,
+            "--log" => {
+                cursor += 1;
+                config.log = Some(PathBuf::from(args.get(cursor).ok_or("--log needs a path")?));
+            }
+            "--report" => {
+                cursor += 1;
+                config.report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--report needs a path")?,
+                ));
+            }
+            "--timeout-seconds" => {
+                cursor += 1;
+                config.timeout_seconds = Some(parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?);
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown model-preview flag `{value}`"));
+            }
+            value => {
+                if config.input_mdl.is_some() {
+                    return Err("model-preview accepts one MDL path".to_string());
+                }
+                config.input_mdl = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn build_model_preview_summary(inspect: &ModelInspectReport) -> ModelPreviewSummary {
+    let header_name = inspect
+        .header
+        .as_ref()
+        .map(|header| header.name.clone())
+        .unwrap_or_default();
+    ModelPreviewSummary {
+        model_name: header_name,
+        mdl_version: inspect.header.as_ref().map(|header| header.version),
+        bodyparts: inspect
+            .mesh_metadata
+            .as_ref()
+            .map(|mesh| mesh.num_bodyparts)
+            .unwrap_or_default(),
+        models: inspect
+            .mesh_metadata
+            .as_ref()
+            .map(|mesh| mesh.total_models)
+            .unwrap_or_default(),
+        meshes: inspect
+            .mesh_metadata
+            .as_ref()
+            .map(|mesh| mesh.total_meshes)
+            .unwrap_or_default(),
+        local_animations: inspect
+            .animation_metadata
+            .as_ref()
+            .map(|animation| animation.num_local_animations)
+            .unwrap_or_default(),
+        local_sequences: inspect
+            .animation_metadata
+            .as_ref()
+            .map(|animation| animation.num_local_sequences)
+            .unwrap_or_default(),
+        material_candidates: inspect
+            .material_dependencies
+            .as_ref()
+            .map(|materials| materials.materials.len())
+            .unwrap_or_default(),
+        companion_files: inspect
+            .companion_files
+            .as_ref()
+            .map(|companions| companions.files.len())
+            .unwrap_or_default(),
+        warnings: inspect.warnings.clone(),
+    }
+}
+
+fn run_hlmv_preview(
+    config: &ModelPreviewConfig,
+    model: &Path,
+) -> Result<ModelHlmvLaunchReport, String> {
+    let hlmv = config.hlmv.as_ref().expect("checked by caller");
+    if !hlmv.is_file() {
+        return Err(format!("HLMV/tool path does not exist: {}", hlmv.display()));
+    }
+    let args = vec![model.display().to_string()];
+    let mut command = Command::new(hlmv);
+    command.args(&args);
+    let output = run_command_with_timeout(
+        &mut command,
+        &format!("model preview tool {}", hlmv.display()),
+        Duration::from_secs(tool_timeout_seconds(config.timeout_seconds)),
+    )?;
+    let log_text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if let Some(log_path) = &config.log {
+        create_parent_dir(log_path, "model preview log")?;
+        fs::write(log_path, &log_text).map_err(|error| {
+            format!(
+                "failed to write model preview log {}: {error}",
+                log_path.display()
+            )
+        })?;
+    }
+    Ok(ModelHlmvLaunchReport {
+        tool: hlmv.display().to_string(),
+        game_dir: config.game_dir.as_ref().map(|path| path.display().to_string()),
+        launch_requested: true,
+        command_shape: "<hlmv-or-wrapper> <model.mdl>".to_string(),
+        command_args: args,
+        exit_code: output.status.code(),
+        log_path: config.log.as_ref().map(|path| path.display().to_string()),
+        status: if output.status.success() { "completed" } else { "failed" }.to_string(),
+        warnings: vec!["Launch status only records process exit/log output; Source Weaver did not inspect a rendered HLMV window.".to_string()],
+    })
+}
+
+fn finish_model_preview_report(
+    config: &ModelPreviewConfig,
+    report: ModelPreviewReport,
+) -> Result<(), String> {
+    let encoded = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode model preview report: {error}"))?;
+    if let Some(report_path) = &config.report {
+        create_parent_dir(report_path, "model preview report")?;
+        fs::write(report_path, &encoded).map_err(|error| {
+            format!(
+                "failed to write model preview report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+    if config.json {
+        println!("{encoded}");
+    } else {
+        println!("model preview: {}", if report.ok { "ok" } else { "failed" });
+        println!("native preview: {}", report.native_preview.status);
+        println!("meshes: {}", report.preview_summary.meshes);
+        println!("materials: {}", report.preview_summary.material_candidates);
+        if let Some(launch) = &report.hlmv_launch {
+            println!("hlmv status: {}", launch.status);
+        }
+    }
+    if !report.ok {
+        return Err("model preview reported errors".to_string());
+    }
+    Ok(())
+}
+
 fn model_package_command(args: &[String]) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_model_package_help();
@@ -5795,6 +6042,66 @@ struct ModelDecompileInvocation {
 }
 
 #[derive(Debug, Clone, Default)]
+struct ModelPreviewConfig {
+    input_mdl: Option<PathBuf>,
+    asset_roots: Vec<PathBuf>,
+    hlmv: Option<PathBuf>,
+    game_dir: Option<PathBuf>,
+    launch: bool,
+    log: Option<PathBuf>,
+    report: Option<PathBuf>,
+    timeout_seconds: Option<u64>,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelPreviewReport {
+    ok: bool,
+    input_mdl: String,
+    asset_roots: Vec<String>,
+    native_preview: ModelNativePreviewReport,
+    preview_summary: ModelPreviewSummary,
+    hlmv_launch: Option<ModelHlmvLaunchReport>,
+    external_tool_boundary: Vec<String>,
+    real_tool_validation: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelNativePreviewReport {
+    status: String,
+    supported_formats: Vec<String>,
+    unsupported_formats: Vec<String>,
+    boundary: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelPreviewSummary {
+    model_name: String,
+    mdl_version: Option<i32>,
+    bodyparts: i32,
+    models: i32,
+    meshes: i32,
+    local_animations: i32,
+    local_sequences: i32,
+    material_candidates: usize,
+    companion_files: usize,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelHlmvLaunchReport {
+    tool: String,
+    game_dir: Option<String>,
+    launch_requested: bool,
+    command_shape: String,
+    command_args: Vec<String>,
+    exit_code: Option<i32>,
+    log_path: Option<String>,
+    status: String,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
 struct ModelPackageConfig {
     input_mdl: Option<PathBuf>,
     asset_roots: Vec<PathBuf>,
@@ -6755,6 +7062,7 @@ Usage:
   sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver model-source-manifest <decompiled-output-dir> [--json]
   sourceweaver model-package <model.mdl> --asset-root dir [--output-dir dir] [--copy] [--report report.json] [--json]
+  sourceweaver model-preview <model.mdl> [--asset-root dir] [--hlmv path] [--game-dir dir] [--launch] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--context-profile id] [--tool-cwd dir] [--library-path dir] [--game-dir dir] [--pass-game-dir] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bspzip-context-profiles [--json]
@@ -6911,6 +7219,18 @@ Command shape:
   studiomdl [--tool-arg values...] [-game <game-dir>] <model.qc>
 
 Use --tool-arg once per additional StudioMDL option. External tool runs default to a 900 second timeout.
+"#
+    );
+}
+
+fn print_model_preview_help() {
+    println!(
+        r#"Usage:
+  sourceweaver model-preview <model.mdl> [--asset-root dir] [--hlmv path] [--game-dir dir] [--launch] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+
+Creates a metadata-only native preview report and optional HLMV launch report.
+HLMV is external: Source Weaver launches only a user-provided --hlmv path when
+--launch is supplied. Launch status captures process exit/log output only.
 "#
     );
 }

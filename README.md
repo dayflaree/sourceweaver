@@ -290,6 +290,13 @@ cargo run -p sourceweaver-cli -- model-package models/props/example.mdl \
   --copy \
   --report model-package-report.json \
   --json
+
+cargo run -p sourceweaver-cli -- model-preview models/props/example.mdl \
+  --hlmv /path/to/hlmv-or-wrapper \
+  --launch \
+  --log model-preview.log \
+  --report model-preview-report.json \
+  --json
 ```
 
 See `docs/model-tooling.md` and `docs/model-decompile.md` for Crowbar research, licensing notes, wrapper usage, and model-tooling boundaries.

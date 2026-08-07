@@ -48,6 +48,7 @@
 - Native `model-inspect` VVD/VTX/PHY companion-file metadata probing with missing and checksum-mismatch reporting.
 - Model source-output manifest workflow for classifying externally generated QC/QCI, SMD, DMX, VTA, and other decompile outputs without running proprietary tools.
 - Model package manifest/copy workflow for MDL, VVD/VTX/PHY companions, and resolved material dependencies from user-selected asset roots.
+- Metadata-only model preview reports and optional user-provided HLMV-compatible launch reporting with explicit external-tool boundaries.
 
 ### Changed
 

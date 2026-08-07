@@ -3108,3 +3108,112 @@ fn model_package_copies_synthetic_model_companions_and_materials() {
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn model_preview_reports_metadata_and_fake_hlmv_launch_status() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn put_i32(data: &mut [u8], offset: usize, value: i32) {
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_name64(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-preview-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let mdl_path = temp_dir.join("preview_fixture.mdl");
+    let mut mdl = vec![0_u8; 240];
+    mdl[0..4].copy_from_slice(b"IDST");
+    put_i32(&mut mdl, 4, 48);
+    put_i32(&mut mdl, 8, 1122);
+    put_name64(&mut mdl, 12, "models/preview_fixture.mdl");
+    let mdl_len = mdl.len() as i32;
+    put_i32(&mut mdl, 76, mdl_len);
+    std::fs::write(&mdl_path, mdl).unwrap();
+
+    let fake_hlmv = temp_dir.join("fake-hlmv.sh");
+    let mut file = std::fs::File::create(&fake_hlmv).unwrap();
+    file.write_all(b"#!/usr/bin/env bash\nset -euo pipefail\necho \"Fake HLMV opened $1\"\n")
+        .unwrap();
+    drop(file);
+    let mut permissions = std::fs::metadata(&fake_hlmv).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake_hlmv, permissions).unwrap();
+
+    let log_path = temp_dir.join("preview.log");
+    let report_path = temp_dir.join("preview-report.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "model-preview",
+            mdl_path.to_str().unwrap(),
+            "--hlmv",
+            fake_hlmv.to_str().unwrap(),
+            "--launch",
+            "--log",
+            log_path.to_str().unwrap(),
+            "--report",
+            report_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["native_preview"]["status"], "metadata-only");
+    assert!(
+        report["native_preview"]["unsupported_formats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "native textured 3D rendering")
+    );
+    assert_eq!(
+        report["preview_summary"]["model_name"],
+        "models/preview_fixture.mdl"
+    );
+    assert_eq!(report["hlmv_launch"]["launch_requested"], true);
+    assert_eq!(report["hlmv_launch"]["status"], "completed");
+    assert_eq!(
+        report["hlmv_launch"]["command_args"][0],
+        mdl_path.display().to_string()
+    );
+    assert!(
+        report["hlmv_launch"]["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value
+                .as_str()
+                .unwrap()
+                .contains("did not inspect a rendered HLMV window"))
+    );
+    assert_eq!(report["real_tool_validation"], false);
+    assert!(log_path.exists());
+    assert!(
+        std::fs::read_to_string(&log_path)
+            .unwrap()
+            .contains("Fake HLMV opened")
+    );
+    assert!(report_path.exists());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
