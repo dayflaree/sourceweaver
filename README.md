@@ -25,7 +25,7 @@ Current capabilities:
 - Run optional user-configured VBSP/VVIS/VRAD compile pipelines, create/validate compile profiles, and capture parsed JSON reports.
 - Run optional BSP content packing with user-provided `bspzip`-compatible tools, explicit or VMF-discovered asset lists, context profiles, wrappers, and JSON reports.
 - Generate cubemap/buildcubemaps runtime workflow reports and cfg helpers without launching game runtimes.
-- Inspect basic MDL model headers plus Source-style mesh, animation, sequence, and material dependency tables, and run user-provided StudioMDL-compatible model compile tools or headless model-decompile wrappers.
+- Inspect basic MDL model headers plus Source-style mesh, animation, sequence, material dependency, and VVD/VTX/PHY companion metadata, and run user-provided StudioMDL-compatible model compile tools or headless model-decompile wrappers.
 - Run optional user-selected BSPSource decompile commands or generic wrappers and validate generated VMFs before import.
 - Preserve incoming world brushes, including skybox brushes.
 - Preserve incoming point entities and brush entities.

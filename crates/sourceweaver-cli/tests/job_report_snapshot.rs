@@ -2752,3 +2752,121 @@ fn model_inspect_resolves_synthetic_mdl_material_dependencies() {
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn model_inspect_reports_synthetic_vvd_vtx_phy_companions() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn put_i32(data: &mut [u8], offset: usize, value: i32) {
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_u16(data: &mut [u8], offset: usize, value: u16) {
+        data[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_name64(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-companion-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let mdl_path = temp_dir.join("synthetic_companion.mdl");
+    let checksum = 24680;
+
+    let mut mdl = vec![0_u8; 240];
+    mdl[0..4].copy_from_slice(b"IDST");
+    put_i32(&mut mdl, 4, 48);
+    put_i32(&mut mdl, 8, checksum);
+    put_name64(&mut mdl, 12, "synthetic/companion_fixture.mdl");
+    let mdl_len = mdl.len() as i32;
+    put_i32(&mut mdl, 76, mdl_len);
+    std::fs::write(&mdl_path, mdl).unwrap();
+
+    let mut vvd = vec![0_u8; 64];
+    vvd[0..4].copy_from_slice(b"IDSV");
+    put_i32(&mut vvd, 4, 4);
+    put_i32(&mut vvd, 8, checksum);
+    put_i32(&mut vvd, 12, 2);
+    put_i32(&mut vvd, 16, 100);
+    put_i32(&mut vvd, 20, 50);
+    put_i32(&mut vvd, 48, 1);
+    put_i32(&mut vvd, 52, 64);
+    put_i32(&mut vvd, 56, 96);
+    put_i32(&mut vvd, 60, 160);
+    std::fs::write(temp_dir.join("synthetic_companion.vvd"), vvd).unwrap();
+
+    let mut vtx = vec![0_u8; 36];
+    put_i32(&mut vtx, 0, 7);
+    put_i32(&mut vtx, 4, 24);
+    put_u16(&mut vtx, 8, 3);
+    put_u16(&mut vtx, 10, 2);
+    put_i32(&mut vtx, 12, 3);
+    put_i32(&mut vtx, 16, checksum + 1);
+    put_i32(&mut vtx, 20, 1);
+    put_i32(&mut vtx, 24, 36);
+    put_i32(&mut vtx, 28, 1);
+    put_i32(&mut vtx, 32, 64);
+    std::fs::write(temp_dir.join("synthetic_companion.dx90.vtx"), vtx).unwrap();
+    std::fs::write(
+        temp_dir.join("synthetic_companion.phy"),
+        b"header VPHY body VPHY",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args(["model-inspect", mdl_path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["companion_files"]["mdl_checksum"], checksum);
+    assert!(
+        report["companion_files"]["missing"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        report["companion_files"]["mismatched"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value
+                .as_str()
+                .unwrap()
+                .ends_with("synthetic_companion.dx90.vtx"))
+    );
+    let files = report["companion_files"]["files"].as_array().unwrap();
+    let vvd = files.iter().find(|file| file["kind"] == "vvd").unwrap();
+    assert_eq!(vvd["metadata"]["magic"], "IDSV");
+    assert_eq!(vvd["metadata"]["version"], 4);
+    assert_eq!(vvd["metadata"]["checksum"], checksum);
+    assert_eq!(vvd["metadata"]["num_lods"], 2);
+    assert_eq!(vvd["metadata"]["lod_vertex_counts"][0], 100);
+    assert_eq!(vvd["checksum_matches_mdl"], true);
+    let vtx = files.iter().find(|file| file["kind"] == "vtx").unwrap();
+    assert_eq!(vtx["metadata"]["version"], 7);
+    assert_eq!(vtx["metadata"]["checksum"], checksum + 1);
+    assert_eq!(vtx["metadata"]["num_body_parts"], 1);
+    assert_eq!(vtx["checksum_matches_mdl"], false);
+    let phy = files.iter().find(|file| file["kind"] == "phy").unwrap();
+    assert_eq!(phy["metadata"]["vphy_section_count"], 2);
+    assert_eq!(phy["metadata"]["probe_only"], true);
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

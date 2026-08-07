@@ -1808,6 +1808,11 @@ fn model_inspect_command(args: &[String]) -> Result<(), String> {
                 materials.ambiguous_materials.len()
             );
         }
+        if let Some(companions) = &report.companion_files {
+            println!("companion files: {}", companions.files.len());
+            println!("missing companions: {}", companions.missing.len());
+            println!("mismatched companions: {}", companions.mismatched.len());
+        }
         for warning in &report.warnings {
             println!("warning\t{warning}");
         }
@@ -2007,6 +2012,9 @@ fn inspect_mdl_header(path: &Path, asset_roots: &[PathBuf]) -> Result<ModelInspe
             material_dependencies,
         )
     };
+    let companion_files =
+        inspect_model_companion_files(path, header.as_ref().map(|header| header.checksum))?;
+    warnings.extend(companion_files.warnings.iter().cloned());
     warnings.sort();
     warnings.dedup();
     Ok(ModelInspectReport {
@@ -2017,6 +2025,7 @@ fn inspect_mdl_header(path: &Path, asset_roots: &[PathBuf]) -> Result<ModelInspe
         mesh_metadata,
         animation_metadata,
         material_dependencies,
+        companion_files: Some(companion_files),
         warnings,
         errors,
     })
@@ -2258,6 +2267,229 @@ fn inspect_mdl_mesh_metadata(
         warnings,
         errors,
     })
+}
+
+fn inspect_model_companion_files(
+    mdl_path: &Path,
+    mdl_checksum: Option<i32>,
+) -> Result<ModelCompanionReportSnapshot, String> {
+    let mut files = Vec::new();
+    let mut warnings = Vec::new();
+    let mut missing = Vec::new();
+    let mut mismatched = Vec::new();
+    let Some(stem) = mdl_path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+    else {
+        return Ok(ModelCompanionReportSnapshot {
+            directory: mdl_path
+                .parent()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| String::from(".")),
+            mdl_checksum,
+            files,
+            missing,
+            mismatched,
+            warnings: vec![format!(
+                "could not derive companion file stem from {}",
+                mdl_path.display()
+            )],
+        });
+    };
+    let directory = mdl_path.parent().unwrap_or_else(|| Path::new("."));
+    let companions = [
+        ("vvd", format!("{stem}.vvd")),
+        ("vtx", format!("{stem}.dx90.vtx")),
+        ("vtx", format!("{stem}.dx80.vtx")),
+        ("vtx", format!("{stem}.sw.vtx")),
+        ("vtx", format!("{stem}.vtx")),
+        ("phy", format!("{stem}.phy")),
+    ];
+    for (kind, file_name) in companions {
+        let path = directory.join(&file_name);
+        if !path.exists() {
+            if matches!(file_name.as_str(), name if name.ends_with(".vvd") || name.ends_with(".dx90.vtx"))
+            {
+                missing.push(path.display().to_string());
+            }
+            continue;
+        }
+        if !path.is_file() {
+            warnings.push(format!("companion path is not a file: {}", path.display()));
+            continue;
+        }
+        let data = fs::read(&path).map_err(|error| {
+            format!(
+                "failed to read model companion file {}: {error}",
+                path.display()
+            )
+        })?;
+        let mut file = match kind {
+            "vvd" => inspect_vvd_companion(&path, &data, mdl_checksum),
+            "vtx" => inspect_vtx_companion(&path, &data, mdl_checksum),
+            "phy" => inspect_phy_companion(&path, &data),
+            _ => unreachable!(),
+        };
+        if file.checksum_matches_mdl == Some(false) {
+            mismatched.push(path.display().to_string());
+            file.warnings
+                .push("companion checksum does not match MDL checksum".to_string());
+        }
+        warnings.extend(file.warnings.iter().cloned());
+        files.push(file);
+    }
+    if files.iter().all(|file| file.kind != "vvd") {
+        warnings.push("expected sibling .vvd file was not found".to_string());
+    }
+    if files.iter().all(|file| file.kind != "vtx") {
+        warnings.push(
+            "expected sibling .dx90.vtx/.dx80.vtx/.sw.vtx/.vtx file was not found".to_string(),
+        );
+    }
+    warnings.sort();
+    warnings.dedup();
+    missing.sort();
+    missing.dedup();
+    mismatched.sort();
+    mismatched.dedup();
+    Ok(ModelCompanionReportSnapshot {
+        directory: directory.display().to_string(),
+        mdl_checksum,
+        files,
+        missing,
+        mismatched,
+        warnings,
+    })
+}
+
+fn inspect_vvd_companion(
+    path: &Path,
+    data: &[u8],
+    mdl_checksum: Option<i32>,
+) -> ModelCompanionFileSnapshot {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    let metadata = if data.len() < 64 {
+        errors.push("VVD file is too small to contain vertexFileHeader_t".to_string());
+        None
+    } else {
+        let magic = String::from_utf8_lossy(&data[0..4]).to_string();
+        if magic != "IDSV" {
+            warnings.push(format!("unexpected VVD magic `{magic}`; expected IDSV"));
+        }
+        let mut lod_vertex_counts = Vec::new();
+        for index in 0..8 {
+            lod_vertex_counts.push(read_i32_le(data, 16 + index * 4));
+        }
+        Some(serde_json::json!({
+            "magic": magic,
+            "version": read_i32_le(data, 4),
+            "checksum": read_i32_le(data, 8),
+            "num_lods": read_i32_le(data, 12),
+            "lod_vertex_counts": lod_vertex_counts,
+            "num_fixups": read_i32_le(data, 48),
+            "fixup_table_start": read_i32_le(data, 52),
+            "vertex_data_start": read_i32_le(data, 56),
+            "tangent_data_start": read_i32_le(data, 60),
+        }))
+    };
+    let checksum = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("checksum"))
+        .and_then(|value| value.as_i64())
+        .map(|value| value as i32);
+    ModelCompanionFileSnapshot {
+        kind: "vvd".to_string(),
+        path: path.display().to_string(),
+        exists: true,
+        file_size: data.len(),
+        metadata,
+        checksum_matches_mdl: mdl_checksum
+            .zip(checksum)
+            .map(|(mdl, companion)| mdl == companion),
+        warnings,
+        errors,
+    }
+}
+
+fn inspect_vtx_companion(
+    path: &Path,
+    data: &[u8],
+    mdl_checksum: Option<i32>,
+) -> ModelCompanionFileSnapshot {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    let metadata = if data.len() < 36 {
+        errors.push("VTX file is too small to contain optimizedModel::FileHeader_t".to_string());
+        None
+    } else {
+        let version = read_i32_le(data, 0);
+        if !(7..=49).contains(&version) {
+            warnings.push(format!(
+                "VTX version `{version}` is outside the common Source optimized model header range"
+            ));
+        }
+        Some(serde_json::json!({
+            "version": version,
+            "vert_cache_size": read_i32_le(data, 4),
+            "max_bones_per_strip": read_u16_le(data, 8),
+            "max_bones_per_tri": read_u16_le(data, 10),
+            "max_bones_per_vert": read_i32_le(data, 12),
+            "checksum": read_i32_le(data, 16),
+            "num_lods": read_i32_le(data, 20),
+            "material_replacement_list_offset": read_i32_le(data, 24),
+            "num_body_parts": read_i32_le(data, 28),
+            "body_part_offset": read_i32_le(data, 32),
+        }))
+    };
+    let checksum = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("checksum"))
+        .and_then(|value| value.as_i64())
+        .map(|value| value as i32);
+    ModelCompanionFileSnapshot {
+        kind: "vtx".to_string(),
+        path: path.display().to_string(),
+        exists: true,
+        file_size: data.len(),
+        metadata,
+        checksum_matches_mdl: mdl_checksum
+            .zip(checksum)
+            .map(|(mdl, companion)| mdl == companion),
+        warnings,
+        errors,
+    }
+}
+
+fn inspect_phy_companion(path: &Path, data: &[u8]) -> ModelCompanionFileSnapshot {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    let metadata = if data.len() < 4 {
+        errors.push("PHY file is too small for header probing".to_string());
+        None
+    } else {
+        let prefix = String::from_utf8_lossy(&data[0..data.len().min(4)]).to_string();
+        let vphy_sections = data.windows(4).filter(|window| *window == b"VPHY").count();
+        if vphy_sections == 0 {
+            warnings
+                .push("PHY probe did not find any VPHY collision metadata sections".to_string());
+        }
+        Some(serde_json::json!({
+            "prefix": prefix,
+            "vphy_section_count": vphy_sections,
+            "probe_only": true,
+        }))
+    };
+    ModelCompanionFileSnapshot {
+        kind: "phy".to_string(),
+        path: path.display().to_string(),
+        exists: true,
+        file_size: data.len(),
+        metadata,
+        checksum_matches_mdl: None,
+        warnings,
+        errors,
+    }
 }
 
 fn stringify_paths(paths: &[PathBuf]) -> Vec<String> {
@@ -2809,6 +3041,12 @@ const MSTUDIO_MESH_SIZE: usize = 116;
 const MSTUDIO_ANIMDESC_SIZE: usize = 100;
 const MSTUDIO_SEQDESC_SIZE: usize = 212;
 const MSTUDIO_TEXTURE_SIZE: usize = 64;
+
+fn read_u16_le(data: &[u8], offset: usize) -> u16 {
+    let mut bytes = [0_u8; 2];
+    bytes.copy_from_slice(&data[offset..offset + 2]);
+    u16::from_le_bytes(bytes)
+}
 
 fn read_i32_le(data: &[u8], offset: usize) -> i32 {
     let mut bytes = [0_u8; 4];
@@ -4963,6 +5201,7 @@ struct ModelInspectReport {
     mesh_metadata: Option<MdlMeshMetadataSnapshot>,
     animation_metadata: Option<MdlAnimationMetadataSnapshot>,
     material_dependencies: Option<MdlMaterialDependencySnapshot>,
+    companion_files: Option<ModelCompanionReportSnapshot>,
     warnings: Vec<String>,
     errors: Vec<String>,
 }
@@ -5025,6 +5264,28 @@ struct MdlMeshSnapshot {
     vertex_offset: i32,
     num_flexes: i32,
     mesh_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelCompanionReportSnapshot {
+    directory: String,
+    mdl_checksum: Option<i32>,
+    files: Vec<ModelCompanionFileSnapshot>,
+    missing: Vec<String>,
+    mismatched: Vec<String>,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelCompanionFileSnapshot {
+    kind: String,
+    path: String,
+    exists: bool,
+    file_size: usize,
+    metadata: Option<serde_json::Value>,
+    checksum_matches_mdl: Option<bool>,
+    warnings: Vec<String>,
+    errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

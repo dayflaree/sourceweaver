@@ -71,9 +71,14 @@ The report includes:
   - generated `materials/*.vmt` internal paths;
   - optional filesystem resolution against repeated `--asset-root` values;
   - missing and ambiguous material reports for future packing/UI workflows;
+- companion-file metadata for sibling model files:
+  - `.vvd` `vertexFileHeader_t` magic, version, checksum, LOD count, LOD vertex counts, fixup count/table offset, vertex data offset, and tangent data offset;
+  - `.dx90.vtx`, `.dx80.vtx`, `.sw.vtx`, and `.vtx` optimized-model header version, cache/bone limits, checksum, LOD count, material replacement offset, bodypart count, and bodypart offset;
+  - `.phy` probe metadata including VPHY section count;
+  - missing sibling `.vvd` / common `.vtx` reports and MDL/VVD/VTX checksum mismatch reports;
 - warnings and errors.
 
-This is a metadata sanity check only. It parses the MDL bodypart/model/mesh, local animation/sequence descriptor, and texture/material-directory tables with bounds checks and version-aware warnings. It does not decode animation frame data, bone curves, event payloads, VVD/VTX vertex buffers, PHY collision data, QC/SMD/DMX source, VMT shader data, VTF texture data, or external tool output.
+This is a metadata sanity check only. It parses the MDL bodypart/model/mesh, local animation/sequence descriptor, texture/material-directory, and companion-file header tables with bounds checks and version-aware warnings. It does not decode animation frame data, bone curves, event payloads, VVD/VTX vertex buffers, PHY collision meshes, QC/SMD/DMX source, VMT shader data, VTF texture data, or external tool output.
 
 Resolve model material dependencies against local content roots:
 
@@ -85,6 +90,8 @@ sourceweaver model-inspect models/props/example.mdl \
 ```
 
 Material dependencies are reported as Source-internal `materials/*.vmt` paths. A path is `resolved` when exactly one configured asset root contains it, `missing` when none contain it, and `ambiguous` when more than one asset root contains the same internal path. Source Weaver reports the first configured root as the selected path for ambiguous entries and records a warning.
+
+Sibling companion files are discovered from the MDL file stem in the same directory. Source Weaver currently probes `.vvd`, `.dx90.vtx`, `.dx80.vtx`, `.sw.vtx`, `.vtx`, and `.phy`. VVD/VTX checksums are compared to the MDL checksum when those headers are present. PHY support is deliberately probe-only: Source Weaver counts `VPHY` metadata markers but does not decode collision solids or triangle data.
 
 ## CLI: compile QC through external StudioMDL
 
@@ -147,7 +154,7 @@ Use precise wording:
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
+This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
 
 ## Desktop model tooling panel
 
