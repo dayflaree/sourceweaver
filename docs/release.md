@@ -76,10 +76,12 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 8. Confirm the Windows job reports setup install/uninstall validation.
 9. Confirm `SHA256SUMS` was generated and, when configured, `SHA256SUMS.asc` verifies with the release public key.
 10. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
+11. Run `scripts/check-latest-release.sh <previous-version>` after publishing to verify the manual update-check path sees the new release.
 
 ## Current packaging limitations
 
 - Linux AppImage packaging is wired into the release workflow, but clean Linux GUI smoke evidence must be recorded per release.
 - Windows NSIS installer packaging is wired into the release workflow, but interactive GUI smoke evidence outside silent CI install/uninstall must be recorded per release.
 - Release artifacts are unsigned unless Windows code-signing and OpenPGP release-signing secrets are configured; see `docs/code-signing.md`.
+- Automatic updates are not enabled; use the manual update path in `docs/update-strategy.md` until signed update metadata is required.
 - Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims.
