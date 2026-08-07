@@ -1002,7 +1002,8 @@ fn run_compile_pipeline_step(
     };
     let summary = parse_compile_log(&log);
     let exit_code = output.status.code();
-    let ok = exit_code.map(|code| code == 0).unwrap_or(false) && summary.is_ok();
+    let log_ok = summary.errors.is_empty() && !summary.leak_detected;
+    let ok = exit_code.map(|code| code == 0).unwrap_or(false) && log_ok;
     Ok(CompileStepReport {
         step: step.to_string(),
         tool: tool.display().to_string(),
@@ -1011,7 +1012,7 @@ fn run_compile_pipeline_step(
         ok,
         log_path: log_path.map(|path| path.display().to_string()),
         compile_log: CompileLogSnapshot {
-            ok: summary.is_ok(),
+            ok: log_ok,
             errors: summary.errors.len(),
             warnings: summary.warnings.len(),
             leak_detected: summary.leak_detected,

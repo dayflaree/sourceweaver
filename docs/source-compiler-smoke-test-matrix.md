@@ -149,18 +149,76 @@ Required row fields are the same as Row A, replacing `wine_version` with the Win
 
 ### Row C: Proton wrapper path
 
-Status: `planned`
+Status: `completed`
 
-Purpose: verify `examples/wrappers/proton-source-tool.sh` with a user-selected Proton build and compatdata prefix.
+Purpose: verify a Linux Proton wrapper path with legal local Garry's Mod Source++ compiler tools and a tiny tester-generated smoke VMF.
 
-Required additional fields:
+Completed evidence, 2026-08-07:
 
 ```text
-proton_path:
-proton_version:
-steam_compat_data_path:
-steam_compat_client_install_path:
+commit: pending #118 implementation commit; see GitHub issue #118 closing comment for final SHA
+date: 2026-08-07T14:46:06-06:00
+tester: Elijah local environment via D0G/Hermes
+os: Linux OldBeast 7.0.0-29-generic x86_64
+runtime: Steam Proton 10.0 selected by /home/elijah/.local/bin/sourceplusplus-gmod
+steam_install: /home/elijah/snap/steam/common/.local/share/Steam
+tool_source: local Garry's Mod win64 Source++ tools under steamapps/common/GarrysMod/bin/win64
+vbsp_path: /home/elijah/.local/bin/vbspplusplus-gmod -> sourceplusplus-gmod -> vbspplusplus.exe
+vvis_path: /home/elijah/.local/bin/vvisplusplus-gmod -> sourceplusplus-gmod -> vvisplusplus.exe
+vrad_path: /home/elijah/.local/bin/vradplusplus-gmod -> sourceplusplus-gmod -> vradplusplus.exe
+vbsp_binary: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vbspplusplus.exe, PE32+ x86-64, 1,136,128 bytes, mtime 2026-07-04 15:22
+vvis_binary: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vvisplusplus.exe, PE32+ x86-64, 617,984 bytes, mtime 2026-07-04 15:22
+vrad_binary: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vradplusplus.exe, PE32+ x86-64, 1,180,672 bytes, mtime 2026-07-04 15:22
+game_dir: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod
+profile_path: /tmp/sourceweaver-real-compiler-smoke-118/smoke-compile-profile.toml
+input_vmf: /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.vmf
+input_vmf_redistributable: not committed; tester-generated throwaway VMF in /tmp
+validation_only_material: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod/materials/sourceweaver_smoke/white.vmt using local temporary VTF copy, not committed
+command: cargo run -q -p sourceweaver-cli -- compile /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.vmf --profile /tmp/sourceweaver-real-compiler-smoke-118/smoke-compile-profile.toml --steps vbsp,vvis,vrad --log-dir /tmp/sourceweaver-real-compiler-smoke-118/logs --timeout-seconds 1800 --report /tmp/sourceweaver-real-compiler-smoke-118/smoke-compile-report.json --json
+vbsp_exit: 0
+vvis_exit: 0
+vrad_exit: 0
+sourceweaver_report_ok: true
+sourceweaver_step_ok: vbsp=true, vvis=true, vrad=true
+output_bsp: /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.bsp
+output_bsp_size: 65,808 bytes
+warnings: compiler transcript reported missing garrysmod.fgd and instance-collapse caveat; no Source Weaver parsed errors/warnings/leak
+errors: none recorded in Source Weaver report
+leak_detected: false
+runtime_smoke: not-run
+runtime_notes: no Hammer/Hammer++/HLMV/game-runtime validation was performed for this row
+follow_ups: none for compiler success; later runtime validation belongs to #120+
 ```
+
+Evidence retained outside the repo:
+
+- `/tmp/sourceweaver-real-compiler-smoke-118/issue118-real-compile-evidence.md`
+- `/tmp/sourceweaver-real-compiler-smoke-118/smoke-compile-report.json`
+- `/tmp/sourceweaver-real-compiler-smoke-118/smoke-compile-stdout.json`
+- `/tmp/sourceweaver-real-compiler-smoke-118/smoke_box.log`
+- `/tmp/sourceweaver-real-compiler-smoke-118/logs/vbsp.log`
+- `/tmp/sourceweaver-real-compiler-smoke-118/logs/vvis.log`
+- `/tmp/sourceweaver-real-compiler-smoke-118/logs/vrad.log`
+- `/tmp/sourceweaver-real-compiler-smoke-118/smoke_box.bsp`
+
+Key transcript lines:
+
+```text
+vbspplusplus.exe ... /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.vmf
+Writing /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.bsp
+vvisplusplus.exe ... /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.bsp
+Wrote ZIP buffer, estimated size 58106, actual size 57892
+vradplusplus.exe ... /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.bsp
+Ready to Finish
+Total triangle count: 12
+Writing \tmp\sourceweaver-real-compiler-smoke-118\smoke_box.bsp
+```
+
+Boundary:
+
+- Real VBSP++/VVIS++/VRAD++ tools were run through a Proton wrapper and produced a BSP.
+- No Hammer, Hammer++, HLMV, Crowbar, BSPSource, BSPZIP, game runtime, SDK installer, proprietary model, proprietary BSP, or committed game content was run or bundled.
+- The smoke VMF, temporary material, generated BSP, and logs stay outside the repository because they use local game/runtime context and are evidence artifacts, not redistributable fixtures.
 
 ## Sanitized fixture policy
 
@@ -173,6 +231,6 @@ Do not commit proprietary tools, game content, generated BSPs that embed protect
 
 ## Current release evidence
 
-As of 2026-08-06, Source Weaver CI and local validation cover structural VMF validation, fake external compiler control flow, compile-profile create/validate/discover, JSON report parsing, desktop compile launch code compilation, and fixture merge automation.
+As of 2026-08-07, Source Weaver CI and local validation cover structural VMF validation, fake external compiler control flow, compile-profile create/validate/discover, JSON report parsing, desktop compile launch code compilation, fixture merge automation, and one completed real VBSP++/VVIS++/VRAD++ Proton smoke row.
 
-No real VBSP/VVIS/VRAD/Hammer/game runtime validation was run in this repository state.
+Real compiler validation currently covers only Row C above. No Hammer, Hammer++, HLMV, game runtime map-load, BSPZIP packing, or real StudioMDL validation was run in this repository state.

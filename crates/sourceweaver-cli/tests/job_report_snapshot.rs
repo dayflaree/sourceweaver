@@ -3332,3 +3332,117 @@ fn compile_profile_discover_scans_fake_steam_source_tool_layout() {
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn compile_pipeline_accepts_zero_exit_quiet_wrapper_logs() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-quiet-compile-test-{}-{nonce}",
+        std::process::id()
+    ));
+    let bin_dir = temp_dir.join("bin");
+    let game_dir = temp_dir.join("game");
+    let log_dir = temp_dir.join("logs");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    std::fs::create_dir_all(&game_dir).unwrap();
+
+    for tool in ["vbsp", "vvis", "vrad"] {
+        let path = bin_dir.join(tool);
+        let mut file = std::fs::File::create(&path).unwrap();
+        if tool == "vbsp" {
+            writeln!(
+                file,
+                "#!/usr/bin/env bash\nset -euo pipefail\necho 'fsync: up and running.'\ninput=\"${{@: -1}}\"\ntouch \"${{input%.vmf}}.bsp\"\n"
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                file,
+                "#!/usr/bin/env bash\nset -euo pipefail\necho 'fsync: up and running.'\n"
+            )
+            .unwrap();
+        }
+        drop(file);
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+
+    let input_vmf = temp_dir.join("quiet.vmf");
+    std::fs::copy(repo_path("tests/fixtures/base.vmf"), &input_vmf).unwrap();
+    let profile_path = temp_dir.join("compile-profile.toml");
+    let create_output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "compile-profile",
+            "create",
+            "--output",
+            profile_path.to_str().unwrap(),
+            "--vbsp",
+            bin_dir.join("vbsp").to_str().unwrap(),
+            "--vvis",
+            bin_dir.join("vvis").to_str().unwrap(),
+            "--vrad",
+            bin_dir.join("vrad").to_str().unwrap(),
+            "--game",
+            game_dir.to_str().unwrap(),
+            "--steps",
+            "vbsp,vvis,vrad",
+            "--log-dir",
+            log_dir.to_str().unwrap(),
+            "--validate",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        create_output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&create_output.stdout),
+        String::from_utf8_lossy(&create_output.stderr)
+    );
+
+    let report_path = temp_dir.join("compile-report.json");
+    let compile_output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "compile",
+            input_vmf.to_str().unwrap(),
+            "--profile",
+            profile_path.to_str().unwrap(),
+            "--steps",
+            "vbsp,vvis,vrad",
+            "--log-dir",
+            log_dir.to_str().unwrap(),
+            "--report",
+            report_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile_output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&compile_output.stdout),
+        String::from_utf8_lossy(&compile_output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&compile_output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    for step in report["steps"].as_array().unwrap() {
+        assert_eq!(step["exit_code"], 0);
+        assert_eq!(step["ok"], true);
+        assert_eq!(step["compile_log"]["ok"], true);
+        assert_eq!(step["compile_log"]["errors"], 0);
+        assert_eq!(step["compile_log"]["leak_detected"], false);
+    }
+    assert!(input_vmf.with_extension("bsp").exists());
+    assert!(report_path.exists());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

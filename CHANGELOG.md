@@ -50,6 +50,7 @@
 - Model package manifest/copy workflow for MDL, VVD/VTX/PHY companions, and resolved material dependencies from user-selected asset roots.
 - Metadata-only model preview reports and optional user-provided HLMV-compatible launch reporting with explicit external-tool boundaries.
 - Steam Source tool discovery for compile profiles, including VBSP/VVIS/VRAD/BSPZIP/StudioMDL candidate details, confidence, and runtime caveats.
+- Completed Proton-backed real VBSP++/VVIS++/VRAD++ smoke-test matrix row for Garry's Mod Source++ tools and adjusted compile-step reporting for quiet wrapper logs.
 
 ### Changed
 
