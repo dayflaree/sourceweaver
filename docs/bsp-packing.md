@@ -97,3 +97,20 @@ The current implementation covers CLI automation and machine-readable reports. D
 
 - Valve Developer Community BSPZIP search result for `-addlist <input bsp> <file list> <output bsp>` and `-addorupdatelist` command forms.
 - Valve Developer Union guide: https://valvedev.info/guides/zipping-files-into-a-map-using-bspzip-or-vide/
+
+## Desktop packing panel
+
+The desktop app exposes the same optional packing workflow in the **Optional external compile** panel under **Optional BSP packing**. The UI collects:
+
+- user-provided BSPZIP-compatible packer tool path;
+- input BSP and output BSP paths;
+- asset roots and comma-separated include paths, or a filelist path;
+- log path, JSON report path, and timeout seconds;
+- a **Pack after compile succeeds** checkbox;
+- a manual **Run BSP pack now** action.
+
+The panel shows the exact Source Weaver CLI command, JSON report, stdout/stderr tails, missing-file count, and packed-file count when the underlying tool/report supplies one. Pack-after-compile only starts after the desktop compile worker reports success. Packing remains optional and separate from VMF export and compile success; a pack failure opens an attention dialog but does not retroactively mark VMF export as failed.
+
+If the input BSP field is blank, the desktop action infers it from the current output VMF path by changing the extension to `.bsp`. If the output BSP or report path is blank, Source Weaver derives `*-packed.bsp` and `*-pack-report.json` paths next to the input/output BSP.
+
+Source Weaver does not bundle BSPZIP, game content, SDKs, or custom assets. The desktop panel is an integration surface for user-configured tools only.

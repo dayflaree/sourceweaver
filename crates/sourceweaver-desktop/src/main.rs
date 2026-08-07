@@ -103,6 +103,18 @@ struct SourceWeaverApp {
     compile_run_after_merge: bool,
     compile_status: DesktopCompileStatus,
     compile_receiver: Option<Receiver<DesktopCompileMessage>>,
+    bsp_pack_tool_path: String,
+    bsp_pack_input_bsp: String,
+    bsp_pack_output_bsp: String,
+    bsp_pack_asset_roots: String,
+    bsp_pack_includes: String,
+    bsp_pack_filelist_path: String,
+    bsp_pack_log_path: String,
+    bsp_pack_report_path: String,
+    bsp_pack_timeout_seconds: String,
+    bsp_pack_after_compile: bool,
+    bsp_pack_status: DesktopBspPackStatus,
+    bsp_pack_receiver: Option<Receiver<DesktopBspPackMessage>>,
     last_error_dialog: Option<String>,
     use_dark_theme: bool,
     preview_panel_height: f32,
@@ -190,6 +202,44 @@ struct DesktopCompileMessage {
     report_json: Option<String>,
     stdout_tail: Vec<String>,
     stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DesktopBspPackStatus {
+    running: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+    missing_files: usize,
+    packed_file_count: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopBspPackRequest {
+    cli_path: PathBuf,
+    tool_path: PathBuf,
+    input_bsp: PathBuf,
+    output_bsp: PathBuf,
+    asset_roots: Vec<PathBuf>,
+    includes: Vec<String>,
+    filelist_path: Option<PathBuf>,
+    log_path: Option<PathBuf>,
+    report_path: PathBuf,
+    timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopBspPackMessage {
+    ok: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+    missing_files: usize,
+    packed_file_count: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -525,6 +575,22 @@ impl SourceWeaverApp {
                 ..Default::default()
             },
             compile_receiver: None,
+            bsp_pack_tool_path: String::new(),
+            bsp_pack_input_bsp: String::new(),
+            bsp_pack_output_bsp: String::new(),
+            bsp_pack_asset_roots: String::new(),
+            bsp_pack_includes: String::new(),
+            bsp_pack_filelist_path: String::new(),
+            bsp_pack_log_path: String::new(),
+            bsp_pack_report_path: String::new(),
+            bsp_pack_timeout_seconds: "900".to_string(),
+            bsp_pack_after_compile: false,
+            bsp_pack_status: DesktopBspPackStatus {
+                summary: "BSP packing idle. A user-provided BSPZIP-compatible tool is required."
+                    .to_string(),
+                ..Default::default()
+            },
+            bsp_pack_receiver: None,
             last_error_dialog: None,
             use_dark_theme: true,
             preview_panel_height: 560.0,
@@ -2220,6 +2286,124 @@ impl SourceWeaverApp {
         ));
     }
 
+    fn launch_bsp_pack_for_current_output(&mut self) {
+        let input = blank_to_none(&self.bsp_pack_input_bsp)
+            .map(PathBuf::from)
+            .or_else(|| {
+                blank_to_none(&self.output_path)
+                    .map(|path| PathBuf::from(path).with_extension("bsp"))
+            });
+        let Some(input_bsp) = input else {
+            self.add_status("Select an input BSP or set an output VMF path so Source Weaver can infer the .bsp path.");
+            return;
+        };
+        self.launch_bsp_pack_for_bsp(input_bsp);
+    }
+
+    fn launch_bsp_pack_for_bsp(&mut self, input_bsp: PathBuf) {
+        if self.bsp_pack_status.running {
+            self.add_status("A BSP packing run is already in progress.");
+            return;
+        }
+        let Some(tool_path) = blank_to_none(&self.bsp_pack_tool_path).map(PathBuf::from) else {
+            self.add_status(
+                "Select a user-provided BSPZIP-compatible packing tool before packing.",
+            );
+            return;
+        };
+        let output_bsp = blank_to_none(&self.bsp_pack_output_bsp)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_packed_bsp_path(&input_bsp));
+        let report_path = blank_to_none(&self.bsp_pack_report_path)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_pack_report_path_for_bsp(&output_bsp));
+        let timeout_seconds = match blank_to_none(&self.bsp_pack_timeout_seconds) {
+            Some(value) => match value.parse::<u64>() {
+                Ok(seconds) if seconds > 0 => Some(seconds),
+                _ => {
+                    self.add_status(
+                        "BSP pack timeout must be a positive integer number of seconds.",
+                    );
+                    return;
+                }
+            },
+            None => None,
+        };
+        let request = DesktopBspPackRequest {
+            cli_path: sourceweaver_cli_executable(),
+            tool_path,
+            input_bsp,
+            output_bsp,
+            asset_roots: split_csv(&self.bsp_pack_asset_roots)
+                .map(PathBuf::from)
+                .collect(),
+            includes: split_csv(&self.bsp_pack_includes)
+                .map(ToOwned::to_owned)
+                .collect(),
+            filelist_path: blank_to_none(&self.bsp_pack_filelist_path).map(PathBuf::from),
+            log_path: blank_to_none(&self.bsp_pack_log_path).map(PathBuf::from),
+            report_path,
+            timeout_seconds,
+        };
+        let command_preview = desktop_bsp_pack_command_preview(&request);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let message = run_desktop_bsp_pack_request(request);
+            let _ = sender.send(message);
+        });
+        self.bsp_pack_receiver = Some(receiver);
+        self.bsp_pack_status = DesktopBspPackStatus {
+            running: true,
+            summary: "BSP packing running in background. Packing remains optional and separate from VMF export/compile success.".to_string(),
+            command: command_preview.clone(),
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+            missing_files: 0,
+            packed_file_count: None,
+        };
+        self.add_status(format!(
+            "Started BSP packing: {}",
+            command_preview.join(" ")
+        ));
+    }
+
+    fn poll_bsp_pack_status(&mut self) {
+        let Some(receiver) = self.bsp_pack_receiver.take() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(message) => {
+                self.bsp_pack_status.running = false;
+                self.bsp_pack_status.summary = message.summary.clone();
+                self.bsp_pack_status.command = message.command;
+                self.bsp_pack_status.report_json = message.report_json;
+                self.bsp_pack_status.stdout_tail = message.stdout_tail;
+                self.bsp_pack_status.stderr_tail = message.stderr_tail;
+                self.bsp_pack_status.missing_files = message.missing_files;
+                self.bsp_pack_status.packed_file_count = message.packed_file_count;
+                let compile_ok = message.ok;
+                self.add_status(message.summary);
+                if compile_ok && self.bsp_pack_after_compile {
+                    self.add_status("Compile succeeded; launching optional BSP packing step.");
+                    self.launch_bsp_pack_for_current_output();
+                }
+                if !compile_ok {
+                    self.last_error_dialog = Some("BSP packing failed or reported missing files. Review the pack panel JSON/log details; VMF export and compile results remain separate.".to_string());
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                self.bsp_pack_receiver = Some(receiver);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.bsp_pack_status.running = false;
+                self.bsp_pack_status.summary =
+                    "BSP pack worker disconnected before reporting a result.".to_string();
+                self.add_status("BSP pack worker disconnected before reporting a result.");
+            }
+        }
+    }
+
     fn poll_compile_status(&mut self) {
         let Some(receiver) = self.compile_receiver.take() else {
             return;
@@ -2260,6 +2444,7 @@ impl eframe::App for SourceWeaverApp {
         self.handle_dropped_files(ctx);
         self.poll_compile_status();
         self.poll_bsp_decompile_status();
+        self.poll_bsp_pack_status();
 
         if let Some(error) = self.last_error_dialog.clone() {
             egui::Window::new("Source Weaver needs attention")
@@ -2727,6 +2912,119 @@ impl SourceWeaverApp {
                     ui.small(format!("stdout: {line}"));
                 }
                 for line in &self.compile_status.stderr_tail {
+                    ui.colored_label(egui::Color32::YELLOW, format!("stderr: {line}"));
+                }
+            });
+        }
+        ui.separator();
+        self.bsp_pack_panel(ui);
+    }
+
+    fn bsp_pack_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Optional BSP packing");
+        ui.label("Runs Source Weaver CLI `pack` with a user-provided BSPZIP-compatible tool. BSPZIP, game content, and SDK tools are not bundled.");
+        ui.horizontal(|ui| {
+            ui.label("Packer tool:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_pack_tool_path)
+                    .desired_width(f32::INFINITY),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Input BSP:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_pack_input_bsp)
+                    .desired_width(f32::INFINITY),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Output BSP:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_pack_output_bsp)
+                    .desired_width(f32::INFINITY),
+            );
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Asset roots:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_pack_asset_roots)
+                    .desired_width(260.0)
+                    .hint_text("comma-separated folders"),
+            );
+            ui.label("Includes:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_pack_includes)
+                    .desired_width(260.0)
+                    .hint_text("materials/x.vmt, models/y.mdl"),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Filelist:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_pack_filelist_path)
+                    .desired_width(f32::INFINITY),
+            );
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Log:");
+            ui.add(egui::TextEdit::singleline(&mut self.bsp_pack_log_path).desired_width(240.0));
+            ui.label("Report JSON:");
+            ui.add(egui::TextEdit::singleline(&mut self.bsp_pack_report_path).desired_width(240.0));
+            ui.label("Timeout seconds:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.bsp_pack_timeout_seconds).desired_width(80.0),
+            );
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(
+                &mut self.bsp_pack_after_compile,
+                "Pack after compile succeeds",
+            );
+            if ui
+                .add_enabled(
+                    !self.bsp_pack_status.running,
+                    egui::Button::new("Run BSP pack now"),
+                )
+                .clicked()
+            {
+                self.launch_bsp_pack_for_current_output();
+            }
+        });
+        ui.weak("Packing is optional and reported separately from VMF export and compile success.");
+        if self.bsp_pack_status.running {
+            ui.add(egui::Spinner::new());
+        }
+        ui.label(&self.bsp_pack_status.summary);
+        ui.label(format!(
+            "Missing files: {} | Packed-file count: {}",
+            self.bsp_pack_status.missing_files,
+            self.bsp_pack_status
+                .packed_file_count
+                .map(|count| count.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        ));
+        if !self.bsp_pack_status.command.is_empty() {
+            ui.collapsing("BSP pack command", |ui| {
+                ui.monospace(self.bsp_pack_status.command.join(" "));
+            });
+        }
+        if let Some(report_json) = &self.bsp_pack_status.report_json {
+            ui.collapsing("BSP pack report JSON", |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut report_json.clone())
+                        .desired_rows(12)
+                        .code_editor(),
+                );
+            });
+        }
+        if !self.bsp_pack_status.stdout_tail.is_empty()
+            || !self.bsp_pack_status.stderr_tail.is_empty()
+        {
+            ui.collapsing("BSP pack output tail", |ui| {
+                for line in &self.bsp_pack_status.stdout_tail {
+                    ui.small(format!("stdout: {line}"));
+                }
+                for line in &self.bsp_pack_status.stderr_tail {
                     ui.colored_label(egui::Color32::YELLOW, format!("stderr: {line}"));
                 }
             });
@@ -3539,6 +3837,158 @@ fn default_compile_report_path(output_path: &str) -> PathBuf {
         PathBuf::from("sourceweaver-compile-report.json")
     } else {
         default_compile_report_path_for_map(&PathBuf::from(output_path.trim()))
+    }
+}
+
+fn default_packed_bsp_path(input_bsp: &Path) -> PathBuf {
+    let stem = input_bsp
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("packed");
+    input_bsp.with_file_name(format!("{stem}-packed.bsp"))
+}
+
+fn default_pack_report_path_for_bsp(output_bsp: &Path) -> PathBuf {
+    let stem = output_bsp
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("sourceweaver-pack");
+    output_bsp.with_file_name(format!("{stem}-pack-report.json"))
+}
+
+fn desktop_bsp_pack_command_preview(request: &DesktopBspPackRequest) -> Vec<String> {
+    let mut parts = vec![
+        request.cli_path.display().to_string(),
+        "pack".to_string(),
+        request.input_bsp.display().to_string(),
+        "--tool".to_string(),
+        request.tool_path.display().to_string(),
+        "--output".to_string(),
+        request.output_bsp.display().to_string(),
+        "--report".to_string(),
+        request.report_path.display().to_string(),
+        "--json".to_string(),
+    ];
+    if let Some(filelist) = &request.filelist_path {
+        parts.push("--filelist".to_string());
+        parts.push(filelist.display().to_string());
+    } else {
+        for root in &request.asset_roots {
+            parts.push("--asset-root".to_string());
+            parts.push(root.display().to_string());
+        }
+        for include in &request.includes {
+            parts.push("--include".to_string());
+            parts.push(include.clone());
+        }
+    }
+    if let Some(log_path) = &request.log_path {
+        parts.push("--log".to_string());
+        parts.push(log_path.display().to_string());
+    }
+    if let Some(timeout) = request.timeout_seconds {
+        parts.push("--timeout-seconds".to_string());
+        parts.push(timeout.to_string());
+    }
+    parts
+}
+
+fn run_desktop_bsp_pack_request(request: DesktopBspPackRequest) -> DesktopBspPackMessage {
+    let command_preview = desktop_bsp_pack_command_preview(&request);
+    let mut command = Command::new(&request.cli_path);
+    command
+        .arg("pack")
+        .arg(&request.input_bsp)
+        .arg("--tool")
+        .arg(&request.tool_path)
+        .arg("--output")
+        .arg(&request.output_bsp)
+        .arg("--report")
+        .arg(&request.report_path)
+        .arg("--json");
+    if let Some(filelist) = &request.filelist_path {
+        command.arg("--filelist").arg(filelist);
+    } else {
+        for root in &request.asset_roots {
+            command.arg("--asset-root").arg(root);
+        }
+        for include in &request.includes {
+            command.arg("--include").arg(include);
+        }
+    }
+    if let Some(log_path) = &request.log_path {
+        command.arg("--log").arg(log_path);
+    }
+    if let Some(timeout) = request.timeout_seconds {
+        command.arg("--timeout-seconds").arg(timeout.to_string());
+    }
+
+    match command.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let report_json = if stdout.trim_start().starts_with('{') {
+                Some(stdout.clone())
+            } else {
+                fs::read_to_string(&request.report_path).ok()
+            };
+            let parsed = report_json
+                .as_ref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
+            let parsed_ok = parsed
+                .as_ref()
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false);
+            let missing_files = parsed
+                .as_ref()
+                .and_then(|value| value.get("missing_files"))
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0);
+            let packed_file_count = parsed
+                .as_ref()
+                .and_then(|value| value.get("packed_file_count"))
+                .and_then(serde_json::Value::as_u64);
+            let ok = output.status.success() && parsed_ok;
+            let summary = if ok {
+                format!(
+                    "BSP packing completed successfully. Packed files: {}. Report: {}",
+                    packed_file_count
+                        .map(|count| count.to_string())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    display_path(&request.report_path)
+                )
+            } else {
+                format!(
+                    "BSP packing failed or reported missing files. Exit code: {:?}. Missing files: {missing_files}. Report: {}",
+                    output.status.code(),
+                    display_path(&request.report_path)
+                )
+            };
+            DesktopBspPackMessage {
+                ok,
+                summary,
+                command: command_preview,
+                report_json,
+                stdout_tail: tail_lines(&stdout, 40),
+                stderr_tail: tail_lines(&stderr, 40),
+                missing_files,
+                packed_file_count,
+            }
+        }
+        Err(error) => DesktopBspPackMessage {
+            ok: false,
+            summary: format!(
+                "Failed to start Source Weaver CLI pack command `{}`: {error}. Set SOURCEWEAVER_CLI to the CLI executable if needed.",
+                request.cli_path.display()
+            ),
+            command: command_preview,
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+            missing_files: 0,
+            packed_file_count: None,
+        },
     }
 }
 
