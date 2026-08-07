@@ -174,28 +174,28 @@ try {
     Copy-Item -Recurse (Join-Path $Root "docs\*") (Join-Path $PackageDir "docs")
     Copy-Item (Join-Path $Root "packaging\windows\sourceweaver.ico") (Join-Path $PackageDir "assets\sourceweaver.ico")
     $RunningNotes = @(
-        "# Running Source Weaver on Windows",
-        "",
-        "Run from the extracted zip:",
-        "",
-        "```powershell",
-        ".\sourceweaver-desktop.exe",
-        ".\sourceweaver.exe --help",
-        "```",
-        "",
-        "Or install the NSIS setup package from the same release:",
-        "",
-        "```powershell",
+        '# Running Source Weaver on Windows',
+        '',
+        'Run from the extracted zip:',
+        '',
+        '```powershell',
+        '.\sourceweaver-desktop.exe',
+        '.\sourceweaver.exe --help',
+        '```',
+        '',
+        'Or install the NSIS setup package from the same release:',
+        '',
+        '```powershell',
         ".\$PackageName-setup.exe",
-        "```",
-        "",
-        "For unattended per-user installation, keep ``/D=`` as the final argument:",
-        "",
-        "```powershell",
+        '```',
+        '',
+        'For unattended per-user installation, keep `/D=` as the final argument:',
+        '',
+        '```powershell',
         "& .\$PackageName-setup.exe /S `"/D=`$env:LOCALAPPDATA\Programs\Source Weaver`"",
-        "```",
-        "",
-        "See docs\packaging.md for Windows runtime, install, uninstall, signing, and SmartScreen notes."
+        '```',
+        '',
+        'See docs\packaging.md for Windows runtime, install, uninstall, signing, and SmartScreen notes.'
     ) -join [Environment]::NewLine
     $RunningNotes | Set-Content -Encoding UTF8 (Join-Path $PackageDir "RUNNING_ON_WINDOWS.md")
 
