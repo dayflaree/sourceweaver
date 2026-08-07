@@ -19,14 +19,28 @@ jobs:
       - name: Install Linux GUI dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev
+          sudo apt-get install -y desktop-file-utils fuse libfuse2 libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev
       - name: Build Linux tarball
         run: scripts/package-linux.sh "${GITHUB_REF_NAME:-manual}"
+      - name: Download appimagetool
+        run: |
+          mkdir -p target/package
+          curl -L --fail --retry 3 \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o target/package/appimagetool-x86_64.AppImage
+          chmod +x target/package/appimagetool-x86_64.AppImage
+      - name: Build Linux AppImage
+        env:
+          APPIMAGETOOL: ${{ github.workspace }}/target/package/appimagetool-x86_64.AppImage
+          ARCH: x86_64
+        run: scripts/package-appimage.sh "${GITHUB_REF_NAME:-manual}"
       - name: Upload Linux package artifact
         uses: actions/upload-artifact@v4
         with:
           name: sourceweaver-linux-x86_64
-          path: target/package/*.tar.gz
+          path: |
+            target/package/*.tar.gz
+            target/package/*.AppImage
           if-no-files-found: error
 
   windows:
@@ -63,4 +77,5 @@ jobs:
           body_path: CHANGELOG.md
           files: |
             target/release-artifacts/*.tar.gz
+            target/release-artifacts/*.AppImage
             target/release-artifacts/*.zip

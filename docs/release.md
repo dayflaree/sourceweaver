@@ -21,11 +21,12 @@ The workflow:
 
 1. Builds Linux release binaries on `ubuntu-latest`.
 2. Packages Linux CLI/desktop artifacts into `sourceweaver-<tag>-linux-x86_64.tar.gz`.
-3. Builds Windows release binaries on `windows-latest`.
-4. Packages Windows CLI/desktop artifacts into `sourceweaver-<tag>-windows-x86_64.zip`.
-5. Uploads both packages as workflow artifacts.
-6. Creates or updates a GitHub Release for the tag.
-7. Uploads both archives to the GitHub Release.
+3. Packages Linux CLI/desktop artifacts into `sourceweaver-<tag>-linux-x86_64.AppImage`.
+4. Builds Windows release binaries on `windows-latest`.
+5. Packages Windows CLI/desktop artifacts into `sourceweaver-<tag>-windows-x86_64.zip`.
+6. Uploads all packages as workflow artifacts.
+7. Creates or updates a GitHub Release for the tag.
+8. Uploads the tarball, AppImage, and zip to the GitHub Release.
 
 ## Changelog
 
@@ -35,10 +36,17 @@ Update `CHANGELOG.md` before tagging. The release workflow uses the repository c
 
 The packaging workflow also supports `workflow_dispatch`. Manual dispatch builds and uploads workflow artifacts without requiring a local Linux/Windows packaging environment.
 
-Local Linux package dry run:
+Local Linux tarball dry run:
 
 ```bash
 scripts/package-linux.sh v0.1.0-local
+```
+
+Local Linux AppDir/AppImage dry run:
+
+```bash
+scripts/package-appimage.sh v0.1.0-local --appdir-only
+APPIMAGETOOL=/path/to/appimagetool-x86_64.AppImage scripts/package-appimage.sh v0.1.0-local
 ```
 
 Local Windows package dry run from PowerShell:
@@ -59,7 +67,7 @@ scripts\package-windows.ps1 -Version v0.1.0-local
 
 ## Current packaging limitations
 
-- Linux is packaged as a tarball, not an AppImage.
+- Linux AppImage packaging is wired into the release workflow, but clean Linux GUI smoke evidence must be recorded per release.
 - Windows is packaged as a zip, not an MSI installer.
 - Release artifacts are not code-signed.
 - Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims.

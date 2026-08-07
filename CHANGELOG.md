@@ -55,6 +55,7 @@
 - Runtime map-load validation workflow planning command and documentation for console/log evidence, missing assets, crashes, and gameplay smoke notes.
 - Verified Proton compile setup documentation for the Garry's Mod Source++ real compiler row, including compatdata and evidence paths.
 - Wine compile blocker documentation with command evidence showing no Wine runtime available in the current environment.
+- Linux AppImage packaging script and release workflow integration, with AppDir validation and packaging documentation.
 
 ### Changed
 

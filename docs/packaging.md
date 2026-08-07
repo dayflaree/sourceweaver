@@ -1,6 +1,6 @@
 # Packaging Source Weaver
 
-Source Weaver release packages are built as portable archives instead of installers.
+Source Weaver release packages are built as portable archives and AppImages instead of system installers.
 
 ## Linux package format
 
@@ -57,6 +57,63 @@ sudo apt-get install libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libway
 
 The Linux package is validated in GitHub Actions on `ubuntu-latest` by building the release binaries and creating the tarball.
 
+## Linux AppImage format
+
+Linux release workflows also build:
+
+```text
+sourceweaver-vX.Y.Z-linux-x86_64.AppImage
+```
+
+The AppImage contains:
+
+- `usr/bin/sourceweaver-desktop`
+- `usr/bin/sourceweaver`
+- `usr/share/applications/io.github.dayflaree.SourceWeaver.desktop`
+- `usr/share/icons/hicolor/scalable/apps/sourceweaver.svg`
+- root `AppRun`
+- root `io.github.dayflaree.SourceWeaver.desktop`
+- root `sourceweaver.svg`
+- docs, README, and LICENSE under `usr/share/sourceweaver/`
+
+Run it directly:
+
+```bash
+chmod +x sourceweaver-vX.Y.Z-linux-x86_64.AppImage
+./sourceweaver-vX.Y.Z-linux-x86_64.AppImage
+```
+
+Inspect AppImage runtime help:
+
+```bash
+./sourceweaver-vX.Y.Z-linux-x86_64.AppImage --appimage-help
+```
+
+Uninstall by deleting the AppImage file. If a desktop environment or helper such as AppImageLauncher integrated it into an app menu, remove the helper-created launcher through that tool or delete the generated desktop entry from the user's application directory.
+
+### AppImage build details
+
+`scripts/package-appimage.sh` creates a reproducible `SourceWeaver.AppDir` and then runs appimagetool when available:
+
+```bash
+scripts/package-appimage.sh v0.1.0
+```
+
+Build only the AppDir locally without appimagetool:
+
+```bash
+scripts/package-appimage.sh v0.1.0-local --appdir-only
+```
+
+The GitHub release workflow downloads `appimagetool-x86_64.AppImage` from the AppImage project continuous release and sets `ARCH=x86_64`. AppImage documentation checked on 2026-08-08 describes `AppRun` as the AppDir entry point and appimagetool as the tool that creates AppImages from AppDirs. It also documents appimagetool downloads from `https://github.com/AppImage/appimagetool/releases/continuous`.
+
+### AppImage limitations
+
+- AppImage launch was wired into the release workflow and AppDir layout was smoke-tested locally; cross-distribution GUI smoke testing still needs a clean Linux VM or runner artifact test.
+- The AppImage starts the desktop app. The CLI binary is bundled at `usr/bin/sourceweaver` for extraction/debugging, while normal user launch is desktop-first.
+- Some systems need FUSE support to run AppImages normally. AppImage runtime extraction modes may be used by testers when FUSE is unavailable.
+- AppImage artifacts are not code-signed in this repository state.
+
 ## Windows package format
 
 Windows releases use a zip archive:
@@ -85,10 +142,16 @@ No installer is required. The binary is built with the Rust stable Windows toolc
 
 ## Local packaging commands
 
-Linux:
+Linux tarball:
 
 ```bash
 scripts/package-linux.sh v0.1.0
+```
+
+Linux AppImage:
+
+```bash
+scripts/package-appimage.sh v0.1.0
 ```
 
 Windows PowerShell:
