@@ -1,0 +1,23 @@
+{
+  "bsp_fixture_kind": "Synthetic minimal Source BSP-style header only: VBSP magic, version 20, zeroed lump descriptors, map revision 0. It is not a playable map and is not a proprietary BSP.",
+  "decompile_command": "CI test fake wrapper: <fake-bspsource> tiny_synthetic_header.bsp <out.vmf>; wrapper copies tiny_synthetic_generated.vmf.",
+  "files": [
+    {
+      "path": "tests/fixtures/bsp-derived/tiny_synthetic_header.bsp",
+      "sha256": "ba7dfbc64ad4693e295dc5689b653de5c91cd9134f3f8423b8b523f1a8f80c3e",
+      "size": 1036
+    },
+    {
+      "path": "tests/fixtures/bsp-derived/tiny_synthetic_generated.vmf",
+      "sha256": "713d01f1571d35f96f5c0f533483dd4292f8391db8f1bb2f0e50390baa343dd8",
+      "size": 243
+    }
+  ],
+  "generated_vmf_kind": "Source Weaver-authored expected VMF used by fake wrapper regression tests. It is not real BSPSource output.",
+  "license": "CC0-1.0 for Source Weaver-authored fixture files; no proprietary game content is included.",
+  "name": "Source Weaver synthetic BSP-derived fixture set",
+  "real_external_tool_validation": false,
+  "redactions": "None. Files are synthetic and contain no proprietary assets, paths, or map data.",
+  "source": "Created from scratch for Source Weaver tests on 2026-08-06.",
+  "tool_version": "fake CI wrapper; no real BSPSource or external decompiler was run to create these fixtures."
+}

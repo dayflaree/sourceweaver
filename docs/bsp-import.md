@@ -209,3 +209,10 @@ Research notes:
 - BSPSource 1.4.0 release notes list `-unpack_embedded`, `-no_smart_unpack`, and `-force_manual_areaportal`.
 - BSPSource 1.4.7 and 1.4.8 release notes mention CLI toggles for tool-texture and cubemap fixing, including `--no_ttfix` and `--no_cubemaptexfix` in 1.4.8 notes.
 - Presets are command-construction conveniences. They are not real external-tool validation and are not guaranteed to be supported by every old BSPSource version. Use `bsp-import-presets --json` to inspect the exact arguments, and keep `--tool-arg` for local/version-specific adjustments.
+
+
+## BSP-derived repository fixtures
+
+The repository includes `tests/fixtures/bsp-derived/`, a synthetic redistributable fixture set for BSP import plumbing tests. It contains a minimal Source BSP-style header fixture, a Source Weaver-authored expected VMF, and a manifest with source, license, command, fake tool version, redaction, and checksum metadata.
+
+The fixture set is not real BSPSource output and does not validate real decompile quality. CI uses a fake wrapper to copy the committed VMF so `sourceweaver bsp-import` can exercise command/report/integrity behavior without proprietary BSPs or external tools. See `docs/bsp-derived-fixtures.md`.

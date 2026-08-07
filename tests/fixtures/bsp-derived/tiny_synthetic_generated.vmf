@@ -1,0 +1,21 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+	"classname" "worldspawn"
+	"mapversion" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "info_player_start"
+	"targetname" "synthetic_start"
+	"origin" "0 0 0"
+}

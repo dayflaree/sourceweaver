@@ -36,6 +36,7 @@
 - Managed BSPSource manifest, policy, cache-path, checksum-verify, and explicit download helper with pinned v1.4.8 SHA-256 assets.
 - BSPSource decompile-quality parser with categorized unsupported-lump, skipped-data, quality-risk, tool-error, warning, and non-fatal configuration-noise reporting in CLI JSON and desktop UI.
 - BSPSource argument presets for embedded asset extraction, smart-unpack auditing, manual areaportal mapping, and tool/cubemap texture-fix toggles, exposed in CLI and desktop while keeping raw tool args.
+- Synthetic legally redistributable BSP-derived fixture set with manifest/checksums and CI fake-wrapper import regression coverage.
 
 ### Changed
 

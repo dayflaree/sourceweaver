@@ -880,6 +880,111 @@ stderr:
     assert!(output_vmf.is_file());
 }
 
+#[test]
+fn bsp_derived_fixture_manifest_records_redistributable_boundary() {
+    let manifest_text =
+        std::fs::read_to_string(repo_path("tests/fixtures/bsp-derived/manifest.json")).unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_text).unwrap();
+    assert_eq!(manifest["real_external_tool_validation"], false);
+    assert!(manifest["license"].as_str().unwrap().contains("CC0-1.0"));
+    assert!(
+        manifest["bsp_fixture_kind"]
+            .as_str()
+            .unwrap()
+            .contains("Synthetic minimal Source BSP-style header")
+    );
+    assert!(
+        manifest["tool_version"]
+            .as_str()
+            .unwrap()
+            .contains("no real BSPSource")
+    );
+    assert_eq!(manifest["files"].as_array().unwrap().len(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn bsp_import_uses_committed_synthetic_fixture_without_external_tools() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-bsp-derived-fixture-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let fake_bspsource = temp_dir.join("fake-bspsource.sh");
+    let generated_vmf = repo_path("tests/fixtures/bsp-derived/tiny_synthetic_generated.vmf");
+    let script = format!(
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "--version" ]]; then
+  echo "Source Weaver fixture wrapper 1.0"
+  exit 0
+fi
+out=""
+for ((i=1; i<=$#; i++)); do
+  if [[ "${{!i}}" == "-o" ]]; then
+    next=$((i+1))
+    out="${{!next}}"
+  fi
+done
+if [[ -z "$out" ]]; then
+  echo "missing -o" >&2
+  exit 64
+fi
+cp '{}' "$out"
+echo "Synthetic BSP-derived fixture copied by fake wrapper."
+"#,
+        generated_vmf.display()
+    );
+    let mut file = std::fs::File::create(&fake_bspsource).unwrap();
+    file.write_all(script.as_bytes()).unwrap();
+    drop(file);
+    let mut permissions = std::fs::metadata(&fake_bspsource).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake_bspsource, permissions).unwrap();
+
+    let input_bsp = repo_path("tests/fixtures/bsp-derived/tiny_synthetic_header.bsp");
+    let output_vmf = temp_dir.join("synthetic_out.vmf");
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "bsp-import",
+            input_bsp.to_str().unwrap(),
+            "--bspsource",
+            fake_bspsource.to_str().unwrap(),
+            "--output",
+            output_vmf.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["generated_vmf_exists"], true);
+    assert_eq!(report["integrity"]["errors"], 0);
+    assert_eq!(report["entity_count"], 2);
+    assert!(output_vmf.is_file());
+    let generated = std::fs::read_to_string(output_vmf).unwrap();
+    assert!(generated.contains("synthetic_start"));
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {
