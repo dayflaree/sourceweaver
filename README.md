@@ -24,6 +24,7 @@ Current capabilities:
 - Validate generated VMFs for Source-tool readiness and parse captured VBSP logs.
 - Run optional user-configured VBSP/VVIS/VRAD compile pipelines, create/validate compile profiles, and capture parsed JSON reports.
 - Run optional BSP content packing with user-provided `bspzip`-compatible tools and JSON reports.
+- Generate cubemap/buildcubemaps runtime workflow reports and cfg helpers without launching game runtimes.
 - Inspect basic MDL model headers and run user-provided StudioMDL-compatible model compile tools.
 - Run optional user-selected BSPSource decompile commands or generic wrappers and validate generated VMFs before import.
 - Preserve incoming world brushes, including skybox brushes.
@@ -164,7 +165,7 @@ cargo run -p sourceweaver-cli -- validate stitched.vmf --rule-set hl2 --json
 cargo run -p sourceweaver-cli -- validate stitched.vmf --compile-log vbsp.log --json
 ```
 
-Use `--rule-set hl2` for portable Half-Life 2 single-player VMF semantics. Rule-set findings are reported separately from generic integrity findings and do not run Hammer, VBSP, VVIS, VRAD, or a game runtime. The same validation report also includes `entity_semantics` findings for duplicate targetnames and missing common target references plus a `complexity` summary for VMF-only Source/Hammer limit heuristics. When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. External compiler/decompiler runs default to a 900-second timeout; use `--timeout-seconds` for slower tools or quick failure tests. Captured compiler logs must include explicit success markers such as `0 errors` or `VBSP finished`; a truncated tool banner does not count as a successful compile. See `docs/compiler-validation.md`, `docs/bspsource-managed-download.md`, `docs/external-decompiler-presets.md`, `docs/bsp-derived-fixtures.md`, `docs/bsp-packing.md`, `docs/material-preview.md`, `docs/changelevel-policies.md`, `docs/transition-cleanup-rules.md`, `docs/deletion-presets.md`, `docs/campaign-adjacency.md`, `docs/campaign-batch-workflow.md`, `docs/entity-semantic-validation.md`, `docs/map-complexity.md`, and `docs/game-validation-rule-sets.md` for Linux-friendly validation, BSPSource managed download policy, external decompiler preset research, BSP-derived fixture boundaries, BSP packing integration, material-aware preview limits, captured-log parsing, changelevel policies, transition cleanup rules, custom deletion presets, campaign adjacency inference, campaign batch plans, semantic checks, complexity heuristics, rule-set scope, and HL2/Black Mesa command examples.
+Use `--rule-set hl2` for portable Half-Life 2 single-player VMF semantics. Rule-set findings are reported separately from generic integrity findings and do not run Hammer, VBSP, VVIS, VRAD, or a game runtime. The same validation report also includes `entity_semantics` findings for duplicate targetnames and missing common target references plus a `complexity` summary for VMF-only Source/Hammer limit heuristics. When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. External compiler/decompiler runs default to a 900-second timeout; use `--timeout-seconds` for slower tools or quick failure tests. Captured compiler logs must include explicit success markers such as `0 errors` or `VBSP finished`; a truncated tool banner does not count as a successful compile. See `docs/compiler-validation.md`, `docs/bspsource-managed-download.md`, `docs/external-decompiler-presets.md`, `docs/bsp-derived-fixtures.md`, `docs/bsp-packing.md`, `docs/cubemap-workflow.md`, `docs/material-preview.md`, `docs/changelevel-policies.md`, `docs/transition-cleanup-rules.md`, `docs/deletion-presets.md`, `docs/campaign-adjacency.md`, `docs/campaign-batch-workflow.md`, `docs/entity-semantic-validation.md`, `docs/map-complexity.md`, and `docs/game-validation-rule-sets.md` for Linux-friendly validation, BSPSource managed download policy, external decompiler preset research, BSP-derived fixture boundaries, BSP packing integration, cubemap/buildcubemaps runtime workflow planning, material-aware preview limits, captured-log parsing, changelevel policies, transition cleanup rules, custom deletion presets, campaign adjacency inference, campaign batch plans, semantic checks, complexity heuristics, rule-set scope, and HL2/Black Mesa command examples.
 
 Create and validate a compile profile without hand-editing TOML, then run a user-configured compile pipeline when VBSP/VVIS/VRAD are available:
 
@@ -221,6 +222,19 @@ cargo run -p sourceweaver-cli -- pack map.bsp \
 ```
 
 See `docs/bsp-packing.md` for generated file lists, version/provenance report fields, and legal/asset ownership notes.
+
+Prepare a cubemap/buildcubemaps runtime plan for a compiled BSP:
+
+```bash
+cargo run -p sourceweaver-cli -- cubemap-workflow map.bsp \
+  --profile hl2-hdr \
+  --steam-app-id 220 \
+  --write-cfg cfg/sourceweaver_buildcubemaps.cfg \
+  --report cubemap-report.json \
+  --json
+```
+
+The cubemap workflow command writes a report and optional cfg helper only. It does not launch Steam, a Source game runtime, Hammer, Hammer++, VBSP, VVIS, VRAD, BSPZIP, or BSPSource. See `docs/cubemap-workflow.md` for profile caveats, log capture expectations, and real-runtime evidence requirements.
 
 Inspect a model header or run a user-provided StudioMDL-compatible wrapper:
 

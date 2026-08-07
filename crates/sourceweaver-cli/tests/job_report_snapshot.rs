@@ -1323,6 +1323,90 @@ echo "BSPZIP finished"
     let _ = std::fs::remove_dir_all(temp_dir);
 }
 
+#[test]
+fn cubemap_workflow_writes_cfg_and_reports_runtime_boundary() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-cubemap-workflow-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let bsp_path = temp_dir.join("sw_cubemap_test.bsp");
+    std::fs::write(&bsp_path, b"synthetic bsp placeholder").unwrap();
+    let cfg_path = temp_dir.join("cfg/sourceweaver_buildcubemaps.cfg");
+    let report_path = temp_dir.join("cubemap-report.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "cubemap-workflow",
+            bsp_path.to_str().unwrap(),
+            "--profile",
+            "hl2-hdr",
+            "--steam-app-id",
+            "220",
+            "--write-cfg",
+            cfg_path.to_str().unwrap(),
+            "--report",
+            report_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["map_name"], "sw_cubemap_test");
+    assert_eq!(report["profile"]["id"], "hl2-hdr");
+    assert_eq!(report["writes_bsp"], true);
+    assert_eq!(report["real_game_runtime_validation"], false);
+    assert_eq!(report["cfg_written"], true);
+    assert_eq!(report["steam_app_id"], "220");
+    assert!(
+        report["suggested_steam_command"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "-condebug")
+    );
+    assert!(
+        report["console_commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "buildcubemaps")
+    );
+    assert!(
+        report["external_tool_boundary"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value
+                .as_str()
+                .unwrap()
+                .contains("No Steam client, Source game executable, game runtime"))
+    );
+    assert!(cfg_path.exists());
+    assert!(report_path.exists());
+    let cfg = std::fs::read_to_string(&cfg_path).unwrap();
+    assert!(cfg.contains("mat_hdr_level 0"));
+    assert!(cfg.contains("buildcubemaps"));
+    assert!(cfg.contains("sw_cubemap_test"));
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn compile_profile_create_validate_and_discover_reports_tools() {

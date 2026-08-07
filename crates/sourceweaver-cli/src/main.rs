@@ -1,6 +1,7 @@
 mod bspsource;
 mod bspsource_presets;
 mod bspsource_quality;
+mod cubemaps;
 mod external_decompilers;
 use bspsource_presets::{
     BSPSOURCE_ARGUMENT_PRESETS, preset_args, preset_snapshot, preset_snapshots,
@@ -50,6 +51,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "merge" => merge_command(&args[1..]),
         "validate" => validate_command(&args[1..]),
         "compile" => compile_command(&args[1..]),
+        "cubemap-workflow" | "cubemap-plan" | "buildcubemaps" => cubemaps::command(&args[1..]),
         "compile-profile" | "profile" => compile_profile_command(&args[1..]),
         "model-inspect" => model_inspect_command(&args[1..]),
         "model-compile" => model_compile_command(&args[1..]),
@@ -4460,6 +4462,7 @@ Usage:
   sourceweaver merge -o <out.vmf> [--landmark targetname] [--changelevel-policy preserve|disable|delete|rewrite-internal] [--changelevel-scope all|internal-only] [--preserve-external-map map] [--preserve-external-landmark name] [--preserve-external-targetname name] <base.vmf> <add.vmf> [...]
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--rule-set none|hl2] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver cubemap-workflow <map.bsp> [--profile generic|hl2-hdr|tf2-source2013mp|csgo|l4d|portal2] [--game-executable path | --steam-app-id id] [--game-dir dir] [--write-cfg cfg] [--report report.json] [--json]
   sourceweaver compile-profile create|validate|discover [options]
   sourceweaver model-inspect <model.mdl> [--json]
   sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
