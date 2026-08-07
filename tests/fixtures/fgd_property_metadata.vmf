@@ -1,0 +1,21 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "trigger_custom"
+	"targetname" "custom_trigger"
+	"mode" "1"
+	"spawnflags" "1"
+	"origin" "0 0 0"
+}

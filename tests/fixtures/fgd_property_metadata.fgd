@@ -1,0 +1,14 @@
+@PointClass base(Targetname) = trigger_custom : "Custom trigger used for FGD property metadata tests"
+[
+	targetname(target_source) : "Name" : : "Entity name used by Source I/O"
+	mode(choices) : "Mode" : 0 : "How this trigger starts"
+	[
+		0 : "Disabled" : "Starts disabled"
+		1 : "Enabled" : "Starts enabled"
+	]
+	spawnflags(flags) =
+	[
+		1 : "Starts enabled"
+		2 : "Clients only"
+	]
+]

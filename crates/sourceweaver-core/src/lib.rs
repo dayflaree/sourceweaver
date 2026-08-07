@@ -43,8 +43,9 @@ pub use complexity::{
     SOURCE_MAX_MAP_FACES, SOURCE_MAX_MAP_OVERLAYS, analyze_map_complexity,
 };
 pub use entity_metadata::{
-    EntityCategory, EntityMetadata, EntityMetadataSource, metadata_for_classname,
-    metadata_for_classname_with_overrides, parse_fgd_metadata,
+    EntityCategory, EntityMetadata, EntityMetadataSource, EntityPropertyChoice,
+    EntityPropertyMetadata, metadata_for_classname, metadata_for_classname_with_overrides,
+    parse_fgd_metadata,
 };
 pub use entity_semantics::{
     EntitySemanticsIssue, EntitySemanticsReport, format_entity_semantics_issue,

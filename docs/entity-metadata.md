@@ -25,8 +25,32 @@ The parser extracts:
 - point/solid/NPC annotation category when available
 - quoted class description
 - source FGD path
+- supported property keys, value types, labels, defaults, descriptions, choices, and flags
 
-The parser is intentionally lightweight; it does not attempt to evaluate the full FGD inheritance tree or parse every keyvalue definition. Unknown or complex FGD content is skipped safely.
+The parser is intentionally lightweight; it does not attempt to evaluate the full FGD inheritance tree or execute FGD expressions. Unknown or complex FGD content is skipped safely. Supported class declarations can include property definitions with labels, value types, default values, descriptions, choices, and flags.
+
+## Property metadata
+
+Supported property examples include normal keyvalue definitions, choices, and flags:
+
+```fgd
+@PointClass base(Targetname) = trigger_custom : "Custom trigger"
+[
+    targetname(target_source) : "Name" : : "Entity name used by Source I/O"
+    mode(choices) : "Mode" : 0 : "How this trigger starts"
+    [
+        0 : "Disabled" : "Starts disabled"
+        1 : "Enabled" : "Starts enabled"
+    ]
+    spawnflags(flags) =
+    [
+        1 : "Starts enabled"
+        2 : "Clients only"
+    ]
+]
+```
+
+`sourceweaver inspect <map.vmf> --fgd entities.fgd --json` includes selected property metadata under each entity's `metadata.properties` array. Text inspect output prints `property` lines for parsed property labels and descriptions.
 
 ## Desktop display
 
@@ -36,9 +60,10 @@ Entity and classname tables show:
 - friendly display name
 - classname
 - description
+- FGD property count and tooltip details when property metadata is loaded
 
-Search covers classname, category, friendly name, description, targetname, and role data. Entity rows can be sorted by category.
+Search covers classname, category, friendly name, description, targetname, role data, property keys, property labels, property descriptions, value types, and choices. Entity rows can be sorted by category.
 
 ## Future expansion
 
-If richer FGD behavior is needed, add fixtures for the exact FGD syntax before expanding the parser. The current parser focuses on class-level metadata because Source Weaver's cleanup workflow primarily needs semantic grouping and readable descriptions.
+If richer FGD behavior is needed, add fixtures for the exact FGD syntax before expanding the parser. The current parser focuses on class declarations and representative keyvalue metadata; it does not claim complete Hammer FGD language coverage.

@@ -79,7 +79,7 @@ Status: first native Linux/Windows UI, desktop drag/drop usability, in-session r
 
 ## Milestone 5: Advanced editing
 
-- FGD-backed property labels.
+- FGD-backed property labels and selected property metadata.
 - Saved deletion presets.
 - Batch mode for many campaign maps.
 - Interactive preview selection.

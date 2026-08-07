@@ -565,6 +565,83 @@ stderr:
     assert_eq!(report["deletion"]["removed_entities"], 1);
 }
 
+#[test]
+fn inspect_reports_fgd_property_metadata_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "inspect",
+            "tests/fixtures/fgd_property_metadata.vmf",
+            "--fgd",
+            "tests/fixtures/fgd_property_metadata.fgd",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let entity = report["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entity| entity["classname"] == "trigger_custom")
+        .expect("trigger_custom entity reported");
+    let properties = entity["metadata"]["properties"].as_array().unwrap();
+    let targetname = properties
+        .iter()
+        .find(|property| property["key"] == "targetname")
+        .expect("targetname property metadata");
+    assert_eq!(targetname["type"], "target_source");
+    assert_eq!(targetname["label"], "Name");
+    assert_eq!(targetname["description"], "Entity name used by Source I/O");
+    let mode = properties
+        .iter()
+        .find(|property| property["key"] == "mode")
+        .expect("mode property metadata");
+    assert_eq!(mode["default"], "0");
+    assert_eq!(mode["choices"].as_array().unwrap().len(), 2);
+    assert_eq!(mode["choices"][1]["value"], "1");
+    assert_eq!(mode["choices"][1]["label"], "Enabled");
+}
+
+#[test]
+fn inspect_text_reports_fgd_property_labels() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "inspect",
+            "tests/fixtures/fgd_property_metadata.vmf",
+            "--fgd",
+            "tests/fixtures/fgd_property_metadata.fgd",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("property	trigger_custom	targetname	Name"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("property	trigger_custom	mode	Mode"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Entity name used by Source I/O"),
+        "{stdout}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

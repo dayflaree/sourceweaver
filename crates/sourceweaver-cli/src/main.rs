@@ -4,12 +4,12 @@ use sourceweaver_core::{
     CampaignOrderSuggestion, CampaignTransition, ChangelevelChange, ChangelevelPolicy,
     ChangelevelPolicyOptions, ChangelevelPolicyReport, ChangelevelPreserveRule,
     ChangelevelPreservedTransition, ChangelevelScope, DeletionCriteria, DeletionReport, Document,
-    EntitySemanticsReport, IntegrityReport, MapComplexityReport, MergeInput, MergeOptions,
-    MergeReport, RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport,
+    EntityMetadata, EntitySemanticsReport, IntegrityReport, MapComplexityReport, MergeInput,
+    MergeOptions, MergeReport, RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport,
     discover_landmarks, discover_transitions, format_integrity_issue, inspect_entities, merge_maps,
-    parse_compile_log, prune_document, suggest_campaign_order, summarize_entity_types,
-    validate_document_integrity, validate_for_source_tools,
-    validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
+    metadata_for_classname_with_overrides, parse_compile_log, parse_fgd_metadata, prune_document,
+    suggest_campaign_order, summarize_entity_types, validate_document_integrity,
+    validate_for_source_tools, validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
     validation_rule_set_choices,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -68,15 +68,76 @@ fn run(args: Vec<String>) -> Result<(), String> {
 }
 
 fn inspect_command(args: &[String]) -> Result<(), String> {
-    if args.len() != 1 {
-        return Err("usage: sourceweaver inspect <map.vmf>".to_string());
+    let mut input: Option<PathBuf> = None;
+    let mut fgd_paths = Vec::new();
+    let mut json = false;
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--fgd" => {
+                cursor += 1;
+                fgd_paths.push(PathBuf::from(args.get(cursor).ok_or("--fgd needs a path")?));
+            }
+            "--json" => json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown inspect flag `{value}`"));
+            }
+            value => {
+                if input.is_some() {
+                    return Err("inspect accepts one VMF path".to_string());
+                }
+                input = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
     }
-    let document = load_document(&args[0])?;
+    let input =
+        input.ok_or("usage: sourceweaver inspect <map.vmf> [--fgd entities.fgd] [--json]")?;
+    let document = load_document(&input)?;
     let records = inspect_entities(&document);
     let transitions = discover_transitions(&document);
+    let fgd_metadata = load_fgd_metadata_overrides(&fgd_paths)?;
+
+    if json {
+        let entities = records
+            .iter()
+            .map(|record| {
+                let metadata = record.classname.as_deref().map(|classname| {
+                    metadata_for_classname_with_overrides(classname, &fgd_metadata)
+                });
+                serde_json::json!({
+                    "index": record.index,
+                    "block": record.block_name,
+                    "classname": record.classname,
+                    "targetname": record.targetname,
+                    "origin": record.origin.map(|origin| origin.to_string()),
+                    "solids": record.solid_count,
+                    "roles": record.roles.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                    "metadata": metadata.as_ref().map(snapshot_entity_metadata),
+                })
+            })
+            .collect::<Vec<_>>();
+        let report = serde_json::json!({
+            "map": input.display().to_string(),
+            "fgd_files": fgd_paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>(),
+            "entity_count": records.len(),
+            "entities": entities,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|error| format!("failed to encode inspect JSON: {error}"))?
+        );
+        return Ok(());
+    }
+
     println!("entities: {}", records.len());
-    println!("index\tblock\tclassname\ttargetname\torigin\tsolids\troles");
+    println!("index	block	classname	targetname	origin	solids	roles	properties");
     for record in records {
+        let metadata = record
+            .classname
+            .as_deref()
+            .map(|classname| metadata_for_classname_with_overrides(classname, &fgd_metadata));
         let classname = record.classname.unwrap_or_else(|| "-".to_string());
         let targetname = record.targetname.unwrap_or_else(|| "-".to_string());
         let origin = record
@@ -84,24 +145,40 @@ fn inspect_command(args: &[String]) -> Result<(), String> {
             .map(|origin| origin.to_string())
             .unwrap_or_else(|| "-".to_string());
         let roles = format_roles(&record.roles);
+        let properties = metadata
+            .as_ref()
+            .map(|metadata| metadata.properties.len().to_string())
+            .unwrap_or_else(|| "0".to_string());
         println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}	{}	{}	{}	{}	{}	{}	{}",
             record.index,
             record.block_name,
             classname,
             targetname,
             origin,
             record.solid_count,
-            roles
+            roles,
+            properties
         );
+        if let Some(metadata) = metadata {
+            for property in metadata.properties.values() {
+                println!(
+                    "property	{}	{}	{}	{}",
+                    metadata.classname,
+                    property.key,
+                    property.label.as_deref().unwrap_or("-"),
+                    property.description.as_deref().unwrap_or("-")
+                );
+            }
+        }
     }
     if !transitions.is_empty() {
         println!();
         println!("transitions: {}", transitions.len());
-        println!("entity_index\ttargetname\ttarget_map\tlandmark\torigin\tsolids");
+        println!("entity_index	targetname	target_map	landmark	origin	solids");
         for transition in transitions {
             println!(
-                "{}\t{}\t{}\t{}\t{}\t{}",
+                "{}	{}	{}	{}	{}	{}",
                 transition.entity_index,
                 transition.targetname.as_deref().unwrap_or("-"),
                 transition.target_map.as_deref().unwrap_or("-"),
@@ -115,6 +192,46 @@ fn inspect_command(args: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn load_fgd_metadata_overrides(
+    fgd_paths: &[PathBuf],
+) -> Result<BTreeMap<String, EntityMetadata>, String> {
+    let mut metadata = BTreeMap::new();
+    for path in fgd_paths {
+        let text = fs::read_to_string(path)
+            .map_err(|error| format!("failed to read FGD {}: {error}", path.display()))?;
+        for entry in parse_fgd_metadata(&text, &path.display().to_string()) {
+            metadata.insert(entry.classname.clone(), entry);
+        }
+    }
+    Ok(metadata)
+}
+
+fn snapshot_entity_metadata(metadata: &EntityMetadata) -> serde_json::Value {
+    serde_json::json!({
+        "classname": metadata.classname,
+        "display_name": metadata.display_name,
+        "category": metadata.category.to_string(),
+        "description": metadata.description,
+        "source": metadata.source.to_string(),
+        "properties": metadata.properties.values().map(|property| {
+            serde_json::json!({
+                "key": property.key,
+                "type": property.value_type,
+                "label": property.label,
+                "default": property.default_value,
+                "description": property.description,
+                "choices": property.choices.iter().map(|choice| {
+                    serde_json::json!({
+                        "value": choice.value,
+                        "label": choice.label,
+                        "description": choice.description,
+                    })
+                }).collect::<Vec<_>>(),
+            })
+        }).collect::<Vec<_>>(),
+    })
 }
 
 fn list_types_command(args: &[String]) -> Result<(), String> {
@@ -4232,7 +4349,7 @@ fn print_help() {
 Automatically inspect, prune, and merge Source VMF campaign maps.
 
 Usage:
-  sourceweaver inspect <map.vmf>
+  sourceweaver inspect <map.vmf> [--fgd entities.fgd] [--json]
   sourceweaver list-types <map.vmf>
   sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
   sourceweaver merge -o <out.vmf> [--landmark targetname] [--changelevel-policy preserve|disable|delete|rewrite-internal] [--changelevel-scope all|internal-only] [--preserve-external-map map] [--preserve-external-landmark name] [--preserve-external-targetname name] <base.vmf> <add.vmf> [...]

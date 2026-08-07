@@ -155,7 +155,7 @@ The base VMF supplies top-level editor metadata such as `versioninfo`, `viewsett
 
 ## Entity metadata
 
-The core library provides class-level metadata for common Source entities, infers broad categories from unknown classname prefixes, and can parse lightweight FGD class declarations for class descriptions. Desktop inspection tables display category, friendly name, and description without hiding unknown classnames. See `docs/entity-metadata.md`.
+The core library provides class-level metadata for common Source entities, infers broad categories from unknown classname prefixes, and can parse lightweight FGD class declarations plus representative property labels, descriptions, defaults, choices, and flags. Desktop inspection tables display category, friendly name, descriptions, and FGD property tooltips without hiding unknown classnames. See `docs/entity-metadata.md`.
 
 ## BSP import stance
 

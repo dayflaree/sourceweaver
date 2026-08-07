@@ -47,6 +47,24 @@ pub struct EntityMetadata {
     pub category: EntityCategory,
     pub description: Option<String>,
     pub source: EntityMetadataSource,
+    pub properties: BTreeMap<String, EntityPropertyMetadata>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityPropertyMetadata {
+    pub key: String,
+    pub value_type: Option<String>,
+    pub label: Option<String>,
+    pub default_value: Option<String>,
+    pub description: Option<String>,
+    pub choices: Vec<EntityPropertyChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityPropertyChoice {
+    pub value: String,
+    pub label: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,13 +101,18 @@ pub fn metadata_for_classname_with_overrides(
 }
 
 pub fn parse_fgd_metadata(text: &str, source_label: &str) -> Vec<EntityMetadata> {
+    let lines = text.lines().collect::<Vec<_>>();
     let mut entries = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
         if !trimmed.starts_with('@') || !trimmed.contains('=') {
+            index += 1;
             continue;
         }
         let Some((annotation, rest)) = trimmed.split_once('=') else {
+            index += 1;
             continue;
         };
         let rest = rest.trim();
@@ -100,11 +123,26 @@ pub fn parse_fgd_metadata(text: &str, source_label: &str) -> Vec<EntityMetadata>
             .trim_matches(':')
             .trim();
         if classname.is_empty() || !is_valid_classname(classname) {
+            index += 1;
             continue;
         }
         let description = rest
             .split_once(':')
             .and_then(|(_, description)| quoted_description(description));
+
+        let mut next = index + 1;
+        while next < lines.len() && lines[next].trim() != "[" {
+            if lines[next].trim_start().starts_with('@') {
+                break;
+            }
+            next += 1;
+        }
+        let (properties, consumed_to) = if next < lines.len() && lines[next].trim() == "[" {
+            parse_fgd_properties(&lines, next + 1)
+        } else {
+            (BTreeMap::new(), index + 1)
+        };
+
         entries.push(EntityMetadata {
             classname: classname.to_string(),
             display_name: display_name_for(classname),
@@ -112,9 +150,146 @@ pub fn parse_fgd_metadata(text: &str, source_label: &str) -> Vec<EntityMetadata>
                 .unwrap_or_else(|| infer_category(classname)),
             description,
             source: EntityMetadataSource::Fgd(source_label.to_string()),
+            properties,
         });
+        index = consumed_to.max(index + 1);
     }
+
     entries
+}
+
+fn parse_fgd_properties(
+    lines: &[&str],
+    mut index: usize,
+) -> (BTreeMap<String, EntityPropertyMetadata>, usize) {
+    let mut properties = BTreeMap::new();
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
+        if trimmed == "]" || trimmed.starts_with('@') {
+            return (properties, index + 1);
+        }
+        let Some(mut property) = parse_fgd_property_line(trimmed) else {
+            index += 1;
+            continue;
+        };
+        index += 1;
+        if trimmed.contains('=') && trimmed.contains('[') {
+            let (choices, next_index) = parse_fgd_property_choices(lines, index);
+            property.choices = choices;
+            index = next_index;
+        } else if index < lines.len() && lines[index].trim() == "[" {
+            let (choices, next_index) = parse_fgd_property_choices(lines, index + 1);
+            property.choices = choices;
+            index = next_index;
+        }
+        properties.insert(property.key.clone(), property);
+    }
+    (properties, index)
+}
+
+fn parse_fgd_property_line(line: &str) -> Option<EntityPropertyMetadata> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with("//") || !trimmed.contains('(') {
+        return None;
+    }
+    let open = trimmed.find('(')?;
+    let close = trimmed[open + 1..].find(')')? + open + 1;
+    let key = trimmed[..open].trim();
+    if key.is_empty() || !is_valid_property_key(key) {
+        return None;
+    }
+    let value_type = trimmed[open + 1..close].trim();
+    let after_type = trimmed[close + 1..].trim();
+    let after_equals = after_type
+        .split_once('=')
+        .map(|(_, rest)| rest.trim())
+        .unwrap_or(after_type);
+    let fields = split_fgd_fields(after_equals.trim_start_matches(':').trim());
+    let label = fields.first().and_then(|value| clean_fgd_value(value));
+    let default_value = fields.get(1).and_then(|value| clean_fgd_value(value));
+    let description = fields.get(2).and_then(|value| clean_fgd_value(value));
+
+    Some(EntityPropertyMetadata {
+        key: key.to_string(),
+        value_type: (!value_type.is_empty()).then(|| value_type.to_string()),
+        label,
+        default_value,
+        description,
+        choices: Vec::new(),
+    })
+}
+
+fn parse_fgd_property_choices(
+    lines: &[&str],
+    mut index: usize,
+) -> (Vec<EntityPropertyChoice>, usize) {
+    let mut choices = Vec::new();
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
+        if trimmed == "]" {
+            return (choices, index + 1);
+        }
+        if let Some(choice) = parse_fgd_choice_line(trimmed) {
+            choices.push(choice);
+        }
+        index += 1;
+    }
+    (choices, index)
+}
+
+fn parse_fgd_choice_line(line: &str) -> Option<EntityPropertyChoice> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with("//") || !trimmed.contains(':') {
+        return None;
+    }
+    let fields = split_fgd_fields(trimmed);
+    let value = clean_fgd_value(fields.first()?)?;
+    let label = fields.get(1).and_then(|field| clean_fgd_value(field))?;
+    let description = fields.get(2).and_then(|field| clean_fgd_value(field));
+    Some(EntityPropertyChoice {
+        value,
+        label,
+        description,
+    })
+}
+
+fn split_fgd_fields(value: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut in_quote = false;
+    for ch in value.chars() {
+        match ch {
+            '"' => {
+                in_quote = !in_quote;
+                current.push(ch);
+            }
+            ':' if !in_quote => {
+                fields.push(current.trim().to_string());
+                current.clear();
+            }
+            '[' if !in_quote => {
+                if !current.trim().is_empty() {
+                    fields.push(current.trim().to_string());
+                }
+                break;
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() {
+        fields.push(current.trim().to_string());
+    }
+    fields
+}
+
+fn clean_fgd_value(value: &str) -> Option<String> {
+    let value = value.trim().trim_end_matches(',').trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(value)
+        .trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 fn builtin_metadata(classname: &str) -> Option<EntityMetadata> {
@@ -181,6 +356,7 @@ fn builtin_metadata(classname: &str) -> Option<EntityMetadata> {
         category,
         description: Some(description.to_string()),
         source: EntityMetadataSource::BuiltIn,
+        properties: BTreeMap::new(),
     })
 }
 
@@ -200,6 +376,7 @@ fn inferred_metadata(classname: &str) -> EntityMetadata {
         } else {
             EntityMetadataSource::Inferred
         },
+        properties: BTreeMap::new(),
     }
 }
 
@@ -283,6 +460,12 @@ fn is_valid_classname(value: &str) -> bool {
         .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
 }
 
+fn is_valid_property_key(value: &str) -> bool {
+    value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,5 +506,46 @@ mod tests {
         assert_eq!(entries[0].description.as_deref(), Some("Target point"));
         assert_eq!(entries[1].classname, "func_ladder");
         assert_eq!(entries[1].category, EntityCategory::Brush);
+    }
+
+    #[test]
+    fn parses_fgd_property_metadata_choices_and_flags() {
+        let entries = parse_fgd_metadata(
+            include_str!("../../../tests/fixtures/fgd_property_metadata.fgd"),
+            "fgd_property_metadata.fgd",
+        );
+        let trigger = entries
+            .iter()
+            .find(|entry| entry.classname == "trigger_custom")
+            .expect("trigger_custom metadata exists");
+
+        let targetname = trigger
+            .properties
+            .get("targetname")
+            .expect("targetname property exists");
+        assert_eq!(targetname.value_type.as_deref(), Some("target_source"));
+        assert_eq!(targetname.label.as_deref(), Some("Name"));
+        assert_eq!(
+            targetname.description.as_deref(),
+            Some("Entity name used by Source I/O")
+        );
+
+        let mode = trigger
+            .properties
+            .get("mode")
+            .expect("mode property exists");
+        assert_eq!(mode.value_type.as_deref(), Some("choices"));
+        assert_eq!(mode.default_value.as_deref(), Some("0"));
+        assert_eq!(mode.choices.len(), 2);
+        assert_eq!(mode.choices[1].value, "1");
+        assert_eq!(mode.choices[1].label, "Enabled");
+
+        let flags = trigger
+            .properties
+            .get("spawnflags")
+            .expect("spawnflags property exists");
+        assert_eq!(flags.value_type.as_deref(), Some("flags"));
+        assert_eq!(flags.choices[0].value, "1");
+        assert_eq!(flags.choices[0].label, "Starts enabled");
     }
 }

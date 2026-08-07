@@ -31,6 +31,7 @@
 - Desktop model tooling panel for MDL metadata inspection and background StudioMDL-compatible model compile integrations.
 - Desktop compile profile wizard for creating, validating, and discovering user-provided VBSP/VVIS/VRAD profiles.
 - Custom deletion preset TOML format with CLI job application and desktop save/export/load/import controls.
+- FGD-backed entity property metadata parsing with labels, descriptions, defaults, choices/flags, CLI inspect JSON/text output, and desktop property tooltips.
 
 ### Changed
 

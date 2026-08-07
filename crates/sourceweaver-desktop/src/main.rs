@@ -5428,7 +5428,7 @@ fn draw_entity_table(
     egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
         egui::Grid::new("entity_table")
             .striped(true)
-            .num_columns(11)
+            .num_columns(12)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
                 ui.strong("Select");
@@ -5441,6 +5441,7 @@ fn draw_entity_table(
                 ui.strong("Origin");
                 ui.strong("Solids");
                 ui.strong("Roles");
+                ui.strong("FGD properties");
                 ui.strong("Description");
                 ui.end_row();
 
@@ -5488,6 +5489,17 @@ fn draw_entity_table(
                     );
                     ui.colored_label(text_color, record.solid_count.to_string());
                     ui.colored_label(text_color, format_roles(&record.roles));
+                    let property_summary = metadata
+                        .as_ref()
+                        .map(property_metadata_summary)
+                        .unwrap_or_else(|| "0 properties".to_string());
+                    let property_response = ui.colored_label(text_color, property_summary);
+                    if let Some(metadata) = &metadata {
+                        let tooltip = property_metadata_tooltip(metadata);
+                        if !tooltip.is_empty() {
+                            property_response.on_hover_text(tooltip);
+                        }
+                    }
                     ui.colored_label(
                         text_color,
                         metadata
@@ -5574,13 +5586,14 @@ fn draw_classname_table(
     egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
         egui::Grid::new("classname_table")
             .striped(true)
-            .num_columns(5)
+            .num_columns(6)
             .spacing([24.0, 6.0])
             .show(ui, |ui| {
                 ui.strong("Count");
                 ui.strong("Classname");
                 ui.strong("Category");
                 ui.strong("Friendly name");
+                ui.strong("FGD properties");
                 ui.strong("Description");
                 ui.end_row();
                 for (classname, count) in rows {
@@ -5588,12 +5601,95 @@ fn draw_classname_table(
                     ui.label(count.to_string());
                     ui.label(classname);
                     ui.label(metadata.category.to_string());
-                    ui.label(metadata.display_name);
+                    ui.label(&metadata.display_name);
+                    let property_response = ui.label(property_metadata_summary(&metadata));
+                    let tooltip = property_metadata_tooltip(&metadata);
+                    if !tooltip.is_empty() {
+                        property_response.on_hover_text(tooltip);
+                    }
                     ui.label(metadata.description.as_deref().unwrap_or("-"));
                     ui.end_row();
                 }
             });
     });
+}
+
+fn property_metadata_summary(metadata: &EntityMetadata) -> String {
+    match metadata.properties.len() {
+        0 => "0 properties".to_string(),
+        1 => metadata
+            .properties
+            .values()
+            .next()
+            .map(|property| {
+                format!(
+                    "1 property: {}",
+                    property.label.as_deref().unwrap_or(&property.key)
+                )
+            })
+            .unwrap_or_else(|| "1 property".to_string()),
+        count => format!("{count} properties"),
+    }
+}
+
+fn property_metadata_tooltip(metadata: &EntityMetadata) -> String {
+    metadata
+        .properties
+        .values()
+        .take(12)
+        .map(|property| {
+            let mut line = format!(
+                "{} ({})",
+                property.label.as_deref().unwrap_or(&property.key),
+                property.value_type.as_deref().unwrap_or("unknown")
+            );
+            if let Some(default_value) = &property.default_value {
+                line.push_str(&format!(" default={default_value}"));
+            }
+            if let Some(description) = &property.description {
+                line.push_str(&format!(" — {description}"));
+            }
+            if !property.choices.is_empty() {
+                let choices = property
+                    .choices
+                    .iter()
+                    .take(4)
+                    .map(|choice| format!("{}={}", choice.value, choice.label))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                line.push_str(&format!(" [{choices}]"));
+            }
+            line
+        })
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        )
+}
+
+fn property_metadata_search_text(metadata: &EntityMetadata) -> String {
+    let mut parts = Vec::new();
+    for property in metadata.properties.values() {
+        parts.push(property.key.clone());
+        if let Some(label) = &property.label {
+            parts.push(label.clone());
+        }
+        if let Some(value_type) = &property.value_type {
+            parts.push(value_type.clone());
+        }
+        if let Some(description) = &property.description {
+            parts.push(description.clone());
+        }
+        for choice in &property.choices {
+            parts.push(choice.value.clone());
+            parts.push(choice.label.clone());
+            if let Some(description) = &choice.description {
+                parts.push(description.clone());
+            }
+        }
+    }
+    parts.join(" ").to_ascii_lowercase()
 }
 
 fn classname_matches_metadata_search(
@@ -5614,6 +5710,7 @@ fn classname_matches_metadata_search(
             .unwrap_or("")
             .to_ascii_lowercase()
             .contains(query)
+        || property_metadata_search_text(&metadata).contains(query)
 }
 
 fn draw_transition_table(ui: &mut egui::Ui, transitions: &[CampaignTransition]) {
@@ -5704,6 +5801,7 @@ fn entity_matches_filters(
                         .unwrap_or("")
                         .to_ascii_lowercase()
                         .contains(&query)
+                    || property_metadata_search_text(metadata).contains(&query)
             })
             .unwrap_or(false)
         || roles.contains(&query)

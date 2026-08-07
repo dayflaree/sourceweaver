@@ -91,7 +91,7 @@ Source Weaver must not rely on a fixed Hammer entity whitelist. Unknown or game-
 
 Large VMFs must remain manageable in the desktop inspection UI. Entity rows must support text search across block name, classname, targetname, and roles; role filtering; visible-row counts; and sortable columns for index, block, classname, targetname, origin, solids, and roles. Classname summaries must support search, filtered counts, and sorting by classname or count. Map-source filtering for merged data depends on source-provenance tracking in the merged preview workflow.
 
-Entity inspection must enrich classnames with useful metadata while preserving unknown/game-specific entities. Built-in or inferred categories must be available for common Source classname patterns. Desktop users must be able to load FGD files for class-level descriptions, and loaded FGD metadata must override built-in/inferred metadata for matching classnames.
+Entity inspection must enrich classnames with useful metadata while preserving unknown/game-specific entities. Built-in or inferred categories must be available for common Source classname patterns. Desktop users must be able to load FGD files for class-level descriptions and selected property metadata, and loaded FGD metadata must override built-in/inferred metadata for matching classnames.
 
 Merged previews must visually distinguish the base VMF and incoming VMFs. Source colors must be stable for the current selected-map order, and the preview legend must identify every selected VMF. Role coloring should remain readable when source coloring is active.
 

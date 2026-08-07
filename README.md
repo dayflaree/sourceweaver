@@ -33,7 +33,7 @@ Current capabilities:
 - Detect `trigger_changelevel` campaign transitions, show target map/landmark data, and report campaign adjacency graph edges with confidence levels.
 - Preserve, disable, delete, or rewrite internal `trigger_changelevel` destinations during merge through explicit policies, cleanup scopes, and external preserve selectors.
 - Suggest campaign map order and landmark pairs from detected transitions.
-- Enrich entity/classname tables with built-in, inferred, and optionally loaded FGD metadata.
+- Enrich entity/classname tables with built-in, inferred, and optionally loaded FGD metadata, including FGD-backed property labels, descriptions, defaults, choices, and flags where parsed.
 - Drag and drop `.vmf`, `.toml`, and `.fgd` files into the desktop app, with in-session recent files/projects.
 - Show parse progress, error dialogs, dark/light theme controls, and adjustable preview height.
 - Search, role-filter, and sort large entity/classname tables.
@@ -324,12 +324,12 @@ Known limitations:
 
 - The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
 - No bundled/internal BSP decompilation. BSP import can run user-selected BSPSource launchers/jars or generic external wrappers and imports the generated VMF; Source Weaver remains VMF-first. See `docs/bsp-import.md`.
-- FGD support is class-level metadata only; it does not parse all property labels yet.
+- FGD support parses supported class declarations and representative property metadata syntax, including labels, descriptions, defaults, choices, and flags. It intentionally skips unsupported full-FGD language features safely.
 - Compile, BSP packing, BSP decompile, and model compile integrations require user-provided Source tool paths; Source tools, Hammer, Crowbar, StudioMDL, game content, model assets, and custom assets are not bundled. Desktop compile launch uses the Source Weaver CLI compile pipeline and remains separate from VMF export success.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 - Incoming IDs are renumbered during merge, known reference fields are remapped, and unsupported suspected ID-reference keys are surfaced as warnings; see `docs/id-renumbering.md`.
 - Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.
-- Entity metadata uses built-in semantics, inferred categories, and optional FGD class descriptions; see `docs/entity-metadata.md`.
+- Entity metadata uses built-in semantics, inferred categories, optional FGD class descriptions, and selected FGD property metadata; see `docs/entity-metadata.md`.
 - Very large merged maps can still hit Hammer or Source compiler limits.
 
 ## Design principle
