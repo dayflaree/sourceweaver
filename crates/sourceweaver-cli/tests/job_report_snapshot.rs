@@ -692,12 +692,8 @@ fn bspsource_manifest_policy_and_cache_are_reported() {
         .unwrap();
     assert!(cache.status.success());
     let cache_json: serde_json::Value = serde_json::from_slice(&cache.stdout).unwrap();
-    assert!(
-        cache_json["path"]
-            .as_str()
-            .unwrap()
-            .ends_with("bspsource/v1.4.8/bspsrc-jar-only.zip")
-    );
+    let cache_path = cache_json["path"].as_str().unwrap().replace('\\', "/");
+    assert!(cache_path.ends_with("bspsource/v1.4.8/bspsrc-jar-only.zip"));
 }
 
 #[test]
