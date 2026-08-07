@@ -181,6 +181,11 @@ cargo run -p sourceweaver-cli -- compile-profile create \
   --validate \
   --json
 
+cargo run -p sourceweaver-cli -- compile-profile discover \
+  --steam-root /path/to/Steam \
+  --output discovered-tools.toml \
+  --json
+
 cargo run -p sourceweaver-cli -- compile stitched.vmf \
   --profile hl2-tools.toml \
   --steps vbsp,vvis,vrad \

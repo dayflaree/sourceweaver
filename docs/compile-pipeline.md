@@ -48,9 +48,12 @@ sourceweaver compile-profile create \
 
 sourceweaver compile-profile validate --profile hl2-tools.toml --json
 sourceweaver compile-profile discover --search-dir /path/to/source/bin --output discovered.toml --game /path/to/game-dir --json
+sourceweaver compile-profile discover --steam-root /path/to/Steam --output discovered-steam.toml --json
 ```
 
-Profile validation checks selected steps, missing tool paths, file/executable status, game directory status, and timeout settings. Discovery searches explicit `--search-dir` values plus `PATH`; it does not download tools or guess game ownership.
+Profile validation checks selected steps, missing tool paths, file/executable status, game directory status, and timeout settings. Discovery searches explicit `--search-dir` values plus `PATH`; by default it also scans common Steam library layouts such as `steamapps/common/<game>/bin`, `bin/win64`, `bin/x64`, `bin/linux64`, `hl2/bin`, and `sdk_content/bin`. Use `--steam-root` for additional Steam libraries or `--no-steam-discovery` for explicit/PATH-only discovery.
+
+Discovery reports candidates for VBSP, VVIS, VRAD, BSPZIP/BSPZIP++, and StudioMDL/StudioMDL++ compatible names. Each candidate includes a `source`, `confidence`, and runtime caveats. Source Weaver does not run, install, or validate discovered tools; users must confirm the selected path and matching game/runtime context before profile use.
 
 ## Profile TOML
 

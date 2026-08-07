@@ -1313,6 +1313,13 @@ fn parse_compile_profile_discover_args(
                     args.get(cursor).ok_or("--search-dir needs a path")?,
                 ));
             }
+            "--steam-root" | "--steam-library" => {
+                cursor += 1;
+                config.steam_roots.push(PathBuf::from(
+                    args.get(cursor).ok_or("--steam-root needs a directory")?,
+                ));
+            }
+            "--no-steam-discovery" => config.no_steam_discovery = true,
             "--output" | "-o" => {
                 cursor += 1;
                 config.output = Some(PathBuf::from(
@@ -1563,6 +1570,8 @@ fn compile_command_shape_for_step(step: &str) -> String {
         "vbsp" => "<vbsp> [-game <game-dir>] <map.vmf>".to_string(),
         "vvis" => "<vvis> [-game <game-dir>] <map.bsp>".to_string(),
         "vrad" => "<vrad> [-game <game-dir>] <map.bsp>".to_string(),
+        "bspzip" => "<bspzip> -addlist <input.bsp> <filelist.txt> <output.bsp>".to_string(),
+        "studiomdl" => "<studiomdl> [tool-args] [-game <game-dir>] <model.qc>".to_string(),
         _ => "unknown".to_string(),
     }
 }
@@ -1585,30 +1594,56 @@ fn is_executable_file(path: &Path) -> bool {
 }
 
 fn discover_compile_tools(config: &CompileProfileDiscoverConfig) -> CompileToolDiscoveryReport {
+    let steam_roots = if config.no_steam_discovery {
+        Vec::new()
+    } else {
+        discover_steam_roots(&config.steam_roots)
+    };
+    let steam_dirs = discover_steam_tool_search_dirs(&steam_roots);
     let mut search_dirs = config.search_dirs.clone();
     if let Some(paths) = env::var_os("PATH") {
         search_dirs.extend(env::split_paths(&paths));
     }
+    search_dirs.extend(steam_dirs.clone());
     search_dirs.sort();
     search_dirs.dedup();
     let requested_steps = config
         .steps
         .clone()
         .unwrap_or_else(|| vec!["vbsp".to_string(), "vvis".to_string(), "vrad".to_string()]);
+    let mut discovery_steps = requested_steps.clone();
+    for optional in ["bspzip", "studiomdl"] {
+        if !discovery_steps.iter().any(|step| step == optional) {
+            discovery_steps.push(optional.to_string());
+        }
+    }
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut tools = Vec::new();
-    for step in &requested_steps {
+    for step in &discovery_steps {
+        let required = requested_steps.iter().any(|requested| requested == step);
         let candidates = discover_tool_candidates(step, &search_dirs);
+        let candidate_details = candidates
+            .iter()
+            .map(|candidate| describe_tool_candidate(candidate, &steam_roots, &steam_dirs))
+            .collect::<Vec<_>>();
         if candidates.is_empty() {
-            errors.push(format!(
-                "could not find `{step}` in --search-dir paths or PATH; pass an explicit --{step} path to compile-profile create"
-            ));
+            if required {
+                errors.push(format!(
+                    "could not find `{step}` in --search-dir paths, PATH, or discovered Steam tool directories; pass an explicit --{step} path to compile-profile create"
+                ));
+            } else {
+                warnings.push(format!(
+                    "optional `{step}` tool was not found in --search-dir paths, PATH, or discovered Steam tool directories"
+                ));
+            }
         }
         tools.push(CompileToolDiscoveryCheck {
             step: step.clone(),
+            required,
             selected: candidates.first().cloned(),
             candidates,
+            candidate_details,
             command_shape: compile_command_shape_for_step(step),
         });
     }
@@ -1621,9 +1656,20 @@ fn discover_compile_tools(config: &CompileProfileDiscoverConfig) -> CompileToolD
     } else {
         warnings.push("no --game path was provided for the generated profile".to_string());
     }
+    if !config.no_steam_discovery {
+        warnings.push("Steam discovery only reports candidate paths; users must confirm the selected tool/game context before running external tools".to_string());
+    }
     CompileToolDiscoveryReport {
         ok: errors.is_empty(),
         search_dirs: search_dirs
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        steam_roots: steam_roots
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        steam_search_dirs: steam_dirs
             .iter()
             .map(|path| path.display().to_string())
             .collect(),
@@ -1636,6 +1682,106 @@ fn discover_compile_tools(config: &CompileProfileDiscoverConfig) -> CompileToolD
         timeout_seconds: config.timeout_seconds,
         errors,
         warnings,
+    }
+}
+
+fn discover_steam_roots(configured: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots = configured.to_vec();
+    if let Some(home) = env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        roots.extend([
+            home.join(".steam/steam"),
+            home.join(".local/share/Steam"),
+            home.join("snap/steam/common/.local/share/Steam"),
+            home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
+        ]);
+    }
+    for key in ["PROGRAMFILES(X86)", "PROGRAMFILES", "PROGRAMW6432"] {
+        if let Some(path) = env::var_os(key) {
+            roots.push(PathBuf::from(path).join("Steam"));
+        }
+    }
+    roots.sort();
+    roots.dedup();
+    roots.into_iter().filter(|root| root.is_dir()).collect()
+}
+
+fn discover_steam_tool_search_dirs(steam_roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    for root in steam_roots {
+        let common = root.join("steamapps/common");
+        if !common.is_dir() {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&common) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let game_dir = entry.path();
+            if !game_dir.is_dir() {
+                continue;
+            }
+            for relative in [
+                "bin",
+                "bin/win64",
+                "bin/x64",
+                "bin/linux64",
+                "bin/linuxsteamrt64",
+                "hl2/bin",
+                "sdk_content/bin",
+            ] {
+                let candidate = game_dir.join(relative);
+                if candidate.is_dir() {
+                    dirs.push(candidate);
+                }
+            }
+        }
+    }
+    dirs.sort();
+    dirs.dedup();
+    dirs
+}
+
+fn describe_tool_candidate(
+    candidate: &str,
+    steam_roots: &[PathBuf],
+    steam_dirs: &[PathBuf],
+) -> CompileToolCandidateDetail {
+    let path = PathBuf::from(candidate);
+    let source = if steam_roots.iter().any(|root| path.starts_with(root)) {
+        "steam-library"
+    } else if steam_dirs.iter().any(|dir| path.starts_with(dir)) {
+        "steam-tool-dir"
+    } else {
+        "search-dir-or-path"
+    };
+    let confidence = if source.starts_with("steam")
+        && path
+            .parent()
+            .map(|parent| {
+                parent.ends_with("bin")
+                    || parent.ends_with("win64")
+                    || parent.ends_with("x64")
+                    || parent.ends_with("linux64")
+            })
+            .unwrap_or(false)
+    {
+        "high"
+    } else {
+        "medium"
+    };
+    let mut caveats = vec![
+        "candidate path was discovered only; Source Weaver did not run or validate the tool".to_string(),
+        "external tools may require matching game, SDK, runtime library, Wine, Proton, or working-directory context".to_string(),
+    ];
+    if source == "steam-library" {
+        caveats.push("Steam-discovered paths may point at game-owned tools/content; user confirmation is required before profile use".to_string());
+    }
+    CompileToolCandidateDetail {
+        path: candidate.to_string(),
+        source: source.to_string(),
+        confidence: confidence.to_string(),
+        caveats,
     }
 }
 
@@ -1655,12 +1801,21 @@ fn discover_tool_candidates(step: &str, search_dirs: &[PathBuf]) -> Vec<String> 
 
 fn tool_binary_names(step: &str) -> Vec<String> {
     let mut names = vec![step.to_string()];
-    if cfg!(windows) {
-        names.push(format!("{step}.exe"));
-    } else {
-        names.push(format!("{step}.exe"));
-        names.push(format!("{step}.sh"));
+    names.push(format!("{step}.exe"));
+    names.push(format!("{step}.sh"));
+    match step {
+        "bspzip" => {
+            names.push("bspzipplusplus".to_string());
+            names.push("bspzipplusplus.exe".to_string());
+        }
+        "studiomdl" => {
+            names.push("studiomdlplusplus".to_string());
+            names.push("studiomdlplusplus.exe".to_string());
+        }
+        _ => {}
     }
+    names.sort();
+    names.dedup();
     names
 }
 
@@ -5695,6 +5850,8 @@ struct CompileProfileValidateConfig {
 #[derive(Debug, Clone, Default)]
 struct CompileProfileDiscoverConfig {
     search_dirs: Vec<PathBuf>,
+    steam_roots: Vec<PathBuf>,
+    no_steam_discovery: bool,
     output: Option<PathBuf>,
     game: Option<PathBuf>,
     steps: Option<Vec<String>>,
@@ -5738,6 +5895,8 @@ struct CompileProfileToolCheck {
 struct CompileToolDiscoveryReport {
     ok: bool,
     search_dirs: Vec<String>,
+    steam_roots: Vec<String>,
+    steam_search_dirs: Vec<String>,
     tools: Vec<CompileToolDiscoveryCheck>,
     game: Option<String>,
     log_dir: Option<String>,
@@ -5749,9 +5908,19 @@ struct CompileToolDiscoveryReport {
 #[derive(Debug, Clone, Serialize)]
 struct CompileToolDiscoveryCheck {
     step: String,
+    required: bool,
     selected: Option<String>,
     candidates: Vec<String>,
+    candidate_details: Vec<CompileToolCandidateDetail>,
     command_shape: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompileToolCandidateDetail {
+    path: String,
+    source: String,
+    confidence: String,
+    caveats: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -7152,7 +7321,7 @@ fn print_compile_profile_help() {
         r#"Usage:
   sourceweaver compile-profile create [--output profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--validate] [--json]
   sourceweaver compile-profile validate --profile profile.toml [--json]
-  sourceweaver compile-profile discover [--search-dir dir] [--output profile.toml] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--json]
+  sourceweaver compile-profile discover [--search-dir dir] [--steam-root dir] [--no-steam-discovery] [--output profile.toml] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--json]
 
 Creates, validates, or discovers Source compile profiles for user-provided external tools.
 
@@ -7188,7 +7357,7 @@ paths exist, that the game directory exists when provided, and that timeout valu
 fn print_compile_profile_discover_help() {
     println!(
         r#"Usage:
-  sourceweaver compile-profile discover [--search-dir dir] [--output profile.toml] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--json]
+  sourceweaver compile-profile discover [--search-dir dir] [--steam-root dir] [--no-steam-discovery] [--output profile.toml] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--json]
 
 Searches explicit --search-dir paths plus PATH for vbsp/vvis/vrad executables.
 When --output is set, writes a profile using the first discovered candidate per step.

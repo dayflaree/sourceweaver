@@ -116,6 +116,6 @@ The desktop **Optional external compile** panel includes a **Compile profile wiz
 
 - **Create + validate profile** runs `sourceweaver compile-profile create --output <profile.toml> ... --validate --json` from explicit VBSP, VVIS, VRAD, game path, log directory, step list, and timeout fields.
 - **Validate profile** runs `sourceweaver compile-profile validate --profile <profile.toml> --json` and reports actionable missing-tool, non-executable-tool, invalid-step, and missing-game-path messages from the CLI validator.
-- **Discover from directory** runs `sourceweaver compile-profile discover --search-dir <dir> --output <profile.toml> ... --json`, matching the CLI discovery behavior where practical.
+- **Discover from directory or Steam library** runs `sourceweaver compile-profile discover --search-dir <dir> --steam-root <dir> --output <profile.toml> ... --json`, matching the CLI discovery behavior where practical. Reports include confidence/caveat details for discovered VBSP, VVIS, VRAD, BSPZIP, and StudioMDL candidates.
 
 The wizard saves profile TOML through the CLI and, after a successful action, copies the profile path into the compile profile selector. Validation checks paths/settings only. It does not run VBSP, VVIS, VRAD, Hammer, Hammer++, a game runtime, or any SDK tool.

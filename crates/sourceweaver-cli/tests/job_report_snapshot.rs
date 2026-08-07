@@ -1931,8 +1931,11 @@ fn compile_profile_create_validate_and_discover_reports_tools() {
     let discover_report: serde_json::Value =
         serde_json::from_slice(&discover_output.stdout).unwrap();
     assert_eq!(discover_report["ok"], true);
-    assert_eq!(discover_report["tools"].as_array().unwrap().len(), 3);
+    assert_eq!(discover_report["tools"].as_array().unwrap().len(), 5);
     for tool in discover_report["tools"].as_array().unwrap() {
+        if tool["required"] != true {
+            continue;
+        }
         assert!(
             tool["selected"]
                 .as_str()
@@ -3214,6 +3217,118 @@ fn model_preview_reports_metadata_and_fake_hlmv_launch_status() {
             .contains("Fake HLMV opened")
     );
     assert!(report_path.exists());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn compile_profile_discover_scans_fake_steam_source_tool_layout() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-steam-tool-discovery-test-{}-{nonce}",
+        std::process::id()
+    ));
+    let steam_root = temp_dir.join("Steam");
+    let hl2_bin = steam_root.join("steamapps/common/Half-Life 2/bin");
+    let gmod_win64 = steam_root.join("steamapps/common/GarrysMod/bin/win64");
+    std::fs::create_dir_all(&hl2_bin).unwrap();
+    std::fs::create_dir_all(&gmod_win64).unwrap();
+    for path in [
+        hl2_bin.join("vbsp.exe"),
+        hl2_bin.join("vvis.exe"),
+        hl2_bin.join("vrad.exe"),
+        hl2_bin.join("bspzip.exe"),
+        gmod_win64.join("studiomdlplusplus.exe"),
+    ] {
+        std::fs::write(&path, b"#!/usr/bin/env sh\nexit 0\n").unwrap();
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+    let profile_path = temp_dir.join("discovered.toml");
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "compile-profile",
+            "discover",
+            "--steam-root",
+            steam_root.to_str().unwrap(),
+            "--game",
+            steam_root
+                .join("steamapps/common/Half-Life 2/hl2")
+                .to_str()
+                .unwrap(),
+            "--output",
+            profile_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "game dir is intentionally missing so discovery should fail after reporting candidates"
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], false);
+    assert!(
+        report["steam_roots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == &steam_root.display().to_string())
+    );
+    assert!(
+        report["steam_search_dirs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == &hl2_bin.display().to_string())
+    );
+    for step in ["vbsp", "vvis", "vrad", "bspzip", "studiomdl"] {
+        let tool = report["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["step"] == step)
+            .unwrap_or_else(|| panic!("missing step {step}"));
+        assert!(
+            !tool["candidates"].as_array().unwrap().is_empty(),
+            "no candidates for {step}"
+        );
+        assert!(tool["candidate_details"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|detail| detail["source"] == "steam-library" && detail["confidence"] == "high"));
+        assert!(
+            tool["candidate_details"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|detail| detail["caveats"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|caveat| caveat.as_str().unwrap().contains("did not run or validate")))
+        );
+    }
+    assert!(
+        report["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning.as_str().unwrap().contains("users must confirm"))
+    );
+    assert!(
+        profile_path.exists(),
+        "profile is still written for user review"
+    );
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }

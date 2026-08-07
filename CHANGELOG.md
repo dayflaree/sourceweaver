@@ -49,6 +49,7 @@
 - Model source-output manifest workflow for classifying externally generated QC/QCI, SMD, DMX, VTA, and other decompile outputs without running proprietary tools.
 - Model package manifest/copy workflow for MDL, VVD/VTX/PHY companions, and resolved material dependencies from user-selected asset roots.
 - Metadata-only model preview reports and optional user-provided HLMV-compatible launch reporting with explicit external-tool boundaries.
+- Steam Source tool discovery for compile profiles, including VBSP/VVIS/VRAD/BSPZIP/StudioMDL candidate details, confidence, and runtime caveats.
 
 ### Changed
 
