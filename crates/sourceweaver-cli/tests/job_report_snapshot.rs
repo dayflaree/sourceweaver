@@ -773,6 +773,7 @@ fn bsp_import_supports_bspsource_cli_argument_shape() {
 
     let fake_bspsource = temp_dir.join("bspsrc.sh");
     let fixture_vmf = repo_path("tests/fixtures/base.vmf");
+    let quality_log = repo_path("tests/fixtures/bspsource_quality.log");
     let script = format!(
         r#"#!/usr/bin/env bash
 set -euo pipefail
@@ -785,10 +786,11 @@ if [[ "$#" -ne 3 || "$1" != "-o" ]]; then
   exit 64
 fi
 cp '{}' "$2"
-echo "2026-08-06T22:07:50Z main ERROR Console contains an invalid element or attribute \"IsDecompileTaskFilter\"" >&2
+cat '{}' >&2
 echo "'$3' - Decompiled successfully."
 "#,
-        fixture_vmf.display()
+        fixture_vmf.display(),
+        quality_log.display()
     );
     let mut file = std::fs::File::create(&fake_bspsource).unwrap();
     file.write_all(script.as_bytes()).unwrap();
@@ -834,7 +836,17 @@ echo "'$3' - Decompiled successfully."
     );
     assert_eq!(report["generated_vmf_exists"], true);
     assert_eq!(report["integrity"]["errors"], 0);
-    assert_eq!(report["log_summary"]["errors"], 1);
+    assert!(report["log_summary"]["errors"].as_u64().unwrap() >= 1);
+    assert_eq!(report["decompile_quality"]["ok"], true);
+    assert_eq!(report["decompile_quality"]["configuration_noise"], 2);
+    assert_eq!(report["decompile_quality"]["unsupported_lumps"], 1);
+    assert_eq!(report["decompile_quality"]["skipped_data"], 2);
+    assert_eq!(report["decompile_quality"]["quality_risks"], 2);
+    assert!(report["decompile_quality"]["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| issue["category"] == "tool-configuration-noise" && issue["fatal"] == false));
     assert!(output_vmf.is_file());
     assert!(report_path.exists());
 

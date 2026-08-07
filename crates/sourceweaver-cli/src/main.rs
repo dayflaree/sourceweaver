@@ -1,4 +1,6 @@
 mod bspsource;
+mod bspsource_quality;
+use bspsource_quality::{BspSourceQualitySnapshot, parse_bspsource_quality_log};
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignAdjacencyGraph, CampaignMapInput,
@@ -2047,6 +2049,7 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
     }
 
     let summary = parse_compile_log(&log_text);
+    let decompile_quality = parse_bspsource_quality_log(&log_text);
     let generated_vmf_exists = output_vmf.is_file();
     let mut integrity = None;
     let mut entity_count = None;
@@ -2090,6 +2093,7 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
                     entity_count,
                     classname_count,
                     log_summary: compile_log,
+                    decompile_quality: decompile_quality.clone(),
                 };
                 return finish_bsp_import_report(&config, report);
             }
@@ -2126,6 +2130,7 @@ fn bsp_import_command(args: &[String]) -> Result<(), String> {
         entity_count,
         classname_count,
         log_summary: log_snapshot,
+        decompile_quality,
     };
     finish_bsp_import_report(&config, report)
 }
@@ -3555,6 +3560,7 @@ struct BspImportReport {
     entity_count: Option<usize>,
     classname_count: Option<usize>,
     log_summary: CompileLogSnapshot,
+    decompile_quality: BspSourceQualitySnapshot,
 }
 
 #[derive(Debug, Clone, Default)]

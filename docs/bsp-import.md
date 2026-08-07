@@ -66,7 +66,7 @@ The desktop app provides **Decompile BSP...** and a **BSP decompile import** pan
 - BSPSource jar, using `java -jar <bspsrc.jar> -o <out.vmf> <input.bsp>`;
 - generic wrapper escape hatch for unusual tools or argument orders.
 
-The desktop runner delegates to the CLI `bsp-import` workflow in a background worker. Successful output is parsed, integrity-checked, imported into the selected VMF list, and tagged as BSP-derived. The UI shows the command, JSON report, stdout/stderr tails, and decompile-quality warnings. Set `SOURCEWEAVER_CLI=/path/to/sourceweaver` before launching the desktop app if the CLI executable is not next to the desktop executable.
+The desktop runner delegates to the CLI `bsp-import` workflow in a background worker. Successful output is parsed, integrity-checked, imported into the selected VMF list, and tagged as BSP-derived. The UI shows the command, JSON report, stdout/stderr tails, a decompile-quality category summary, and a collapsible BSPSource warning category list. Set `SOURCEWEAVER_CLI=/path/to/sourceweaver` before launching the desktop app if the CLI executable is not next to the desktop executable.
 
 The desktop app also keeps **Add BSP-derived VMF...** for VMFs decompiled outside Source Weaver. Source Weaver adds those VMFs as normal VMF inputs while marking them as BSP-derived in the map list.
 
@@ -116,7 +116,7 @@ BSPSource licensing was checked live on 2026-08-06. The upstream repo contains `
 
 ## Future work
 
-Future improvements can add managed BSPSource download with checksum/provenance review, richer decompile-warning parsers, known BSPSource argument presets, or legally committable tiny BSP-derived VMF fixtures. The VMF-first boundary should remain unchanged.
+Future improvements can add known BSPSource argument presets, additional fixture-backed warning categories, or legally committable tiny BSP-derived VMF fixtures. The VMF-first boundary should remain unchanged.
 
 ## Sources checked
 
@@ -137,3 +137,46 @@ Source Weaver keeps user-selected BSPSource launcher, jar, and wrapper paths as 
 - `download` to perform a user-accepted, checksum-verified cache download.
 
 Source Weaver does not bundle BSPSource or automatically adopt latest upstream releases. See `docs/bspsource-managed-download.md` for the research result and policy details.
+
+
+## BSPSource quality and warning categories
+
+`sourceweaver bsp-import` parses captured BSPSource stdout/stderr into a `decompile_quality` JSON object. The parser is backed by representative legal fixture lines in `tests/fixtures/bspsource_quality.log` and stays conservative: it helps triage warnings, skipped data, unsupported data, and tool noise, while generated VMFs remain approximate and review-required.
+
+| Category | Severity | Fatal by itself | Meaning |
+| --- | --- | --- | --- |
+| `tool-configuration-noise` | `info` | No | JVM, logger, Swing/AWT, or known BSPSource UI/logging noise such as `JAVA_TOOL_OPTIONS`, Log4j/SLF4J messages, or the `IsDecompileTaskFilter` console attribute line. |
+| `unsupported-lump` | `warning` | No | BSPSource reported unsupported or unknown lump/game-lump data. Generated VMFs can be incomplete. |
+| `skipped-data` | `warning` | No | BSPSource skipped, ignored, omitted, or discarded data while writing the VMF. |
+| `quality-risk` | `warning` | No | Lines mentioning decompile protection, missing textures/models, overlays, displacements, cubemaps, pakfile/embedded file data, invalid solids, or similar review risks. |
+| `decompile-warning` | `warning` | No | Generic warning lines not matched by a narrower category. |
+| `tool-error` | `error` | Yes | Fatal/error/exception-like lines that may indicate a failed or incomplete decompile. |
+
+Example JSON shape:
+
+```json
+{
+  "decompile_quality": {
+    "ok": true,
+    "issue_count": 8,
+    "errors": 0,
+    "warnings": 5,
+    "quality_risks": 2,
+    "skipped_data": 2,
+    "unsupported_lumps": 1,
+    "configuration_noise": 2,
+    "issues": [
+      {
+        "severity": "warning",
+        "category": "unsupported-lump",
+        "fatal": false,
+        "line": 4,
+        "message": "WARN Unsupported lump LUMP_OVERLAYS version 1; using fallback parser",
+        "rationale": "BSPSource reported data/lump support limitations that can reduce decompile completeness"
+      }
+    ]
+  }
+}
+```
+
+The import `ok` result still depends on the external tool exit status, generated VMF existence, and Source Weaver VMF integrity checks. Non-fatal configuration noise is reported separately and is not treated as a decompile failure by itself.

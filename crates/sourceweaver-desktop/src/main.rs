@@ -420,6 +420,8 @@ struct DesktopBspDecompileStatus {
     command: Vec<String>,
     output_vmf: Option<PathBuf>,
     report_json: Option<String>,
+    quality_summary: String,
+    quality_issues: Vec<String>,
     stdout_tail: Vec<String>,
     stderr_tail: Vec<String>,
 }
@@ -446,6 +448,8 @@ struct DesktopBspDecompileMessage {
     command: Vec<String>,
     output_vmf: Option<PathBuf>,
     report_json: Option<String>,
+    quality_summary: String,
+    quality_issues: Vec<String>,
     stdout_tail: Vec<String>,
     stderr_tail: Vec<String>,
 }
@@ -2432,6 +2436,8 @@ impl SourceWeaverApp {
             command: command_preview.clone(),
             output_vmf: None,
             report_json: None,
+            quality_summary: String::new(),
+            quality_issues: Vec::new(),
             stdout_tail: Vec::new(),
             stderr_tail: Vec::new(),
         };
@@ -2452,6 +2458,8 @@ impl SourceWeaverApp {
                 self.bsp_decompile_status.command = message.command;
                 self.bsp_decompile_status.output_vmf = message.output_vmf.clone();
                 self.bsp_decompile_status.report_json = message.report_json;
+                self.bsp_decompile_status.quality_summary = message.quality_summary;
+                self.bsp_decompile_status.quality_issues = message.quality_issues;
                 self.bsp_decompile_status.stdout_tail = message.stdout_tail;
                 self.bsp_decompile_status.stderr_tail = message.stderr_tail;
                 self.add_status(message.summary);
@@ -3366,6 +3374,19 @@ impl SourceWeaverApp {
             ui.add(egui::Spinner::new());
         }
         ui.label(&self.bsp_decompile_status.summary);
+        if !self.bsp_decompile_status.quality_summary.is_empty() {
+            ui.label(format!(
+                "Decompile quality: {}",
+                self.bsp_decompile_status.quality_summary
+            ));
+            if !self.bsp_decompile_status.quality_issues.is_empty() {
+                ui.collapsing("BSPSource warning categories", |ui| {
+                    for issue in &self.bsp_decompile_status.quality_issues {
+                        ui.colored_label(egui::Color32::YELLOW, issue);
+                    }
+                });
+            }
+        }
         if !self.bsp_decompile_status.command.is_empty() {
             ui.collapsing("BSP decompile command", |ui| {
                 ui.monospace(self.bsp_decompile_status.command.join(" "));
@@ -4634,11 +4655,21 @@ fn run_desktop_bsp_decompile_request(
             } else {
                 fs::read_to_string(&request.report_path).ok()
             };
-            let parsed_ok = report_json
+            let parsed_report = report_json
                 .as_ref()
-                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
+            let parsed_ok = parsed_report
+                .as_ref()
                 .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
                 .unwrap_or(false);
+            let quality_summary = parsed_report
+                .as_ref()
+                .map(desktop_bsp_quality_summary)
+                .unwrap_or_default();
+            let quality_issues = parsed_report
+                .as_ref()
+                .map(desktop_bsp_quality_issue_labels)
+                .unwrap_or_default();
             let ok = output.status.success() && parsed_ok && request.output_vmf.exists();
             let summary = if ok {
                 format!(
@@ -4658,6 +4689,8 @@ fn run_desktop_bsp_decompile_request(
                 command: command_preview,
                 output_vmf: ok.then_some(request.output_vmf),
                 report_json,
+                quality_summary,
+                quality_issues,
                 stdout_tail: tail_lines(&stdout, 40),
                 stderr_tail: tail_lines(&stderr, 40),
             }
@@ -4671,10 +4704,76 @@ fn run_desktop_bsp_decompile_request(
             command: command_preview,
             output_vmf: None,
             report_json: None,
+            quality_summary: String::new(),
+            quality_issues: Vec::new(),
             stdout_tail: Vec::new(),
             stderr_tail: Vec::new(),
         },
     }
+}
+
+fn desktop_bsp_quality_summary(report: &serde_json::Value) -> String {
+    let Some(quality) = report.get("decompile_quality") else {
+        return String::new();
+    };
+    format!(
+        "{} issue(s): {} unsupported lump(s), {} skipped-data item(s), {} quality risk(s), {} configuration-noise line(s)",
+        quality
+            .get("issue_count")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        quality
+            .get("unsupported_lumps")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        quality
+            .get("skipped_data")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        quality
+            .get("quality_risks")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        quality
+            .get("configuration_noise")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+    )
+}
+
+fn desktop_bsp_quality_issue_labels(report: &serde_json::Value) -> Vec<String> {
+    report
+        .get("decompile_quality")
+        .and_then(|quality| quality.get("issues"))
+        .and_then(serde_json::Value::as_array)
+        .map(|issues| {
+            issues
+                .iter()
+                .take(20)
+                .map(|issue| {
+                    format!(
+                        "{}:{} line {} — {}",
+                        issue
+                            .get("severity")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("unknown"),
+                        issue
+                            .get("category")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("uncategorized"),
+                        issue
+                            .get("line")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0),
+                        issue
+                            .get("message")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn default_compile_report_path(output_path: &str) -> PathBuf {

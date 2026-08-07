@@ -1,0 +1,9 @@
+BSPSource 1.4.8
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8
+2026-08-06T22:07:50Z main ERROR Console contains an invalid element or attribute "IsDecompileTaskFilter"
+WARN Unsupported lump LUMP_OVERLAYS version 1; using fallback parser
+Skipped static prop model metadata because game lump data is incomplete
+WARNING Could not restore displacement alpha values; generated approximations
+WARNING missing texture materials/example/missing_diffuse
+WARNING overlay face references invalid brush side; overlay omitted
+Decompiled successfully

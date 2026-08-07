@@ -205,7 +205,7 @@ cargo run -p sourceweaver-cli -- bsp-import map.bsp \
   --json
 ```
 
-For jar-only BSPSource distributions, use `--bspsource-jar /path/to/bspsrc.jar` and optionally `--java /path/to/java`. `--tool ./custom-wrapper.sh` remains available for unusual decompilers or argument orders. In the desktop app, use **Decompile BSP...** or the **BSP decompile import** panel to select a `.bsp`, a BSPSource launcher/jar, and an output VMF. Successful output is validated, imported, and marked with decompile-quality warnings. **Add BSP-derived VMF...** remains available for VMFs decompiled outside Source Weaver.
+For jar-only BSPSource distributions, use `--bspsource-jar /path/to/bspsrc.jar` and optionally `--java /path/to/java`. `--tool ./custom-wrapper.sh` remains available for unusual decompilers or argument orders. In the desktop app, use **Decompile BSP...** or the **BSP decompile import** panel to select a `.bsp`, a BSPSource launcher/jar, and an output VMF. Successful output is validated, imported, and marked with categorized decompile-quality warnings such as unsupported lumps, skipped data, quality risks, tool errors, and non-fatal tool configuration noise. **Add BSP-derived VMF...** remains available for VMFs decompiled outside Source Weaver.
 
 Pack custom assets into a compiled BSP with a user-provided `bspzip`-compatible tool:
 

@@ -34,6 +34,7 @@
 - FGD-backed entity property metadata parsing with labels, descriptions, defaults, choices/flags, CLI inspect JSON/text output, and desktop property tooltips.
 - Desktop material-aware preview colors reconstructed brush faces by VMF material names, scanned user-selected roots, missing-material fallbacks, and fixed tool-texture colors.
 - Managed BSPSource manifest, policy, cache-path, checksum-verify, and explicit download helper with pinned v1.4.8 SHA-256 assets.
+- BSPSource decompile-quality parser with categorized unsupported-lump, skipped-data, quality-risk, tool-error, warning, and non-fatal configuration-noise reporting in CLI JSON and desktop UI.
 
 ### Changed
 
