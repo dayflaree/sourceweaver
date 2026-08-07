@@ -37,6 +37,36 @@ bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>
 
 The command uses the first matching asset root for each included file. Missing files are reported before the packer is launched, and the command exits non-zero after writing the JSON report.
 
+## VMF dependency discovery
+
+Source Weaver can derive a reviewable pack list from common VMF asset references before running the packer:
+
+```bash
+sourceweaver pack map.bsp \
+  --tool /path/to/bspzip \
+  --output packed.bsp \
+  --asset-root /path/to/game \
+  --asset-root /path/to/mod \
+  --discover-from-vmf merged.vmf \
+  --report pack-report.json \
+  --json
+```
+
+`--discover-from-vmf` can be repeated and can be combined with explicit `--include` paths. The generated BSPZIP list contains the union of explicit includes and discovered assets, de-duplicated by BSP-internal path.
+
+The discovery pass currently recognizes these common VMF references:
+
+- brush side material names from `material` keys, resolved as `materials/<name>.vmt`;
+- material VMT texture parameters such as `$basetexture`, `$bumpmap`, `$detail`, `$envmapmask`, and related texture slots, resolved as `materials/<name>.vtf`;
+- model references from `model` keys and `.mdl` values, plus existing sibling `.vvd`, `.dx80.vtx`, `.dx90.vtx`, `.sw.vtx`, and `.phy` files found under asset roots;
+- explicit sound files from `message`, sound/noise keys, and `.wav`, `.mp3`, or `.ogg` values, resolved under `sound/` when needed;
+- script and scene-style paths such as `scripts/...`, `.nut`, `.vcd`, `.res`, and `.cfg` values;
+- explicit `particles/*.pcf` references.
+
+Named particle systems such as `info_particle_system` `effect_name` values are reported as warnings when no explicit PCF path is present, because VMF data alone does not identify which particle manifest or PCF owns the system name.
+
+The JSON report includes a `discovered_dependencies` object with source VMFs, asset roots, raw references, resolved assets, missing assets, ambiguous assets, and warnings. Ambiguous assets are files that exist under more than one asset root; Source Weaver uses the first configured root in the generated BSPZIP list and records a warning. Missing assets are reported before BSPZIP is launched, and the command exits non-zero after writing the report.
+
 ## Existing file lists
 
 If another tool already generated a BSPZIP-compatible file list, pass it directly:
@@ -80,6 +110,7 @@ The JSON report includes:
 - generated or supplied file-list path
 - asset roots
 - requested files with internal/external path resolution
+- discovered VMF dependency details when `--discover-from-vmf` is used
 - missing files
 - warnings
 - exit code

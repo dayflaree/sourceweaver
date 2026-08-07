@@ -23,7 +23,7 @@ Current capabilities:
 - Show VMF integrity status before preview/export, including missing common sections, duplicate IDs, and invalid world blocks.
 - Validate generated VMFs for Source-tool readiness and parse captured VBSP logs.
 - Run optional user-configured VBSP/VVIS/VRAD compile pipelines, create/validate compile profiles, and capture parsed JSON reports.
-- Run optional BSP content packing with user-provided `bspzip`-compatible tools and JSON reports.
+- Run optional BSP content packing with user-provided `bspzip`-compatible tools, explicit or VMF-discovered asset lists, and JSON reports.
 - Generate cubemap/buildcubemaps runtime workflow reports and cfg helpers without launching game runtimes.
 - Inspect basic MDL model headers and run user-provided StudioMDL-compatible model compile tools.
 - Run optional user-selected BSPSource decompile commands or generic wrappers and validate generated VMFs before import.
@@ -222,6 +222,20 @@ cargo run -p sourceweaver-cli -- pack map.bsp \
 ```
 
 See `docs/bsp-packing.md` for generated file lists, version/provenance report fields, and legal/asset ownership notes.
+
+Generate a pack list from common VMF material, model, sound, script, and particle references before packing:
+
+```bash
+cargo run -p sourceweaver-cli -- pack map.bsp \
+  --tool /path/to/bspzip \
+  --output packed.bsp \
+  --asset-root /path/to/game \
+  --discover-from-vmf merged.vmf \
+  --report pack-report.json \
+  --json
+```
+
+The `discovered_dependencies` report is reviewable before distribution and records missing or ambiguous assets. Source Weaver still does not bundle or validate BSPZIP itself unless the user-provided external packer is actually run.
 
 Prepare a cubemap/buildcubemaps runtime plan for a compiled BSP:
 

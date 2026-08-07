@@ -1,3 +1,4 @@
+mod asset_dependencies;
 mod bspsource;
 mod bspsource_presets;
 mod bspsource_quality;
@@ -2465,7 +2466,7 @@ fn pack_command(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let config = parse_pack_args(args)?;
-    let input = config.input.as_ref().ok_or("usage: sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
+    let input = config.input.as_ref().ok_or("usage: sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
     let tool = config.tool.as_ref().ok_or("pack needs --tool <bspzip>")?;
     let output_bsp = config
         .output
@@ -2495,6 +2496,7 @@ fn pack_command(args: &[String]) -> Result<(), String> {
             requested_files: list.assets,
             missing_files: list.missing_files,
             warnings: list.warnings,
+            discovered_dependencies: list.discovery,
             exit_code: None,
             log_path: config.log.as_ref().map(|path| path.display().to_string()),
             packed_file_count: None,
@@ -2565,6 +2567,7 @@ fn pack_command(args: &[String]) -> Result<(), String> {
         requested_files: list.assets,
         missing_files: list.missing_files,
         warnings: list.warnings,
+        discovered_dependencies: list.discovery,
         exit_code: tool_output.status.code(),
         log_path: config.log.as_ref().map(|path| path.display().to_string()),
         packed_file_count: count_bspzip_added_files(&log_text),
@@ -2604,6 +2607,12 @@ fn parse_pack_args(args: &[String]) -> Result<PackConfig, String> {
                         .clone(),
                 );
             }
+            "--discover-from-vmf" => {
+                cursor += 1;
+                config.discover_from_vmfs.push(PathBuf::from(
+                    args.get(cursor).ok_or("--discover-from-vmf needs a path")?,
+                ));
+            }
             "--filelist" => {
                 cursor += 1;
                 config.filelist = Some(PathBuf::from(
@@ -2641,10 +2650,13 @@ fn parse_pack_args(args: &[String]) -> Result<PackConfig, String> {
 }
 
 fn prepare_pack_filelist(config: &PackConfig) -> Result<PackFilelist, String> {
-    if config.filelist.is_some() && (!config.includes.is_empty() || !config.asset_roots.is_empty())
+    if config.filelist.is_some()
+        && (!config.includes.is_empty()
+            || !config.asset_roots.is_empty()
+            || !config.discover_from_vmfs.is_empty())
     {
         return Err(
-            "pack accepts either --filelist or --asset-root/--include generation, not both"
+            "pack accepts either --filelist or --asset-root/--include/--discover-from-vmf generation, not both"
                 .to_string(),
         );
     }
@@ -2657,41 +2669,74 @@ fn prepare_pack_filelist(config: &PackConfig) -> Result<PackFilelist, String> {
             assets: Vec::new(),
             missing_files: Vec::new(),
             warnings: Vec::new(),
+            discovery: None,
         });
     }
-    if config.includes.is_empty() {
-        return Err("pack needs --filelist or at least one --include".to_string());
+    if config.includes.is_empty() && config.discover_from_vmfs.is_empty() {
+        return Err(
+            "pack needs --filelist, at least one --include, or --discover-from-vmf".to_string(),
+        );
     }
     if config.asset_roots.is_empty() {
         return Err(
-            "pack needs --asset-root when generating a file list from --include".to_string(),
+            "pack needs --asset-root when generating a file list from --include or --discover-from-vmf"
+                .to_string(),
         );
+    }
+
+    let discovery = if config.discover_from_vmfs.is_empty() {
+        None
+    } else {
+        Some(asset_dependencies::discover_vmf_dependencies(
+            &config.discover_from_vmfs,
+            &config.asset_roots,
+        )?)
+    };
+    let mut include_values = config.includes.clone();
+    if let Some(discovery) = &discovery {
+        include_values.extend(asset_dependencies::discovered_include_paths(discovery));
     }
 
     let mut assets = Vec::new();
     let mut missing_files = Vec::new();
-    let mut warnings = Vec::new();
+    let mut warnings = discovery
+        .as_ref()
+        .map(|discovery| discovery.warnings.clone())
+        .unwrap_or_default();
     let mut filelist_text = String::new();
-    for include in &config.includes {
+    let mut seen_includes = BTreeSet::new();
+    for include in &include_values {
         let internal_path = normalize_source_asset_path(include)?;
+        if !seen_includes.insert(internal_path.clone()) {
+            continue;
+        }
         if !is_common_source_asset_path(&internal_path) {
             warnings.push(format!(
                 "asset `{internal_path}` is outside common Source asset roots"
             ));
         }
-        let external_path = config
+        let candidates = config
             .asset_roots
             .iter()
             .map(|root| root.join(Path::new(&internal_path)))
-            .find(|path| path.is_file());
+            .filter(|path| path.is_file())
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>();
+        if candidates.len() > 1 {
+            warnings.push(format!(
+                "asset `{internal_path}` exists under more than one asset root; the first root wins"
+            ));
+        }
+        let external_path = candidates.first().cloned();
         if let Some(external_path) = external_path {
             filelist_text.push_str(&internal_path);
             filelist_text.push('\n');
-            filelist_text.push_str(&external_path.display().to_string());
+            filelist_text.push_str(&external_path);
             filelist_text.push('\n');
             assets.push(PackAssetReport {
                 internal_path,
-                external_path: Some(external_path.display().to_string()),
+                external_path: Some(external_path),
+                candidates,
                 exists: true,
             });
         } else {
@@ -2699,6 +2744,7 @@ fn prepare_pack_filelist(config: &PackConfig) -> Result<PackFilelist, String> {
             assets.push(PackAssetReport {
                 internal_path,
                 external_path: None,
+                candidates,
                 exists: false,
             });
         }
@@ -2718,6 +2764,7 @@ fn prepare_pack_filelist(config: &PackConfig) -> Result<PackFilelist, String> {
         assets,
         missing_files,
         warnings,
+        discovery,
     })
 }
 
@@ -3669,6 +3716,7 @@ struct PackConfig {
     output: Option<PathBuf>,
     asset_roots: Vec<PathBuf>,
     includes: Vec<String>,
+    discover_from_vmfs: Vec<PathBuf>,
     filelist: Option<PathBuf>,
     log: Option<PathBuf>,
     report: Option<PathBuf>,
@@ -3682,6 +3730,7 @@ struct PackFilelist {
     assets: Vec<PackAssetReport>,
     missing_files: Vec<String>,
     warnings: Vec<String>,
+    discovery: Option<asset_dependencies::AssetDependencyDiscovery>,
 }
 
 #[derive(Debug, Clone)]
@@ -3707,6 +3756,7 @@ struct PackReport {
     requested_files: Vec<PackAssetReport>,
     missing_files: Vec<String>,
     warnings: Vec<String>,
+    discovered_dependencies: Option<asset_dependencies::AssetDependencyDiscovery>,
     exit_code: Option<i32>,
     log_path: Option<String>,
     packed_file_count: Option<usize>,
@@ -3717,6 +3767,7 @@ struct PackReport {
 struct PackAssetReport {
     internal_path: String,
     external_path: Option<String>,
+    candidates: Vec<String>,
     exists: bool,
 }
 
@@ -4467,7 +4518,7 @@ Usage:
   sourceweaver model-inspect <model.mdl> [--json]
   sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
-  sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
@@ -4654,7 +4705,7 @@ External tool runs default to a 900 second timeout. Override with --timeout-seco
 fn print_pack_help() {
     println!(
         r#"Usage:
-  sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir --include path) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
 
 Runs optional BSP content packing with a user-provided bspzip/BSPZIP++-compatible tool.
 
@@ -4662,7 +4713,7 @@ Source Weaver remains VMF-first:
   - BSP packers, compiled maps, and custom assets are not bundled.
   - Packing is optional and separate from VMF editing, merging, and compiling.
   - Generated file lists use BSPZIP's internal/external path-pair format.
-  - JSON reports include tool path, best-effort version probe, command arguments, input/output BSP, file list, requested assets, missing files, detected packed file count, log path, warnings/errors, and exit status.
+  - JSON reports include tool path, best-effort version probe, command arguments, input/output BSP, file list, requested assets, discovered VMF dependencies, missing files, detected packed file count, log path, warnings/errors, and exit status.
 
 Generated file-list command shape:
   bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>
@@ -4672,6 +4723,12 @@ Generate a file list from asset roots:
     --asset-root /path/to/game \
     --include materials/custom/wall01.vmt \
     --include materials/custom/wall01.vtf \
+    --json
+
+Discover a file list from a VMF and asset roots:
+  sourceweaver pack map.bsp --tool /path/to/bspzip --output packed.bsp \
+    --asset-root /path/to/game \
+    --discover-from-vmf merged.vmf \
     --json
 
 Or pass an existing BSPZIP file list:

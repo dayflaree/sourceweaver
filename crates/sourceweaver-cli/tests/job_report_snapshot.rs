@@ -1323,6 +1323,199 @@ echo "BSPZIP finished"
     let _ = std::fs::remove_dir_all(temp_dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn pack_discovers_vmf_asset_dependencies_and_related_files() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-pack-discovery-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let fake_bspzip = temp_dir.join("bspzip.sh");
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  echo "Fake BSPZIP discovery 1.0"
+  exit 0
+fi
+if [[ "$#" -ne 4 || "$1" != "-addlist" ]]; then
+  echo "unexpected args: $*" >&2
+  exit 64
+fi
+cp "$2" "$4"
+while IFS= read -r internal && IFS= read -r external; do
+  [[ -z "$internal" ]] && continue
+  echo "Adding file: $internal -> $external"
+done < "$3"
+"#;
+    let mut file = std::fs::File::create(&fake_bspzip).unwrap();
+    file.write_all(script.as_bytes()).unwrap();
+    drop(file);
+    let mut permissions = std::fs::metadata(&fake_bspzip).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake_bspzip, permissions).unwrap();
+
+    let input_bsp = temp_dir.join("map.bsp");
+    std::fs::write(&input_bsp, b"fake bsp").unwrap();
+    let vmf_path = temp_dir.join("map.vmf");
+    std::fs::write(
+        &vmf_path,
+        r#"
+versioninfo { "editorversion" "400" }
+world
+{
+    "id" "1"
+    solid
+    {
+        side { "material" "custom/wall01" }
+    }
+}
+entity
+{
+    "classname" "prop_static"
+    "model" "models/props/sourceweaver_crate.mdl"
+}
+entity
+{
+    "classname" "ambient_generic"
+    "message" "custom/hum.wav"
+}
+entity
+{
+    "classname" "logic_script"
+    "vscripts" "scripts/vscripts/sourceweaver_logic.nut"
+}
+entity
+{
+    "classname" "info_particle_system"
+    "effect_name" "sourceweaver_sparks"
+}
+"#,
+    )
+    .unwrap();
+
+    let asset_root = temp_dir.join("game");
+    for dir in [
+        "materials/custom",
+        "models/props",
+        "sound/custom",
+        "scripts/vscripts",
+    ] {
+        std::fs::create_dir_all(asset_root.join(dir)).unwrap();
+    }
+    std::fs::write(
+        asset_root.join("materials/custom/wall01.vmt"),
+        r#"LightmappedGeneric
+{
+    "$basetexture" "custom/wall01_color"
+    "$bumpmap" "custom/wall01_normal"
+}
+"#,
+    )
+    .unwrap();
+    for path in [
+        "materials/custom/wall01_color.vtf",
+        "materials/custom/wall01_normal.vtf",
+        "models/props/sourceweaver_crate.mdl",
+        "models/props/sourceweaver_crate.vvd",
+        "models/props/sourceweaver_crate.dx90.vtx",
+        "models/props/sourceweaver_crate.phy",
+        "sound/custom/hum.wav",
+        "scripts/vscripts/sourceweaver_logic.nut",
+    ] {
+        std::fs::write(asset_root.join(path), b"fixture").unwrap();
+    }
+
+    let output_bsp = temp_dir.join("packed.bsp");
+    let report_path = temp_dir.join("pack-report.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "pack",
+            input_bsp.to_str().unwrap(),
+            "--tool",
+            fake_bspzip.to_str().unwrap(),
+            "--output",
+            output_bsp.to_str().unwrap(),
+            "--asset-root",
+            asset_root.to_str().unwrap(),
+            "--discover-from-vmf",
+            vmf_path.to_str().unwrap(),
+            "--report",
+            report_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["missing_files"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        report["discovered_dependencies"]["missing_assets"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert!(
+        report["discovered_dependencies"]["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap()
+                .contains("cannot infer the owning PCF"))
+    );
+
+    let requested = report["requested_files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|asset| asset["internal_path"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    for expected in [
+        "materials/custom/wall01.vmt",
+        "materials/custom/wall01_color.vtf",
+        "materials/custom/wall01_normal.vtf",
+        "models/props/sourceweaver_crate.mdl",
+        "models/props/sourceweaver_crate.vvd",
+        "models/props/sourceweaver_crate.dx90.vtx",
+        "models/props/sourceweaver_crate.phy",
+        "sound/custom/hum.wav",
+        "scripts/vscripts/sourceweaver_logic.nut",
+    ] {
+        assert!(
+            requested.contains(expected),
+            "missing {expected}: {requested:?}"
+        );
+    }
+    assert_eq!(report["packed_file_count"], requested.len());
+    assert!(output_bsp.exists());
+    assert!(report_path.exists());
+
+    let filelist = std::fs::read_to_string(report["filelist_path"].as_str().unwrap()).unwrap();
+    assert!(filelist.contains("materials/custom/wall01.vmt"));
+    assert!(filelist.contains("models/props/sourceweaver_crate.dx90.vtx"));
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
 #[test]
 fn cubemap_workflow_writes_cfg_and_reports_runtime_boundary() {
     use std::time::{SystemTime, UNIX_EPOCH};
