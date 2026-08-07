@@ -32,6 +32,7 @@
 - Desktop compile profile wizard for creating, validating, and discovering user-provided VBSP/VVIS/VRAD profiles.
 - Custom deletion preset TOML format with CLI job application and desktop save/export/load/import controls.
 - FGD-backed entity property metadata parsing with labels, descriptions, defaults, choices/flags, CLI inspect JSON/text output, and desktop property tooltips.
+- Desktop material-aware preview colors reconstructed brush faces by VMF material names, scanned user-selected roots, missing-material fallbacks, and fixed tool-texture colors.
 
 ### Changed
 

@@ -19,8 +19,10 @@ pub struct PreviewSolid {
     pub source_index: Option<usize>,
     pub source_label: Option<String>,
     pub roles: Vec<BrushRole>,
+    pub materials: Vec<String>,
     pub points: Vec<Vec3>,
     pub face_polygons: Vec<Vec<Vec3>>,
+    pub face_materials: Vec<Option<String>>,
     pub bounds: PreviewBounds,
 }
 
@@ -273,7 +275,8 @@ fn collect_solids(
 
         if name == "solid" {
             let points = collect_plane_points(node);
-            let face_polygons = reconstruct_face_polygons(node);
+            let materials = collect_solid_materials(node);
+            let (face_polygons, face_materials) = reconstruct_face_polygons(node);
             let mut solid_bounds = BoundsBuilder::default();
             for point in &points {
                 solid_bounds.include(*point);
@@ -297,14 +300,42 @@ fn collect_solids(
                     source_index: owner.source_index,
                     source_label: owner.source_label.map(ToOwned::to_owned),
                     roles,
+                    materials,
                     points,
                     face_polygons,
+                    face_materials,
                     bounds,
                 });
             }
         } else {
             collect_solids(child_body, owner, solids, document_bounds);
         }
+    }
+}
+
+fn collect_solid_materials(node: &Node) -> Vec<String> {
+    let mut materials = Vec::new();
+    collect_solid_materials_from_node(node, &mut materials);
+    materials.sort();
+    materials.dedup();
+    materials
+}
+
+fn collect_solid_materials_from_node(node: &Node, materials: &mut Vec<String>) {
+    let Node::Block { name, body } = node else {
+        return;
+    };
+    if name == "side" {
+        if let Some(material) = Node::get_property(body, "material") {
+            let material = normalize_preview_material(material);
+            if !material.is_empty() {
+                materials.push(material);
+            }
+        }
+        return;
+    }
+    for child in body {
+        collect_solid_materials_from_node(child, materials);
     }
 }
 
@@ -344,41 +375,44 @@ fn parse_parenthesized_points(value: &str) -> Vec<Vec3> {
     points
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 struct RawPlane {
     points: [Vec3; 3],
+    material: Option<String>,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 struct OrientedPlane {
     point: Vec3,
     normal: Vec3,
+    material: Option<String>,
 }
 
-fn reconstruct_face_polygons(solid: &Node) -> Vec<Vec<Vec3>> {
+fn reconstruct_face_polygons(solid: &Node) -> (Vec<Vec<Vec3>>, Vec<Option<String>>) {
     let raw_planes = collect_side_planes(solid);
     if raw_planes.len() < 4 {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
 
     let center = average_plane_points(&raw_planes);
     let planes = raw_planes
         .iter()
-        .filter_map(|plane| orient_plane(*plane, center))
+        .filter_map(|plane| orient_plane(plane.clone(), center))
         .collect::<Vec<_>>();
     if planes.len() < 4 {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
 
     let size = plane_generation_size(&raw_planes);
     let mut polygons = Vec::new();
+    let mut materials = Vec::new();
     for (face_index, plane) in planes.iter().enumerate() {
-        let mut polygon = initial_plane_polygon(*plane, size);
+        let mut polygon = initial_plane_polygon(plane, size);
         for (clip_index, clip_plane) in planes.iter().enumerate() {
             if face_index == clip_index {
                 continue;
             }
-            polygon = clip_polygon_to_plane(&polygon, *clip_plane);
+            polygon = clip_polygon_to_plane(&polygon, clip_plane);
             if polygon.len() < 3 {
                 break;
             }
@@ -386,10 +420,11 @@ fn reconstruct_face_polygons(solid: &Node) -> Vec<Vec<Vec3>> {
         dedup_polygon_points(&mut polygon);
         if polygon.len() >= 3 && polygon_area(&polygon) > 0.01 {
             polygons.push(polygon);
+            materials.push(plane.material.clone());
         }
     }
 
-    polygons
+    (polygons, materials)
 }
 
 fn collect_side_planes(node: &Node) -> Vec<RawPlane> {
@@ -405,7 +440,10 @@ fn collect_side_planes_from_node(node: &Node, planes: &mut Vec<RawPlane>) {
 
     if name == "side" {
         if let Some(points) = Node::get_property(body, "plane").and_then(parse_plane_triplet) {
-            planes.push(RawPlane { points });
+            let material = Node::get_property(body, "material")
+                .map(normalize_preview_material)
+                .filter(|material| !material.is_empty());
+            planes.push(RawPlane { points, material });
         }
         return;
     }
@@ -444,7 +482,15 @@ fn orient_plane(plane: RawPlane, solid_center: Vec3) -> Option<OrientedPlane> {
     if dot(normal, solid_center - a) > 0.0 {
         normal = scale(normal, -1.0);
     }
-    Some(OrientedPlane { point: a, normal })
+    Some(OrientedPlane {
+        point: a,
+        normal,
+        material: plane.material,
+    })
+}
+
+fn normalize_preview_material(value: &str) -> String {
+    value.trim().replace("\\", "/").to_ascii_lowercase()
 }
 
 fn plane_generation_size(planes: &[RawPlane]) -> f64 {
@@ -467,7 +513,7 @@ fn plane_generation_size(planes: &[RawPlane]) -> f64 {
         .unwrap_or(256.0)
 }
 
-fn initial_plane_polygon(plane: OrientedPlane, size: f64) -> Vec<Vec3> {
+fn initial_plane_polygon(plane: &OrientedPlane, size: f64) -> Vec<Vec3> {
     let seed = if plane.normal.z.abs() < 0.9 {
         Vec3::new(0.0, 0.0, 1.0)
     } else {
@@ -483,7 +529,7 @@ fn initial_plane_polygon(plane: OrientedPlane, size: f64) -> Vec<Vec3> {
     ]
 }
 
-fn clip_polygon_to_plane(polygon: &[Vec3], plane: OrientedPlane) -> Vec<Vec3> {
+fn clip_polygon_to_plane(polygon: &[Vec3], plane: &OrientedPlane) -> Vec<Vec3> {
     if polygon.is_empty() {
         return Vec::new();
     }
@@ -545,7 +591,7 @@ fn polygon_area(polygon: &[Vec3]) -> f64 {
     area
 }
 
-fn signed_distance(point: Vec3, plane: OrientedPlane) -> f64 {
+fn signed_distance(point: Vec3, plane: &OrientedPlane) -> f64 {
     dot(plane.normal, point - plane.point)
 }
 
@@ -619,9 +665,53 @@ entity { "id" "2" "classname" "trigger_once" "targetname" "tr" "origin" "128 0 0
         assert_eq!(preview.entities.len(), 1);
         assert!(preview.solids[0].roles.contains(&BrushRole::Skybox));
         assert!(preview.solids[1].roles.contains(&BrushRole::Trigger));
+        assert!(
+            preview.solids[0]
+                .materials
+                .iter()
+                .any(|material| material == "tools/toolsskybox")
+        );
+        assert!(
+            preview.solids[1]
+                .materials
+                .iter()
+                .any(|material| material == "tools/toolstrigger")
+        );
         let bounds = preview.bounds.unwrap();
         assert_eq!(bounds.min.x, 0.0);
         assert_eq!(bounds.max.x, 140.0);
+    }
+
+    #[test]
+    fn reconstructs_face_materials_aligned_with_faces() {
+        let document = parse_document(
+            r#"
+world { "id" "1" solid {
+  side { "plane" "(0 0 0) (64 0 0) (64 64 0)" "material" "BRICK/WALL001" }
+  side { "plane" "(0 0 64) (64 64 64) (64 0 64)" "material" "CONCRETE/FLOOR001" }
+  side { "plane" "(0 0 0) (0 64 0) (0 64 64)" "material" "TOOLS/TOOLSNODRAW" }
+  side { "plane" "(64 0 0) (64 0 64) (64 64 64)" "material" "BRICK/WALL002" }
+  side { "plane" "(0 0 0) (0 0 64) (64 0 64)" "material" "BRICK/WALL003" }
+  side { "plane" "(0 64 0) (64 64 64) (0 64 64)" "material" "BRICK/WALL004" }
+} }
+"#,
+        )
+        .unwrap();
+        let preview = preview_document(&document);
+        let solid = &preview.solids[0];
+        assert_eq!(solid.face_polygons.len(), solid.face_materials.len());
+        assert!(
+            solid
+                .face_materials
+                .iter()
+                .any(|material| material.as_deref() == Some("tools/toolsnodraw"))
+        );
+        assert!(
+            solid
+                .face_materials
+                .iter()
+                .any(|material| material.as_deref() == Some("brick/wall001"))
+        );
     }
 
     #[test]

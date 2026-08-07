@@ -72,6 +72,9 @@ struct SourceWeaverApp {
     preview_show_entities: bool,
     preview_show_grid: bool,
     preview_detail_mode: PreviewDetailMode,
+    material_preview_enabled: bool,
+    material_roots: String,
+    material_index: MaterialPreviewIndex,
     preview_deletion_mode: DeletionPreviewMode,
     selected_entity_rows: BTreeSet<EntitySelectionKey>,
     entity_search: String,
@@ -182,6 +185,35 @@ struct MergedPreviewSummary {
     source_labels: Vec<String>,
     source_offsets: Vec<(String, sourceweaver_core::Vec3)>,
     offsets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct MaterialPreviewIndex {
+    roots: Vec<PathBuf>,
+    materials: BTreeSet<String>,
+    texture_files: BTreeSet<String>,
+    vmt_files: BTreeSet<String>,
+    errors: Vec<String>,
+}
+
+impl MaterialPreviewIndex {
+    fn contains_material(&self, material: &str) -> bool {
+        let material = normalize_material_name(material);
+        self.materials.contains(&material)
+            || self.texture_files.contains(&material)
+            || self.vmt_files.contains(&material)
+    }
+
+    fn summary(&self) -> String {
+        format!(
+            "{} root(s), {} material name(s), {} texture file(s), {} VMT file(s), {} scan warning(s)",
+            self.roots.len(),
+            self.materials.len(),
+            self.texture_files.len(),
+            self.vmt_files.len(),
+            self.errors.len()
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -685,6 +717,9 @@ impl SourceWeaverApp {
             preview_show_entities: true,
             preview_show_grid: true,
             preview_detail_mode: PreviewDetailMode::Auto,
+            material_preview_enabled: false,
+            material_roots: String::new(),
+            material_index: MaterialPreviewIndex::default(),
             preview_deletion_mode: DeletionPreviewMode::HighlightRemoved,
             selected_entity_rows: BTreeSet::new(),
             entity_search: String::new(),
@@ -4076,6 +4111,27 @@ impl SourceWeaverApp {
         });
     }
 
+    fn scan_material_roots(&mut self) {
+        let roots = split_csv(&self.material_roots)
+            .map(PathBuf::from)
+            .collect::<Vec<_>>();
+        self.material_index = scan_material_preview_roots(&roots);
+        self.add_status(format!(
+            "Scanned material preview roots: {}.",
+            self.material_index.summary()
+        ));
+        for warning in self
+            .material_index
+            .errors
+            .iter()
+            .take(6)
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            self.add_status(format!("Material preview warning: {warning}"));
+        }
+    }
+
     fn draw_preview_panel(
         &mut self,
         ui: &mut egui::Ui,
@@ -4130,6 +4186,30 @@ impl SourceWeaverApp {
                     self.preview_3d_pitch = 35.264;
                 }
                 ui.weak("Pan, zoom, and click selection work in 3D too.");
+            });
+        }
+
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut self.material_preview_enabled, "Material-aware faces");
+            ui.label("Material roots:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.material_roots)
+                    .desired_width(360.0)
+                    .hint_text("comma-separated materials roots or game folders"),
+            );
+            if ui.button("Scan material roots").clicked() {
+                self.scan_material_roots();
+            }
+            ui.weak(format!(
+                "{}; user-selected roots only, no bundled game content.",
+                self.material_index.summary()
+            ));
+        });
+        if !self.material_index.errors.is_empty() {
+            ui.collapsing("Material scan warnings", |ui| {
+                for warning in &self.material_index.errors {
+                    ui.colored_label(egui::Color32::YELLOW, warning);
+                }
             });
         }
 
@@ -4330,11 +4410,13 @@ impl SourceWeaverApp {
                     &painter,
                     &transform,
                     solid,
+                    &self.material_index,
                     PreviewSolidDrawOptions {
                         deletion_mode: deletion_overlay_mode,
                         removed,
                         selected,
                         detail_mode: self.preview_detail_mode,
+                        material_preview_enabled: self.material_preview_enabled,
                         solid_count: preview.solids.len(),
                     },
                 );
@@ -6074,6 +6156,7 @@ fn draw_preview_solid(
     painter: &egui::Painter,
     transform: &PreviewTransform,
     solid: &PreviewSolid,
+    material_index: &MaterialPreviewIndex,
     options: PreviewSolidDrawOptions,
 ) {
     let rect = preview_solid_screen_rect(solid, transform);
@@ -6118,7 +6201,15 @@ fn draw_preview_solid(
         should_draw_plane_edges(options.detail_mode, options.solid_count, options.selected);
 
     let drew_reconstructed_faces = if draw_faces {
-        draw_reconstructed_faces(painter, transform, solid, fill, stroke)
+        draw_reconstructed_faces(
+            painter,
+            transform,
+            solid,
+            material_index,
+            options,
+            fill,
+            stroke,
+        )
     } else {
         false
     };
@@ -6159,6 +6250,7 @@ struct PreviewSolidDrawOptions {
     removed: bool,
     selected: bool,
     detail_mode: PreviewDetailMode,
+    material_preview_enabled: bool,
     solid_count: usize,
 }
 
@@ -6192,11 +6284,13 @@ fn draw_reconstructed_faces(
     painter: &egui::Painter,
     transform: &PreviewTransform,
     solid: &PreviewSolid,
+    material_index: &MaterialPreviewIndex,
+    options: PreviewSolidDrawOptions,
     fill: egui::Color32,
     stroke: egui::Stroke,
 ) -> bool {
     let mut drew_any = false;
-    for polygon in &solid.face_polygons {
+    for (face_index, polygon) in solid.face_polygons.iter().enumerate() {
         if polygon.len() < 3 {
             continue;
         }
@@ -6214,7 +6308,22 @@ fn draw_reconstructed_faces(
         if !rect.intersects(transform.rect) {
             continue;
         }
-        painter.add(egui::Shape::convex_polygon(screen_points, fill, stroke));
+        let face_fill = if options.material_preview_enabled && !options.removed {
+            solid
+                .face_materials
+                .get(face_index)
+                .and_then(|material| material.as_deref())
+                .map(|material| material_preview_color(material, material_index))
+                .unwrap_or(fill)
+                .gamma_multiply(0.62)
+        } else {
+            fill
+        };
+        painter.add(egui::Shape::convex_polygon(
+            screen_points,
+            face_fill,
+            stroke,
+        ));
         drew_any = true;
     }
     drew_any
@@ -6600,6 +6709,171 @@ fn nice_grid_step(scale: f32) -> f64 {
     base * 32.0
 }
 
+fn scan_material_preview_roots(roots: &[PathBuf]) -> MaterialPreviewIndex {
+    let mut index = MaterialPreviewIndex {
+        roots: roots.to_vec(),
+        ..Default::default()
+    };
+    for root in roots {
+        scan_material_preview_root(root, root, &mut index, 0);
+    }
+    index
+}
+
+fn scan_material_preview_root(
+    root: &Path,
+    current: &Path,
+    index: &mut MaterialPreviewIndex,
+    depth: usize,
+) {
+    if depth > 12 {
+        index
+            .errors
+            .push(format!("scan depth limit reached at {}", current.display()));
+        return;
+    }
+    let entries = match fs::read_dir(current) {
+        Ok(entries) => entries,
+        Err(error) => {
+            index
+                .errors
+                .push(format!("could not read {}: {error}", current.display()));
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            scan_material_preview_root(root, &path, index, depth + 1);
+            continue;
+        }
+        let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+            continue;
+        };
+        let extension = extension.to_ascii_lowercase();
+        if !matches!(
+            extension.as_str(),
+            "vmt" | "vtf" | "png" | "jpg" | "jpeg" | "tga"
+        ) {
+            continue;
+        }
+        if let Some(material) = material_name_from_path(root, &path) {
+            index.materials.insert(material.clone());
+            if extension == "vmt" {
+                index.vmt_files.insert(material.clone());
+                collect_vmt_basetextures(&path, index);
+            } else {
+                index.texture_files.insert(material);
+            }
+        }
+    }
+}
+
+fn collect_vmt_basetextures(path: &Path, index: &mut MaterialPreviewIndex) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        if !line.to_ascii_lowercase().contains("$basetexture") {
+            continue;
+        }
+        let tokens = quoted_tokens(line);
+        if let Some(value) = tokens
+            .iter()
+            .rev()
+            .find(|token| !token.to_ascii_lowercase().contains("$basetexture"))
+        {
+            index.materials.insert(normalize_material_name(value));
+        }
+    }
+}
+
+fn quoted_tokens(line: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quote = false;
+    for ch in line.chars() {
+        match ch {
+            '"' => {
+                if in_quote {
+                    tokens.push(current.clone());
+                    current.clear();
+                }
+                in_quote = !in_quote;
+            }
+            _ if in_quote => current.push(ch),
+            _ => {}
+        }
+    }
+    tokens
+}
+
+fn material_name_from_path(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    let without_extension = relative.with_extension("");
+    let mut parts = without_extension
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    if parts
+        .first()
+        .is_some_and(|part| part.eq_ignore_ascii_case("materials"))
+    {
+        parts.remove(0);
+    }
+    (!parts.is_empty()).then(|| normalize_material_name(&parts.join("/")))
+}
+
+fn normalize_material_name(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+        .trim_start_matches("materials/")
+        .trim_start_matches('/')
+        .to_string()
+}
+
+fn material_preview_color(material: &str, index: &MaterialPreviewIndex) -> egui::Color32 {
+    let material = normalize_material_name(material);
+    if material.starts_with("tools/") {
+        return tool_material_color(&material);
+    }
+    if index.contains_material(&material) {
+        return hashed_material_color(&material, 175, 230);
+    }
+    hashed_material_color(&material, 80, 130).gamma_multiply(0.85)
+}
+
+fn tool_material_color(material: &str) -> egui::Color32 {
+    if material.contains("trigger") {
+        egui::Color32::from_rgb(255, 170, 90)
+    } else if material.contains("clip") {
+        egui::Color32::from_rgb(230, 95, 95)
+    } else if material.contains("skybox") || material.contains("sky") {
+        egui::Color32::from_rgb(100, 170, 255)
+    } else if material.contains("nodraw") {
+        egui::Color32::from_rgb(100, 100, 115)
+    } else if material.contains("hint") || material.contains("skip") {
+        egui::Color32::from_rgb(185, 115, 255)
+    } else {
+        egui::Color32::from_rgb(150, 150, 150)
+    }
+}
+
+fn hashed_material_color(material: &str, min: u8, max: u8) -> egui::Color32 {
+    let mut hash = 1469598103934665603_u64;
+    for byte in material.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    let span = u64::from(max.saturating_sub(min)).max(1);
+    let channel = |shift: u32| -> u8 { min + (((hash >> shift) % span) as u8) };
+    egui::Color32::from_rgb(channel(0), channel(16), channel(32))
+}
+
 fn solid_color(solid: &PreviewSolid) -> egui::Color32 {
     if solid.roles.contains(&BrushRole::Trigger) {
         egui::Color32::from_rgb(255, 170, 90)
@@ -6890,4 +7164,62 @@ fn file_name_or_path(path: &Path) -> String {
         .and_then(|name| name.to_str())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| display_path(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn material_preview_scan_finds_vmt_and_texture_files() {
+        let root = std::env::temp_dir().join(format!(
+            "sourceweaver-material-preview-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let material_dir = root.join("materials/brick");
+        fs::create_dir_all(&material_dir).unwrap();
+        fs::write(
+            material_dir.join("wall001.vmt"),
+            "LightmappedGeneric\n{\n    \"$basetexture\" \"brick/wall001\"\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            material_dir.join("wall001.vtf"),
+            b"fake-vtf-header-for-scan-only",
+        )
+        .unwrap();
+        fs::write(
+            material_dir.join("wall_preview.png"),
+            b"not decoded; scan only",
+        )
+        .unwrap();
+
+        let index = scan_material_preview_roots(std::slice::from_ref(&root));
+        assert!(index.contains_material("brick/wall001"));
+        assert!(index.texture_files.contains("brick/wall001"));
+        assert!(index.vmt_files.contains("brick/wall001"));
+        assert!(index.contains_material("materials/brick/wall_preview"));
+        assert_eq!(
+            normalize_material_name("Materials\\Brick\\Wall001"),
+            "brick/wall001"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn material_preview_color_distinguishes_tools_available_and_missing() {
+        let mut index = MaterialPreviewIndex::default();
+        index.materials.insert("brick/wall001".to_string());
+        let tool = material_preview_color("tools/toolstrigger", &index);
+        let available = material_preview_color("brick/wall001", &index);
+        let missing = material_preview_color("brick/missing", &index);
+        assert_ne!(tool, available);
+        assert_ne!(available, missing);
+    }
 }

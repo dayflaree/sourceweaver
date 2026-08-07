@@ -94,7 +94,7 @@ This preserves unknown Hammer and game-specific data because the parser does not
 
 ## Preview model
 
-`sourceweaver-core` extracts preview data from the same parsed VMF tree used by merge and deletion. The first preview slice collects brush side `plane` points, computes solid bounds, classifies each solid with the existing brush-role logic, and records entity `origin` markers.
+`sourceweaver-core` extracts preview data from the same parsed VMF tree used by merge and deletion. The first preview slice collects brush side `plane` points and `material` names, computes solid bounds, classifies each solid with the existing brush-role logic, and records entity `origin` markers.
 
 The desktop app renders this data in three orthographic projections:
 
