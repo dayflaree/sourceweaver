@@ -24,9 +24,9 @@ if ($InstallDir -match '"') {
 Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
 
 Write-Output "Installing $InstallerPath into $InstallDir"
-& $InstallerPath /S "/D=$InstallDir"
-if ($LASTEXITCODE -ne 0) {
-    throw "Installer exited with code $LASTEXITCODE"
+$installProcess = Start-Process -FilePath $InstallerPath -ArgumentList @("/S", "/D=$InstallDir") -Wait -PassThru
+if ($null -ne $installProcess.ExitCode -and $installProcess.ExitCode -ne 0) {
+    throw "Installer exited with code $($installProcess.ExitCode)"
 }
 
 $requiredFiles = @(
@@ -60,9 +60,9 @@ if ($LASTEXITCODE -ne 0) {
 
 $uninstaller = Join-Path $InstallDir "Uninstall Source Weaver.exe"
 Write-Output "Uninstalling $InstallDir"
-& $uninstaller /S "_?=$InstallDir"
-if ($LASTEXITCODE -ne 0) {
-    throw "Uninstaller exited with code $LASTEXITCODE"
+$uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @("/S", "_?=$InstallDir") -Wait -PassThru
+if ($null -ne $uninstallProcess.ExitCode -and $uninstallProcess.ExitCode -ne 0) {
+    throw "Uninstaller exited with code $($uninstallProcess.ExitCode)"
 }
 
 if (Test-Path $InstallDir) {
