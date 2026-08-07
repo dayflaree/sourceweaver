@@ -3446,3 +3446,115 @@ fn compile_pipeline_accepts_zero_exit_quiet_wrapper_logs() {
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn runtime_map_load_workflow_reports_launch_plan_and_boundaries() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-runtime-map-load-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let bsp_path = temp_dir.join("sw_runtime_smoke.bsp");
+    std::fs::write(&bsp_path, b"synthetic bsp placeholder for planning only").unwrap();
+    let game_dir = temp_dir.join("garrysmod");
+    std::fs::create_dir_all(&game_dir).unwrap();
+    let game_exe = temp_dir.join("gmod");
+    std::fs::write(&game_exe, b"#!/usr/bin/env sh\nexit 0\n").unwrap();
+    let compile_report = temp_dir.join("compile-report.json");
+    let pack_report = temp_dir.join("pack-report.json");
+    let merge_report = temp_dir.join("merge-report.json");
+    for path in [&compile_report, &pack_report, &merge_report] {
+        std::fs::write(path, b"{}\n").unwrap();
+    }
+    let report_path = temp_dir.join("runtime-report.json");
+    let console_log = temp_dir.join("console.log");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "runtime-map-load-workflow",
+            bsp_path.to_str().unwrap(),
+            "--game-dir",
+            game_dir.to_str().unwrap(),
+            "--game-exe",
+            game_exe.to_str().unwrap(),
+            "--profile",
+            "gmod",
+            "--map",
+            "sw_runtime_smoke",
+            "--console-log",
+            console_log.to_str().unwrap(),
+            "--compile-report",
+            compile_report.to_str().unwrap(),
+            "--pack-report",
+            pack_report.to_str().unwrap(),
+            "--merge-report",
+            merge_report.to_str().unwrap(),
+            "--report",
+            report_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["map_name"], "sw_runtime_smoke");
+    assert_eq!(report["profile"], "gmod");
+    assert_eq!(report["real_game_runtime_validation"], false);
+    assert!(
+        report["command_preview"]
+            .as_str()
+            .unwrap()
+            .contains("+map sw_runtime_smoke")
+    );
+    assert!(
+        report["launch_args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "+map")
+    );
+    assert_eq!(
+        report["linked_reports"]["compile_report"],
+        compile_report.display().to_string()
+    );
+    assert_eq!(
+        report["linked_reports"]["pack_report"],
+        pack_report.display().to_string()
+    );
+    assert_eq!(
+        report["linked_reports"]["merge_report"],
+        merge_report.display().to_string()
+    );
+    assert!(
+        report["evidence_requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str().unwrap().contains("console output"))
+    );
+    assert!(
+        report["external_tool_boundary"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value
+                .as_str()
+                .unwrap()
+                .contains("does not launch Steam or a game runtime"))
+    );
+    assert!(report_path.exists());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

@@ -11,6 +11,7 @@ Every release note that mentions compiler support must use this split:
 - **Structural VMF validation:** portable Source Weaver checks and captured-log parsing run in CI/local validation.
 - **Real compiler validation:** only the matrix rows marked `completed` were run with real external VBSP/VVIS/VRAD tools.
 - **Hammer/Hammer++ open/save validation:** record separately using `docs/hammer-validation-workflow.md`.
+- **Runtime map-load validation:** record separately using `docs/runtime-map-load-validation.md`.
 
 When no row is completed for a release, write: `No real VBSP/VVIS/VRAD/Hammer/game runtime validation was run for this release.`
 

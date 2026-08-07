@@ -54,6 +54,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "validate" => validate_command(&args[1..]),
         "compile" => compile_command(&args[1..]),
         "cubemap-workflow" | "cubemap-plan" | "buildcubemaps" => cubemaps::command(&args[1..]),
+        "runtime-map-load-workflow" | "runtime-map-load-plan" | "map-load-workflow" => {
+            runtime_map_load_workflow_command(&args[1..])
+        }
         "compile-profile" | "profile" => compile_profile_command(&args[1..]),
         "model-inspect" => model_inspect_command(&args[1..]),
         "model-compile" => model_compile_command(&args[1..]),
@@ -1069,6 +1072,235 @@ fn print_compile_pipeline_report(report: &CompilePipelineReport) {
             println!("compile-warning\t{}\t{}", step.step, line);
         }
     }
+}
+
+fn runtime_map_load_workflow_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_runtime_map_load_workflow_help();
+        return Ok(());
+    }
+    let config = parse_runtime_map_load_workflow_args(args)?;
+    let bsp = config.input_bsp.as_ref().ok_or("usage: sourceweaver runtime-map-load-workflow <map.bsp> --game-dir <dir> [--game-exe path] [--profile gmod|generic-source] [--map name] [--console-log path] [--compile-report path] [--pack-report path] [--merge-report path] [--report report.json] [--json]")?;
+    if !bsp.is_file() {
+        return Err(format!(
+            "runtime-map-load-workflow input BSP does not exist: {}",
+            bsp.display()
+        ));
+    }
+    let game_dir = config
+        .game_dir
+        .as_ref()
+        .ok_or("runtime-map-load-workflow needs --game-dir <dir>")?;
+    let map_name = config.map_name.clone().unwrap_or_else(|| {
+        bsp.file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown_map".to_string())
+    });
+    let console_log = config
+        .console_log
+        .clone()
+        .unwrap_or_else(|| game_dir.join(format!("sourceweaver-runtime-{}-console.log", map_name)));
+    let mut warnings = Vec::new();
+    if !game_dir.is_dir() {
+        warnings.push(format!(
+            "game directory does not exist locally: {}",
+            game_dir.display()
+        ));
+    }
+    if let Some(game_exe) = &config.game_exe {
+        if !game_exe.is_file() {
+            warnings.push(format!(
+                "game executable does not exist locally: {}",
+                game_exe.display()
+            ));
+        }
+    } else {
+        warnings.push("no --game-exe was supplied; launch command is a template that must be filled by the tester".to_string());
+    }
+    let launch_args = runtime_map_launch_args(&config.profile, &map_name);
+    let command_preview = if let Some(game_exe) = &config.game_exe {
+        let mut parts = vec![game_exe.display().to_string()];
+        parts.extend(launch_args.clone());
+        parts.join(" ")
+    } else {
+        let mut parts = vec!["<game-executable>".to_string()];
+        parts.extend(launch_args.clone());
+        parts.join(" ")
+    };
+    let report = RuntimeMapLoadWorkflowReport {
+        ok: true,
+        input_bsp: bsp.display().to_string(),
+        input_bsp_size: fs::metadata(bsp).map(|metadata| metadata.len()).unwrap_or_default(),
+        map_name,
+        profile: config.profile.clone(),
+        game_dir: game_dir.display().to_string(),
+        game_exe: config.game_exe.as_ref().map(|path| path.display().to_string()),
+        command_shape: "<game-executable> -dev -console -condebug +map <map>".to_string(),
+        command_preview,
+        launch_args,
+        console_log_path: console_log.display().to_string(),
+        linked_reports: RuntimeMapLinkedReports {
+            compile_report: config.compile_report.as_ref().map(|path| path.display().to_string()),
+            pack_report: config.pack_report.as_ref().map(|path| path.display().to_string()),
+            merge_report: config.merge_report.as_ref().map(|path| path.display().to_string()),
+        },
+        evidence_requirements: vec![
+            "exact game executable path and game build/version".to_string(),
+            "exact launch command and working directory".to_string(),
+            "console output or condebug log".to_string(),
+            "map load success/failure and crash/hang status".to_string(),
+            "missing material/model/sound/script warnings".to_string(),
+            "screenshot or recording when useful and sanitized".to_string(),
+            "gameplay smoke notes, spawn status, lighting visibility, and obvious collision issues".to_string(),
+            "links to Source Weaver merge/compile/pack reports used to produce the BSP".to_string(),
+        ],
+        manual_steps: vec![
+            "Copy or mount the compiled BSP where the target game can load it, usually under <game>/maps.".to_string(),
+            "Run the command preview or equivalent launcher with -dev -console -condebug and +map <map>.".to_string(),
+            "Wait for map load, then capture console output and any dialogs/crashes/hangs.".to_string(),
+            "Record whether player spawn succeeded, lighting rendered, and obvious missing assets appeared.".to_string(),
+            "Attach sanitized evidence and link compile, pack, and merge reports.".to_string(),
+        ],
+        warnings,
+        ownership_caveats: vec![
+            "Do not commit proprietary BSPs, game content, screenshots, or logs unless redistribution rights are verified.".to_string(),
+            "Runtime evidence may reveal private Steam paths, project names, or local addon names; redact before public sharing.".to_string(),
+        ],
+        external_tool_boundary: vec![
+            "This command creates a runtime validation plan only; it does not launch Steam or a game runtime.".to_string(),
+            "A runtime row is complete only after a real game executable is launched and evidence is recorded.".to_string(),
+            "Hammer/Hammer++ open/save validation and VBSP/VVIS/VRAD compile validation remain separate evidence rows.".to_string(),
+        ],
+        real_game_runtime_validation: false,
+    };
+    finish_runtime_map_load_workflow_report(&config, report)
+}
+
+fn parse_runtime_map_load_workflow_args(
+    args: &[String],
+) -> Result<RuntimeMapLoadWorkflowConfig, String> {
+    let mut config = RuntimeMapLoadWorkflowConfig {
+        profile: "generic-source".to_string(),
+        ..RuntimeMapLoadWorkflowConfig::default()
+    };
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--game-dir" | "--game" => {
+                cursor += 1;
+                config.game_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game-dir needs a path")?,
+                ));
+            }
+            "--game-exe" | "--exe" => {
+                cursor += 1;
+                config.game_exe = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game-exe needs a path")?,
+                ));
+            }
+            "--profile" => {
+                cursor += 1;
+                config.profile = args.get(cursor).ok_or("--profile needs a value")?.clone();
+            }
+            "--map" | "--map-name" => {
+                cursor += 1;
+                config.map_name = Some(args.get(cursor).ok_or("--map needs a value")?.clone());
+            }
+            "--console-log" | "--log" => {
+                cursor += 1;
+                config.console_log = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--console-log needs a path")?,
+                ));
+            }
+            "--compile-report" => {
+                cursor += 1;
+                config.compile_report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--compile-report needs a path")?,
+                ));
+            }
+            "--pack-report" => {
+                cursor += 1;
+                config.pack_report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--pack-report needs a path")?,
+                ));
+            }
+            "--merge-report" => {
+                cursor += 1;
+                config.merge_report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--merge-report needs a path")?,
+                ));
+            }
+            "--report" => {
+                cursor += 1;
+                config.report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--report needs a path")?,
+                ));
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown runtime-map-load-workflow flag `{value}`"));
+            }
+            value => {
+                if config.input_bsp.is_some() {
+                    return Err("runtime-map-load-workflow accepts one BSP path".to_string());
+                }
+                config.input_bsp = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn runtime_map_launch_args(profile: &str, map_name: &str) -> Vec<String> {
+    match profile {
+        "gmod" | "garrysmod" => vec![
+            "-game".to_string(),
+            "garrysmod".to_string(),
+            "-dev".to_string(),
+            "-console".to_string(),
+            "-condebug".to_string(),
+            "+map".to_string(),
+            map_name.to_string(),
+        ],
+        _ => vec![
+            "-dev".to_string(),
+            "-console".to_string(),
+            "-condebug".to_string(),
+            "+map".to_string(),
+            map_name.to_string(),
+        ],
+    }
+}
+
+fn finish_runtime_map_load_workflow_report(
+    config: &RuntimeMapLoadWorkflowConfig,
+    report: RuntimeMapLoadWorkflowReport,
+) -> Result<(), String> {
+    let encoded = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode runtime map-load report: {error}"))?;
+    if let Some(report_path) = &config.report {
+        create_parent_dir(report_path, "runtime map-load workflow report")?;
+        fs::write(report_path, &encoded).map_err(|error| {
+            format!(
+                "failed to write runtime map-load report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+    if config.json {
+        println!("{encoded}");
+    } else {
+        println!("runtime map-load workflow: ok");
+        println!("map: {}", report.map_name);
+        println!("command: {}", report.command_preview);
+        println!("console log: {}", report.console_log_path);
+        println!(
+            "real runtime validation: {}",
+            report.real_game_runtime_validation
+        );
+    }
+    Ok(())
 }
 
 fn compile_profile_command(args: &[String]) -> Result<(), String> {
@@ -5849,6 +6081,50 @@ struct CompileProfileValidateConfig {
 }
 
 #[derive(Debug, Clone, Default)]
+struct RuntimeMapLoadWorkflowConfig {
+    input_bsp: Option<PathBuf>,
+    game_dir: Option<PathBuf>,
+    game_exe: Option<PathBuf>,
+    profile: String,
+    map_name: Option<String>,
+    console_log: Option<PathBuf>,
+    compile_report: Option<PathBuf>,
+    pack_report: Option<PathBuf>,
+    merge_report: Option<PathBuf>,
+    report: Option<PathBuf>,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RuntimeMapLoadWorkflowReport {
+    ok: bool,
+    input_bsp: String,
+    input_bsp_size: u64,
+    map_name: String,
+    profile: String,
+    game_dir: String,
+    game_exe: Option<String>,
+    command_shape: String,
+    command_preview: String,
+    launch_args: Vec<String>,
+    console_log_path: String,
+    linked_reports: RuntimeMapLinkedReports,
+    evidence_requirements: Vec<String>,
+    manual_steps: Vec<String>,
+    warnings: Vec<String>,
+    ownership_caveats: Vec<String>,
+    external_tool_boundary: Vec<String>,
+    real_game_runtime_validation: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RuntimeMapLinkedReports {
+    compile_report: Option<String>,
+    pack_report: Option<String>,
+    merge_report: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
 struct CompileProfileDiscoverConfig {
     search_dirs: Vec<PathBuf>,
     steam_roots: Vec<PathBuf>,
@@ -7313,6 +7589,19 @@ Compile profile TOML:
 Each step captures stdout/stderr, writes step logs when --log-dir is set,
 parses warnings/errors/leaks, and reports JSON when --json or --report is used.
 External tool runs default to a 900 second timeout. Override with --timeout-seconds.
+"#
+    );
+}
+
+fn print_runtime_map_load_workflow_help() {
+    println!(
+        r#"Usage:
+  sourceweaver runtime-map-load-workflow <map.bsp> --game-dir <dir> [--game-exe path] [--profile gmod|generic-source] [--map name] [--console-log path] [--compile-report path] [--pack-report path] [--merge-report path] [--report report.json] [--json]
+
+Creates a runtime map-load validation plan and evidence checklist. This command
+does not launch Steam or a game executable. A real runtime row is complete only
+when a tester launches the target game, captures console output, and records the
+load result, missing assets, crashes, and gameplay smoke notes.
 "#
     );
 }
