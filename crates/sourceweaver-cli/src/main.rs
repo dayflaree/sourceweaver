@@ -48,6 +48,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
+        "campaign-run" | "campaign-batch" | "campaign-plan" => campaign_run_command(&args[1..]),
         "job-template" => {
             print_job_template();
             Ok(())
@@ -2699,6 +2700,224 @@ fn run_job_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn campaign_run_command(args: &[String]) -> Result<(), String> {
+    let mut plan_path: Option<PathBuf> = None;
+    let mut report_override: Option<PathBuf> = None;
+    let mut dry_run_override = false;
+
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--plan" | "--campaign" | "--config" => {
+                cursor += 1;
+                let value = args.get(cursor).ok_or("--plan needs a TOML path")?;
+                plan_path = Some(PathBuf::from(value));
+            }
+            "--report" => {
+                cursor += 1;
+                let value = args.get(cursor).ok_or("--report needs a JSON path")?;
+                report_override = Some(PathBuf::from(value));
+            }
+            "--dry-run" => dry_run_override = true,
+            "--help" | "-h" => {
+                print_campaign_run_help();
+                return Ok(());
+            }
+            value if value.starts_with('-') => {
+                return Err(format!("unknown campaign-run flag `{value}`"));
+            }
+            value => {
+                if plan_path.is_some() {
+                    return Err("campaign-run accepts one campaign plan TOML path".to_string());
+                }
+                plan_path = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+
+    let plan_path = plan_path.ok_or(
+        "usage: sourceweaver campaign-run --plan <campaign.toml> [--dry-run] [--report summary.json]",
+    )?;
+    let plan_text = fs::read_to_string(&plan_path)
+        .map_err(|error| format!("failed to read {}: {error}", plan_path.display()))?;
+    let mut plan: CampaignPlan = toml::from_str(&plan_text)
+        .map_err(|error| format!("failed to parse {}: {error}", plan_path.display()))?;
+    if dry_run_override {
+        plan.dry_run = true;
+    }
+    if let Some(report_path) = report_override {
+        plan.report = Some(report_path);
+    }
+
+    let base_dir = plan_path.parent().unwrap_or_else(|| Path::new("."));
+    let summary = execute_campaign_plan(&plan, base_dir)?;
+    let json = serde_json::to_string_pretty(&summary)
+        .map_err(|error| format!("failed to encode campaign JSON report: {error}"))?;
+
+    if let Some(report_path) = &plan.report {
+        let report_path = resolve_job_path(base_dir, report_path);
+        create_parent_dir(&report_path, "campaign report")?;
+        fs::write(&report_path, &json).map_err(|error| {
+            format!(
+                "failed to write campaign report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+
+    println!("{json}");
+    Ok(())
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CampaignPlan {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+    #[serde(default)]
+    report: Option<PathBuf>,
+    #[serde(default)]
+    steps: Vec<CampaignPlanStep>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CampaignPlanStep {
+    name: String,
+    base: PathBuf,
+    #[serde(default)]
+    inputs: Vec<PathBuf>,
+    output: Option<PathBuf>,
+    #[serde(default)]
+    report: Option<PathBuf>,
+    #[serde(default)]
+    landmark: Option<String>,
+    #[serde(default)]
+    changelevel_policy: Option<String>,
+    #[serde(default)]
+    changelevel_scope: Option<String>,
+    #[serde(default)]
+    preserve_external_transition: Vec<ChangelevelPreserveRuleConfig>,
+    #[serde(default)]
+    delete: DeleteConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CampaignPlanReport {
+    name: Option<String>,
+    dry_run: bool,
+    step_count: usize,
+    outputs_written: usize,
+    summary_report: Option<String>,
+    steps: Vec<CampaignPlanStepSummary>,
+    step_reports: Vec<AutomationReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CampaignPlanStepSummary {
+    name: String,
+    operation: String,
+    base: String,
+    inputs: Vec<String>,
+    output: Option<String>,
+    report: Option<String>,
+    output_written: bool,
+    integrity_errors: usize,
+    integrity_warnings: usize,
+    transition_count: usize,
+    adjacency_edges: usize,
+    changelevel_policy: String,
+    changelevel_scope: String,
+    changelevel_changed: usize,
+    changelevel_preserved: usize,
+}
+
+fn execute_campaign_plan(
+    plan: &CampaignPlan,
+    base_dir: &Path,
+) -> Result<CampaignPlanReport, String> {
+    if plan.steps.is_empty() {
+        return Err("campaign plan needs at least one [[steps]] entry".to_string());
+    }
+
+    let mut summaries = Vec::new();
+    let mut step_reports = Vec::new();
+    let mut outputs_written = 0;
+
+    for step in &plan.steps {
+        let mut job = AutomationJob {
+            base: step.base.clone(),
+            inputs: step.inputs.clone(),
+            output: step.output.clone(),
+            landmark: step.landmark.clone(),
+            changelevel_policy: step.changelevel_policy.clone(),
+            changelevel_scope: step.changelevel_scope.clone(),
+            preserve_external_transition: step.preserve_external_transition.clone(),
+            delete: step.delete.clone(),
+            dry_run: plan.dry_run,
+            report: step.report.clone(),
+        };
+        if plan.dry_run {
+            job.dry_run = true;
+        }
+        let report = execute_job(&job, base_dir)?;
+        if report.output_written {
+            outputs_written += 1;
+        }
+
+        let step_report_path = job
+            .report
+            .as_ref()
+            .map(|path| resolve_job_path(base_dir, path));
+        if let Some(report_path) = &step_report_path {
+            let json = serde_json::to_string_pretty(&report)
+                .map_err(|error| format!("failed to encode step JSON report: {error}"))?;
+            create_parent_dir(report_path, "step report")?;
+            fs::write(report_path, json).map_err(|error| {
+                format!(
+                    "failed to write step report {}: {error}",
+                    report_path.display()
+                )
+            })?;
+        }
+
+        summaries.push(CampaignPlanStepSummary {
+            name: step.name.clone(),
+            operation: report.operation.clone(),
+            base: report.base.clone(),
+            inputs: report.inputs.clone(),
+            output: report.output.clone(),
+            report: step_report_path.map(|path| path.display().to_string()),
+            output_written: report.output_written,
+            integrity_errors: report.integrity.errors,
+            integrity_warnings: report.integrity.warnings,
+            transition_count: report.transitions.len(),
+            adjacency_edges: report.campaign_adjacency.edges.len(),
+            changelevel_policy: report.changelevel.policy.clone(),
+            changelevel_scope: report.changelevel.scope.clone(),
+            changelevel_changed: report.changelevel.changed.len(),
+            changelevel_preserved: report.changelevel.preserved.len(),
+        });
+        step_reports.push(report);
+    }
+
+    Ok(CampaignPlanReport {
+        name: plan.name.clone(),
+        dry_run: plan.dry_run,
+        step_count: summaries.len(),
+        outputs_written,
+        summary_report: plan
+            .report
+            .as_ref()
+            .map(|path| resolve_job_path(base_dir, path).display().to_string()),
+        steps: summaries,
+        step_reports,
+    })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AutomationJob {
@@ -4186,6 +4405,15 @@ Or pass an existing BSPZIP file list:
 External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );
+}
+
+fn print_campaign_run_help() {
+    println!("sourceweaver campaign-run --plan campaign.toml [--dry-run] [--report summary.json]");
+    println!();
+    println!(
+        "Runs a multi-step campaign stitch plan. Each [[steps]] entry uses the same fields as a job: base, inputs, output, landmark, changelevel policy/scope, preserve_external_transition, and [steps.delete]."
+    );
+    println!("Dry-run mode validates and reports every step without writing merged VMFs.");
 }
 
 fn print_run_job_help() {

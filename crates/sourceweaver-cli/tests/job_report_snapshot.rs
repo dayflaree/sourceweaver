@@ -471,6 +471,69 @@ stderr:
     }));
 }
 
+#[test]
+fn campaign_plan_reports_all_steps_and_artifacts() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["campaign-run", "--plan", "tests/jobs/campaign-plan.toml"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["name"], "fixture campaign batch");
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(report["step_count"], 2);
+    assert_eq!(report["outputs_written"], 0);
+    assert_eq!(report["steps"].as_array().unwrap().len(), 2);
+    assert_eq!(report["step_reports"].as_array().unwrap().len(), 2);
+    assert!(
+        report["steps"][0]["report"]
+            .as_str()
+            .unwrap()
+            .ends_with("campaign_step_adjacency.json")
+    );
+    assert!(
+        report["steps"][1]["report"]
+            .as_str()
+            .unwrap()
+            .ends_with("campaign_step_cleanup.json")
+    );
+    assert!(report["steps"][0]["adjacency_edges"].as_u64().unwrap() >= 2);
+    assert_eq!(report["steps"][1]["changelevel_changed"], 1);
+    assert_eq!(report["steps"][1]["changelevel_preserved"], 1);
+
+    let summary_path = repo_path("target/test-output/campaign-plan-summary.json");
+    let first_step_report = repo_path("target/test-output/campaign_step_adjacency.json");
+    let second_step_report = repo_path("target/test-output/campaign_step_cleanup.json");
+    assert!(summary_path.exists());
+    assert!(first_step_report.exists());
+    assert!(second_step_report.exists());
+    assert!(!repo_path("target/test-output/campaign_step_adjacency.vmf").exists());
+    assert!(!repo_path("target/test-output/campaign_step_cleanup.vmf").exists());
+}
+
+#[test]
+fn campaign_run_help_mentions_plan_and_dry_run() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args(["campaign-run", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--plan"), "{stdout}");
+    assert!(stdout.contains("Dry-run"), "{stdout}");
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

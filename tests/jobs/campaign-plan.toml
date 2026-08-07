@@ -1,0 +1,34 @@
+name = "fixture campaign batch"
+dry_run = true
+report = "../../target/test-output/campaign-plan-summary.json"
+
+[[steps]]
+name = "adjacency stitch"
+base = "../fixtures/campaign_adjacency_01.vmf"
+inputs = ["../fixtures/campaign_adjacency_02.vmf", "../fixtures/campaign_adjacency_03.vmf"]
+output = "../../target/test-output/campaign_step_adjacency.vmf"
+report = "../../target/test-output/campaign_step_adjacency.json"
+landmark = "adj_lm"
+changelevel_policy = "rewrite-internal"
+changelevel_scope = "internal-only"
+
+[steps.delete]
+protect_critical_entities = true
+
+[[steps]]
+name = "transition cleanup"
+base = "../fixtures/changelevel_d1_a.vmf"
+inputs = ["../fixtures/changelevel_d1_b.vmf"]
+output = "../../target/test-output/campaign_step_cleanup.vmf"
+report = "../../target/test-output/campaign_step_cleanup.json"
+landmark = "lm_exit"
+changelevel_policy = "delete"
+changelevel_scope = "all"
+
+[[steps.preserve_external_transition]]
+map = "external_entry"
+landmark = "lm_exit"
+targetname = "to_external"
+
+[steps.delete]
+protect_critical_entities = true

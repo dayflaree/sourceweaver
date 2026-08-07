@@ -26,6 +26,7 @@
 - Changelevel preservation, disable, delete, and internal-rewrite policies for CLI merge, CLI jobs, and desktop merge workflows.
 - Configurable transition cleanup scope and external preserve selectors with dry-run JSON diffs and desktop project persistence.
 - Campaign adjacency graph report with high-confidence trigger edges and separate shared-landmark/filename-sequence heuristic edges.
+- Multi-step campaign batch plan runner with per-step reports, summary artifact links, and dry-run planning.
 
 ### Changed
 
