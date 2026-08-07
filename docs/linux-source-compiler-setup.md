@@ -167,6 +167,33 @@ Caveats:
 - The compiler transcript reported `Could not locate GameData file garrysmod.fgd` and an instance-collapse caveat, but the tiny smoke map used no instances and all Source Weaver step reports passed.
 - No Hammer/Hammer++, HLMV, BSPZIP, game runtime map-load, SDK installer, proprietary model, proprietary BSP, or committed game content was run or bundled for this row.
 
+
+## Wine compile row status: blocked in this environment
+
+Checked on 2026-08-07 for issue #122:
+
+```text
+command -v wine: not found
+command -v wine64: not found
+command -v wineserver: not found
+command -v wineboot: not found
+command -v winetricks: not found
+wine --version: command not found
+wine64 --version: command not found
+```
+
+Windows Source++ compiler binaries were present under the local Garry's Mod install:
+
+```text
+/home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vbspplusplus.exe
+/home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vvisplusplus.exe
+/home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vradplusplus.exe
+```
+
+Because no Wine executable or Wine prefix manager was available, no real Wine-based compile run was performed. The successful row in this repository state is the Proton-backed row above. Do not describe it as Wine validation.
+
+To complete a future Wine row, install or select a legal Wine runtime, create a dedicated prefix, verify `wine --version`, run `compile-profile create --validate` with Wine wrapper paths, run `sourceweaver compile`, and record the same evidence fields used for the Proton row: Wine version, prefix path, wrapper scripts, commands, logs, reports, generated BSP path/size, warnings/errors, and ownership boundaries.
+
 ## Desktop use
 
 After creating and validating a profile, open the desktop app and use **Optional external compile**. Select the same profile, choose logs/report paths, and enable **Run compile after successful Merge selected VMFs** when you want a post-export compile. Set `SOURCEWEAVER_CLI` before launching the desktop app if the CLI executable is not next to the desktop executable.
