@@ -197,7 +197,7 @@ cargo run -p sourceweaver-cli -- compile stitched.vmf \
 
 See `docs/linux-source-compiler-setup.md` for Wine/Proton wrappers, sample profiles, troubleshooting, and the boundary between VMF validation and real compiler validation. The desktop app also has an **Optional external compile** panel that can run the same profile after a successful merge/export without blocking the UI.
 
-See `docs/compile-pipeline.md` for profile format, report fields, desktop compile behavior, and Linux-friendly validation notes. See `docs/source-compiler-smoke-test-matrix.md` for real-tool smoke-test evidence requirements.
+See `docs/compile-pipeline.md` for profile format, report fields, desktop compile behavior, and Linux-friendly validation notes. See `docs/source-compiler-smoke-test-matrix.md` and `docs/hammer-validation-workflow.md` for real-tool smoke-test evidence requirements.
 
 Run a user-selected BSPSource decompiler and validate the generated VMF:
 
@@ -393,7 +393,7 @@ Known limitations:
 - The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
 - No bundled/internal BSP decompilation. BSP import can run user-selected BSPSource launchers/jars or generic external wrappers and imports the generated VMF; Source Weaver remains VMF-first. See `docs/bsp-import.md`.
 - FGD support parses supported class declarations and representative property metadata syntax, including labels, descriptions, defaults, choices, and flags. It intentionally skips unsupported full-FGD language features safely.
-- Compile, BSP packing, BSP decompile, and model compile integrations require user-provided Source tool paths; Source tools, Hammer, Crowbar, StudioMDL, game content, model assets, and custom assets are not bundled. Desktop compile launch uses the Source Weaver CLI compile pipeline and remains separate from VMF export success.
+- Compile, BSP packing, BSP decompile, and model compile integrations require user-provided Source tool paths; Source tools, Hammer, Hammer++, Crowbar, StudioMDL, game content, model assets, and custom assets are not bundled. Desktop compile launch uses the Source Weaver CLI compile pipeline and remains separate from VMF export success. Hammer/Hammer++ open/save validation is tracked separately from portable VMF validation and real compiler validation.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 - Incoming IDs are renumbered during merge, known reference fields are remapped, and unsupported suspected ID-reference keys are surfaced as warnings; see `docs/id-renumbering.md`.
 - Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.
