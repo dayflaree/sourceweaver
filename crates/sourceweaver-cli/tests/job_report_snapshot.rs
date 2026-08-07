@@ -1325,6 +1325,212 @@ echo "BSPZIP finished"
 
 #[cfg(unix)]
 #[test]
+fn pack_applies_bspzip_context_wrapper_fields() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-bspzip-context-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let tool_cwd = temp_dir.join("game/bin");
+    let game_dir = temp_dir.join("game/tf");
+    let lib_dir = temp_dir.join("game/bin/linux64");
+    std::fs::create_dir_all(&tool_cwd).unwrap();
+    std::fs::create_dir_all(&game_dir).unwrap();
+    std::fs::create_dir_all(&lib_dir).unwrap();
+    let context_log = temp_dir.join("context.log");
+
+    let fake_bspzip = temp_dir.join("bspzip-context.sh");
+    let script = format!(
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "--version" ]]; then
+  echo "Fake BSPZIP context 1.0"
+  exit 0
+fi
+echo "PWD=$(pwd)" > "{log}"
+echo "LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-}}" >> "{log}"
+printf 'ARGS=%s\n' "$*" >> "{log}"
+if [[ "$#" -ne 6 || "$1" != "-game" || "$3" != "-addlist" ]]; then
+  echo "unexpected args: $*" >&2
+  exit 64
+fi
+cp "$4" "$6"
+while IFS= read -r internal && IFS= read -r external; do
+  [[ -z "$internal" ]] && continue
+  echo "Adding file: $internal -> $external"
+done < "$5"
+"#,
+        log = context_log.display()
+    );
+    let mut file = std::fs::File::create(&fake_bspzip).unwrap();
+    file.write_all(script.as_bytes()).unwrap();
+    drop(file);
+    let mut permissions = std::fs::metadata(&fake_bspzip).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake_bspzip, permissions).unwrap();
+
+    let input_bsp = temp_dir.join("map.bsp");
+    std::fs::write(&input_bsp, b"fake bsp").unwrap();
+    let material_dir = game_dir.join("materials/custom");
+    std::fs::create_dir_all(&material_dir).unwrap();
+    std::fs::write(material_dir.join("wall01.vmt"), b"LightmappedGeneric {}").unwrap();
+    let output_bsp = temp_dir.join("packed.bsp");
+    let report_path = temp_dir.join("pack-context-report.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "pack",
+            input_bsp.to_str().unwrap(),
+            "--tool",
+            fake_bspzip.to_str().unwrap(),
+            "--output",
+            output_bsp.to_str().unwrap(),
+            "--asset-root",
+            game_dir.to_str().unwrap(),
+            "--include",
+            "materials/custom/wall01.vmt",
+            "--context-profile",
+            "explicit-game-arg-wrapper",
+            "--tool-cwd",
+            tool_cwd.to_str().unwrap(),
+            "--library-path",
+            lib_dir.to_str().unwrap(),
+            "--game-dir",
+            game_dir.to_str().unwrap(),
+            "--pass-game-dir",
+            "--report",
+            report_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["tool_version"], "Fake BSPZIP context 1.0");
+    assert_eq!(
+        report["command_shape"],
+        "bspzip -game <game-dir> -addlist <input.bsp> <filelist.txt> <output.bsp>"
+    );
+    assert_eq!(report["command_args"][0], "-game");
+    assert_eq!(report["command_args"][1], game_dir.display().to_string());
+    assert_eq!(report["command_args"][2], "-addlist");
+    assert_eq!(
+        report["tool_context"]["profile_id"],
+        "explicit-game-arg-wrapper"
+    );
+    assert_eq!(
+        report["tool_context"]["tool_cwd"],
+        tool_cwd.display().to_string()
+    );
+    assert_eq!(
+        report["tool_context"]["game_dir"],
+        game_dir.display().to_string()
+    );
+    assert_eq!(report["tool_context"]["pass_game_dir"], true);
+    assert_eq!(report["tool_context"]["real_tool_validation"], false);
+    assert!(
+        report["tool_context"]["environment_keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "LD_LIBRARY_PATH")
+    );
+    assert!(
+        report["tool_context"]["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str().unwrap().contains("--pass-game-dir"))
+    );
+    let context_log_text = std::fs::read_to_string(&context_log).unwrap();
+    assert!(context_log_text.contains(&format!("PWD={}", tool_cwd.display())));
+    assert!(context_log_text.contains(&format!("LD_LIBRARY_PATH={}", lib_dir.display())));
+    assert!(context_log_text.contains("ARGS=-game"));
+    assert!(output_bsp.exists());
+    assert!(report_path.exists());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn bspzip_context_profiles_document_boundaries() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args(["bspzip-context-profiles", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert!(
+        report["bundle_policy"]
+            .as_str()
+            .unwrap()
+            .contains("does not bundle")
+    );
+    assert!(
+        report["external_tool_boundary"]
+            .as_str()
+            .unwrap()
+            .contains("does not run BSPZIP")
+    );
+    let profiles = report["profiles"].as_array().unwrap();
+    for id in [
+        "stock-game-bin",
+        "linux-ld-library-path",
+        "bspzipplusplus-sdk2013-x64",
+        "explicit-game-arg-wrapper",
+    ] {
+        let profile = profiles
+            .iter()
+            .find(|profile| profile["id"] == id)
+            .unwrap_or_else(|| panic!("missing profile {id}"));
+        assert_eq!(profile["real_tool_validation"], false);
+    }
+    let bspzippp = profiles
+        .iter()
+        .find(|profile| profile["id"] == "bspzipplusplus-sdk2013-x64")
+        .unwrap();
+    assert!(
+        bspzippp["requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value
+                .as_str()
+                .unwrap()
+                .contains("Garry's Mod is unsupported"))
+    );
+    for wrapper in [
+        "examples/wrappers/bspzip-linux-ld-library-path-wrapper.sh",
+        "examples/wrappers/bspzip-game-arg-wrapper.sh",
+        "examples/wrappers/bspzip-windows-game-bin-wrapper.ps1",
+    ] {
+        assert!(repo_root().join(wrapper).is_file(), "missing {wrapper}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn pack_discovers_vmf_asset_dependencies_and_related_files() {
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;

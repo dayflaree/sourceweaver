@@ -37,6 +37,29 @@ bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>
 
 The command uses the first matching asset root for each included file. Missing files are reported before the packer is launched, and the command exits non-zero after writing the JSON report.
 
+## Tool context profiles
+
+Some BSPZIP-compatible tools need to be launched from a game/tool `bin` directory, with local Source runtime library paths, or through a wrapper that supplies game context. Source Weaver exposes these context fields without bundling or redistributing the external packer:
+
+```bash
+sourceweaver pack map.bsp \
+  --tool ./bspzip-wrapper.sh \
+  --output packed.bsp \
+  --asset-root /path/to/game \
+  --include materials/custom/wall01.vmt \
+  --context-profile explicit-game-arg-wrapper \
+  --tool-cwd /path/to/game/bin \
+  --library-path /path/to/game/bin \
+  --game-dir /path/to/game \
+  --pass-game-dir \
+  --report pack-report.json \
+  --json
+```
+
+`--context-profile` records the selected profile. `--tool-cwd` sets the packer working directory. Repeated `--library-path` values are prepended to `LD_LIBRARY_PATH` for the packer process and version probe. `--game-dir` records the game/content directory; `--pass-game-dir` explicitly inserts `-game <dir>` before `-addlist` for wrapper-compatible tools.
+
+Run `sourceweaver bspzip-context-profiles --json` or see `docs/bspzip-context-profiles.md` for documented profiles and wrapper examples.
+
 ## VMF dependency discovery
 
 Source Weaver can derive a reviewable pack list from common VMF asset references before running the packer:
@@ -111,6 +134,7 @@ The JSON report includes:
 - asset roots
 - requested files with internal/external path resolution
 - discovered VMF dependency details when `--discover-from-vmf` is used
+- `tool_context` fields for context profile, working directory, game directory, library paths, environment keys, and context warnings
 - missing files
 - warnings
 - exit code
@@ -128,6 +152,7 @@ The current implementation covers CLI automation and machine-readable reports. D
 
 - Valve Developer Community BSPZIP search result for `-addlist <input bsp> <file list> <output bsp>` and `-addorupdatelist` command forms.
 - Valve Developer Union guide: https://valvedev.info/guides/zipping-files-into-a-map-using-bspzip-or-vide/
+- Hammer++ tools page for BSPZIP++ support context: https://ficool2.github.io/HammerPlusPlus-Website/tools.html
 
 ## Desktop packing panel
 

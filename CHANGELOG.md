@@ -40,6 +40,7 @@
 - External BSP decompiler preset registry with VMEX legacy research, do-not-bundle policy, and generic wrapper examples.
 - Cubemap/buildcubemaps workflow planner with game-profile caveats, optional cfg helper output, JSON reports, and documented real-runtime validation boundary.
 - VMF-driven BSP pack dependency discovery for common material, model, sound, script, particle, VMT texture, and model companion assets, integrated with CLI pack reports.
+- BSPZIP/BSPZIP++ context profiles, wrapper examples, and pack CLI fields for tool working directories, LD_LIBRARY_PATH, and explicit wrapper-compatible `-game` forwarding.
 
 ### Changed
 

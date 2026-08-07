@@ -2,6 +2,7 @@ mod asset_dependencies;
 mod bspsource;
 mod bspsource_presets;
 mod bspsource_quality;
+mod bspzip_context;
 mod cubemaps;
 mod external_decompilers;
 use bspsource_presets::{
@@ -62,6 +63,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             external_decompiler_presets_command(&args[1..])
         }
         "bspsource" | "bspsrc" => bspsource::command(&args[1..]),
+        "bspzip-context-profiles" | "pack-context-profiles" => bspzip_context::command(&args[1..]),
         "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
         "campaign-run" | "campaign-batch" | "campaign-plan" => campaign_run_command(&args[1..]),
@@ -2466,7 +2468,7 @@ fn pack_command(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let config = parse_pack_args(args)?;
-    let input = config.input.as_ref().ok_or("usage: sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
+    let input = config.input.as_ref().ok_or("usage: sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--context-profile id] [--tool-cwd dir] [--library-path dir] [--game-dir dir] [--pass-game-dir] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
     let tool = config.tool.as_ref().ok_or("pack needs --tool <bspzip>")?;
     let output_bsp = config
         .output
@@ -2474,8 +2476,10 @@ fn pack_command(args: &[String]) -> Result<(), String> {
         .ok_or("pack needs --output <out.bsp>")?;
     create_parent_dir(output_bsp, "output BSP")?;
 
-    let list = prepare_pack_filelist(&config)?;
-    let tool_version = probe_bsp_packer_version(tool);
+    let tool_context = build_pack_tool_context(&config);
+    let mut list = prepare_pack_filelist(&config)?;
+    list.warnings.extend(tool_context.warnings.clone());
+    let tool_version = probe_bsp_packer_version(tool, &tool_context);
     if !list.missing_files.is_empty() {
         let report = PackReport {
             ok: false,
@@ -2497,6 +2501,7 @@ fn pack_command(args: &[String]) -> Result<(), String> {
             missing_files: list.missing_files,
             warnings: list.warnings,
             discovered_dependencies: list.discovery,
+            tool_context,
             exit_code: None,
             log_path: config.log.as_ref().map(|path| path.display().to_string()),
             packed_file_count: None,
@@ -2507,13 +2512,14 @@ fn pack_command(args: &[String]) -> Result<(), String> {
 
     let invocation = BspPackInvocation {
         executable: tool.clone(),
-        args: vec![
-            "-addlist".to_string(),
-            input.display().to_string(),
-            list.filelist_path.display().to_string(),
-            output_bsp.display().to_string(),
-        ],
-        command_shape: "bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>",
+        args: pack_addlist_args(&config, input, &list.filelist_path, output_bsp)?,
+        command_shape: if config.pass_game_dir {
+            "bspzip -game <game-dir> -addlist <input.bsp> <filelist.txt> <output.bsp>"
+        } else {
+            "bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>"
+        },
+        cwd: config.tool_cwd.clone(),
+        env: pack_context_environment(&config),
     };
     let tool_output = run_bsp_packer(
         &invocation,
@@ -2568,6 +2574,7 @@ fn pack_command(args: &[String]) -> Result<(), String> {
         missing_files: list.missing_files,
         warnings: list.warnings,
         discovered_dependencies: list.discovery,
+        tool_context,
         exit_code: tool_output.status.code(),
         log_path: config.log.as_ref().map(|path| path.display().to_string()),
         packed_file_count: count_bspzip_added_files(&log_text),
@@ -2613,6 +2620,39 @@ fn parse_pack_args(args: &[String]) -> Result<PackConfig, String> {
                     args.get(cursor).ok_or("--discover-from-vmf needs a path")?,
                 ));
             }
+            "--context-profile" => {
+                cursor += 1;
+                let profile_id = args
+                    .get(cursor)
+                    .ok_or("--context-profile needs a profile id")?
+                    .to_ascii_lowercase();
+                if bspzip_context::profile_by_id(&profile_id).is_none() {
+                    return Err(format!(
+                        "unknown BSPZIP context profile `{profile_id}`; available profiles: {}",
+                        bspzip_context::profile_ids()
+                    ));
+                }
+                config.context_profile = Some(profile_id);
+            }
+            "--tool-cwd" => {
+                cursor += 1;
+                config.tool_cwd = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--tool-cwd needs a directory")?,
+                ));
+            }
+            "--library-path" | "--ld-library-path" => {
+                cursor += 1;
+                config.library_paths.push(PathBuf::from(
+                    args.get(cursor).ok_or("--library-path needs a directory")?,
+                ));
+            }
+            "--game-dir" | "--game" => {
+                cursor += 1;
+                config.game_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game-dir needs a directory")?,
+                ));
+            }
+            "--pass-game-dir" => config.pass_game_dir = true,
             "--filelist" => {
                 cursor += 1;
                 config.filelist = Some(PathBuf::from(
@@ -2645,6 +2685,18 @@ fn parse_pack_args(args: &[String]) -> Result<PackConfig, String> {
             }
         }
         cursor += 1;
+    }
+    if config.pass_game_dir && config.game_dir.is_none() {
+        return Err("--pass-game-dir needs --game-dir".to_string());
+    }
+    match &config.tool_cwd {
+        Some(tool_cwd) if !tool_cwd.is_dir() => {
+            return Err(format!(
+                "--tool-cwd is not a directory: {}",
+                tool_cwd.display()
+            ));
+        }
+        _ => {}
     }
     Ok(config)
 }
@@ -2815,9 +2867,109 @@ fn is_common_source_asset_path(internal_path: &str) -> bool {
     )
 }
 
+fn pack_addlist_args(
+    config: &PackConfig,
+    input: &Path,
+    filelist_path: &Path,
+    output_bsp: &Path,
+) -> Result<Vec<String>, String> {
+    let mut args = Vec::new();
+    if config.pass_game_dir {
+        let game_dir = config
+            .game_dir
+            .as_ref()
+            .ok_or("--pass-game-dir needs --game-dir")?;
+        args.push("-game".to_string());
+        args.push(game_dir.display().to_string());
+    }
+    args.extend([
+        "-addlist".to_string(),
+        input.display().to_string(),
+        filelist_path.display().to_string(),
+        output_bsp.display().to_string(),
+    ]);
+    Ok(args)
+}
+
+fn pack_context_environment(config: &PackConfig) -> Vec<(String, String)> {
+    if config.library_paths.is_empty() {
+        return Vec::new();
+    }
+    let mut values = config
+        .library_paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>();
+    match env::var("LD_LIBRARY_PATH") {
+        Ok(existing) if !existing.is_empty() => values.push(existing),
+        _ => {}
+    }
+    vec![("LD_LIBRARY_PATH".to_string(), values.join(":"))]
+}
+
+fn build_pack_tool_context(config: &PackConfig) -> PackToolContextReport {
+    let profile = config
+        .context_profile
+        .as_ref()
+        .and_then(|id| bspzip_context::profile_by_id(id));
+    let mut warnings = Vec::new();
+    if config.pass_game_dir {
+        warnings.push("-game <dir> is forwarded only because --pass-game-dir was supplied; use this with wrapper-compatible packers or tools verified to accept -game".to_string());
+    }
+    if config.game_dir.is_some() && !config.pass_game_dir {
+        warnings.push("--game-dir was recorded for context reporting but was not forwarded because --pass-game-dir was not supplied".to_string());
+    }
+    match &config.game_dir {
+        Some(game_dir) if !game_dir.is_dir() => warnings.push(format!(
+            "configured game directory does not exist locally: {}",
+            game_dir.display()
+        )),
+        _ => {}
+    }
+    for path in &config.library_paths {
+        if !path.is_dir() {
+            warnings.push(format!(
+                "configured library path does not exist locally: {}",
+                path.display()
+            ));
+        }
+    }
+    PackToolContextReport {
+        profile_id: config.context_profile.clone(),
+        profile_label: profile.map(|profile| profile.label.to_string()),
+        tool_cwd: config
+            .tool_cwd
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        game_dir: config
+            .game_dir
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        pass_game_dir: config.pass_game_dir,
+        library_paths: config
+            .library_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        environment_keys: if config.library_paths.is_empty() {
+            Vec::new()
+        } else {
+            vec!["LD_LIBRARY_PATH".to_string()]
+        },
+        warnings,
+        real_tool_validation: false,
+    }
+}
+
 fn run_bsp_packer(invocation: &BspPackInvocation, timeout: Duration) -> Result<Output, String> {
     let mut command = Command::new(&invocation.executable);
     command.args(&invocation.args);
+    if let Some(cwd) = &invocation.cwd {
+        command.current_dir(cwd);
+    }
+    for (key, value) in &invocation.env {
+        command.env(key, value);
+    }
     run_command_with_timeout(
         &mut command,
         &format!("BSP packer {}", invocation.executable.display()),
@@ -2825,9 +2977,20 @@ fn run_bsp_packer(invocation: &BspPackInvocation, timeout: Duration) -> Result<O
     )
 }
 
-fn probe_bsp_packer_version(tool: &Path) -> Option<String> {
+fn probe_bsp_packer_version(tool: &Path, context: &PackToolContextReport) -> Option<String> {
     let mut command = Command::new(tool);
     command.arg("--version");
+    if let Some(cwd) = &context.tool_cwd {
+        command.current_dir(cwd);
+    }
+    if !context.library_paths.is_empty() {
+        let mut values = context.library_paths.clone();
+        match env::var("LD_LIBRARY_PATH") {
+            Ok(existing) if !existing.is_empty() => values.push(existing),
+            _ => {}
+        }
+        command.env("LD_LIBRARY_PATH", values.join(":"));
+    }
     match run_command_with_timeout(
         &mut command,
         "BSP packer version probe",
@@ -3717,6 +3880,11 @@ struct PackConfig {
     asset_roots: Vec<PathBuf>,
     includes: Vec<String>,
     discover_from_vmfs: Vec<PathBuf>,
+    context_profile: Option<String>,
+    tool_cwd: Option<PathBuf>,
+    game_dir: Option<PathBuf>,
+    pass_game_dir: bool,
+    library_paths: Vec<PathBuf>,
     filelist: Option<PathBuf>,
     log: Option<PathBuf>,
     report: Option<PathBuf>,
@@ -3738,6 +3906,8 @@ struct BspPackInvocation {
     executable: PathBuf,
     args: Vec<String>,
     command_shape: &'static str,
+    cwd: Option<PathBuf>,
+    env: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3757,10 +3927,24 @@ struct PackReport {
     missing_files: Vec<String>,
     warnings: Vec<String>,
     discovered_dependencies: Option<asset_dependencies::AssetDependencyDiscovery>,
+    tool_context: PackToolContextReport,
     exit_code: Option<i32>,
     log_path: Option<String>,
     packed_file_count: Option<usize>,
     log_summary: CompileLogSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PackToolContextReport {
+    profile_id: Option<String>,
+    profile_label: Option<String>,
+    tool_cwd: Option<String>,
+    game_dir: Option<String>,
+    pass_game_dir: bool,
+    library_paths: Vec<String>,
+    environment_keys: Vec<String>,
+    warnings: Vec<String>,
+    real_tool_validation: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -4518,7 +4702,8 @@ Usage:
   sourceweaver model-inspect <model.mdl> [--json]
   sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
-  sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--context-profile id] [--tool-cwd dir] [--library-path dir] [--game-dir dir] [--pass-game-dir] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver bspzip-context-profiles [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
   sourceweaver job-template
 
@@ -4713,7 +4898,7 @@ Source Weaver remains VMF-first:
   - BSP packers, compiled maps, and custom assets are not bundled.
   - Packing is optional and separate from VMF editing, merging, and compiling.
   - Generated file lists use BSPZIP's internal/external path-pair format.
-  - JSON reports include tool path, best-effort version probe, command arguments, input/output BSP, file list, requested assets, discovered VMF dependencies, missing files, detected packed file count, log path, warnings/errors, and exit status.
+  - JSON reports include tool path, best-effort version probe, command arguments, input/output BSP, file list, requested assets, discovered VMF dependencies, context profile fields, missing files, detected packed file count, log path, warnings/errors, and exit status.
 
 Generated file-list command shape:
   bspzip -addlist <input.bsp> <filelist.txt> <output.bsp>
@@ -4730,6 +4915,20 @@ Discover a file list from a VMF and asset roots:
     --asset-root /path/to/game \
     --discover-from-vmf merged.vmf \
     --json
+
+Run with a documented context profile and wrapper-compatible -game forwarding:
+  sourceweaver pack map.bsp --tool ./bspzip-wrapper.sh --output packed.bsp \
+    --asset-root /path/to/game \
+    --include materials/custom/wall01.vmt \
+    --context-profile explicit-game-arg-wrapper \
+    --tool-cwd /path/to/game/bin \
+    --library-path /path/to/game/bin \
+    --game-dir /path/to/game \
+    --pass-game-dir \
+    --json
+
+List context profiles:
+  sourceweaver bspzip-context-profiles --json
 
 Or pass an existing BSPZIP file list:
   sourceweaver pack map.bsp --tool /path/to/bspzip --output packed.bsp --filelist pack-list.txt --json
