@@ -1,6 +1,7 @@
 mod bspsource;
 mod bspsource_presets;
 mod bspsource_quality;
+mod external_decompilers;
 use bspsource_presets::{
     BSPSOURCE_ARGUMENT_PRESETS, preset_args, preset_snapshot, preset_snapshots,
 };
@@ -54,6 +55,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "model-compile" => model_compile_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "bsp-import-presets" | "bspsource-presets" => bsp_import_presets_command(&args[1..]),
+        "external-decompiler-presets" | "decompiler-presets" => {
+            external_decompiler_presets_command(&args[1..])
+        }
         "bspsource" | "bspsrc" => bspsource::command(&args[1..]),
         "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
@@ -2015,6 +2019,35 @@ fn finish_model_compile_report(
     }
     if !report.ok {
         return Err("model compile reported errors".to_string());
+    }
+    Ok(())
+}
+
+fn external_decompiler_presets_command(args: &[String]) -> Result<(), String> {
+    let json = args.iter().any(|arg| arg == "--json");
+    let presets = external_decompilers::preset_snapshots();
+    if json {
+        let report = serde_json::json!({
+            "ok": true,
+            "presets": presets,
+            "bundle_policy": "Source Weaver does not bundle third-party decompiler binaries; local user-provided tools only unless separately reviewed.",
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|error| format!(
+                "failed to encode external decompiler preset JSON: {error}"
+            ))?
+        );
+    } else {
+        println!("External BSP decompiler integration notes:");
+        for preset in presets {
+            println!(
+                "{}	{}	{}	{}",
+                preset.id, preset.tool, preset.status, preset.command_shape
+            );
+            println!("  workflow: {}", preset.sourceweaver_workflow);
+            println!("  bundle policy: {}", preset.bundle_policy);
+        }
     }
     Ok(())
 }

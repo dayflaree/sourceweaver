@@ -216,3 +216,8 @@ Research notes:
 The repository includes `tests/fixtures/bsp-derived/`, a synthetic redistributable fixture set for BSP import plumbing tests. It contains a minimal Source BSP-style header fixture, a Source Weaver-authored expected VMF, and a manifest with source, license, command, fake tool version, redaction, and checksum metadata.
 
 The fixture set is not real BSPSource output and does not validate real decompile quality. CI uses a fake wrapper to copy the committed VMF so `sourceweaver bsp-import` can exercise command/report/integrity behavior without proprietary BSPs or external tools. See `docs/bsp-derived-fixtures.md`.
+
+
+## External decompiler preset research
+
+`sourceweaver external-decompiler-presets --json` reports the current integration status for BSPSource, VMEX, and unknown wrapper tools. VMEX is documented as legacy/documentation-only because current research found it obsolete, no longer active, not post-Orange Box compatible, and without a verified binary redistribution license. See `docs/external-decompiler-presets.md`.

@@ -985,6 +985,54 @@ stderr:
     assert!(generated.contains("synthetic_start"));
 }
 
+#[test]
+fn external_decompiler_presets_document_vmex_legacy_boundary() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["external-decompiler-presets", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert!(
+        report["bundle_policy"]
+            .as_str()
+            .unwrap()
+            .contains("does not bundle")
+    );
+    let presets = report["presets"].as_array().unwrap();
+    let vmex = presets
+        .iter()
+        .find(|preset| preset["id"] == "vmex-legacy-wrapper")
+        .expect("VMEX legacy wrapper status reported");
+    assert_eq!(vmex["status"], "legacy-documentation-only");
+    assert_eq!(vmex["real_tool_validation"], false);
+    assert!(vmex["maintenance"].as_str().unwrap().contains("obsolete"));
+    assert!(
+        vmex["wrapper_example"]
+            .as_str()
+            .unwrap()
+            .ends_with("examples/wrappers/vmex-wrapper.sh")
+    );
+    assert!(
+        vmex["bundle_policy"]
+            .as_str()
+            .unwrap()
+            .contains("do-not-bundle")
+    );
+    let bspsource = presets
+        .iter()
+        .find(|preset| preset["id"] == "bspsource-supported")
+        .expect("BSPSource supported status reported");
+    assert!(
+        bspsource["sourceweaver_workflow"]
+            .as_str()
+            .unwrap()
+            .contains("--bspsource")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {
