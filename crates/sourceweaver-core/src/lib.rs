@@ -5,6 +5,7 @@
 //! share the same VMF behavior.
 
 pub mod campaign;
+pub mod changelevel;
 pub mod classify;
 pub mod compiler;
 pub mod complexity;
@@ -24,6 +25,10 @@ pub mod vmf;
 pub use campaign::{
     CampaignLandmarkPairSuggestion, CampaignMapInput, CampaignOrderSuggestion,
     suggest_campaign_order,
+};
+pub use changelevel::{
+    ChangelevelChange, ChangelevelPolicy, ChangelevelPolicyOptions, ChangelevelPolicyReport,
+    apply_changelevel_policy, normalize_map_name,
 };
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};
 pub use compiler::{

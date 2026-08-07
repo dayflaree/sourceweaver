@@ -35,7 +35,7 @@ The desktop UI must discover `info_landmark` targetnames from selected VMFs, off
 
 The engine must detect `trigger_changelevel` entities and expose target map plus landmark-related properties. Desktop inspection and automation reports must surface this transition data so later workflows can suggest map order and landmark pairs.
 
-Given a selected set of campaign VMFs, Source Weaver must suggest a plausible map order by matching `trigger_changelevel` target map values against selected VMF filenames. It must suggest landmark pairings from transition landmark properties, warn about missing target maps or missing target landmarks, and keep user override paths available through manual ordering, base-map selection, and landmark entry.
+Given a selected set of campaign VMFs, Source Weaver must suggest a plausible map order by matching `trigger_changelevel` target map values against selected VMF filenames. It must suggest landmark pairings from transition landmark properties, warn about missing target maps or missing target landmarks, and keep user override paths available through manual ordering, base-map selection, and landmark entry. Merge workflows must also expose an explicit changelevel policy so stitched outputs can preserve, disable, delete, or rewrite internal transition destinations without implying compile or runtime validation.
 
 ## VMF integrity checks
 

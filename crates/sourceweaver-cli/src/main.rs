@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
-    CampaignTransition, DeletionCriteria, DeletionReport, Document, EntitySemanticsReport,
+    CampaignTransition, ChangelevelChange, ChangelevelPolicy, ChangelevelPolicyOptions,
+    ChangelevelPolicyReport, DeletionCriteria, DeletionReport, Document, EntitySemanticsReport,
     IntegrityReport, MapComplexityReport, MergeInput, MergeOptions, MergeReport,
     RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport, discover_landmarks,
     discover_transitions, format_integrity_issue, inspect_entities, merge_maps, parse_compile_log,
@@ -195,6 +196,7 @@ fn prune_command(args: &[String]) -> Result<(), String> {
 fn merge_command(args: &[String]) -> Result<(), String> {
     let mut output: Option<PathBuf> = None;
     let mut landmark: Option<String> = None;
+    let mut changelevel_policy = ChangelevelPolicy::Preserve;
     let mut inputs = Vec::new();
 
     let mut cursor = 0;
@@ -210,6 +212,13 @@ fn merge_command(args: &[String]) -> Result<(), String> {
                 let value = args.get(cursor).ok_or("--landmark needs a targetname")?;
                 landmark = Some(value.clone());
             }
+            "--changelevel-policy" => {
+                cursor += 1;
+                let value = args
+                    .get(cursor)
+                    .ok_or("--changelevel-policy needs a value")?;
+                changelevel_policy = parse_changelevel_policy(value)?;
+            }
             value if value.starts_with('-') => return Err(format!("unknown merge flag `{value}`")),
             value => inputs.push(PathBuf::from(value)),
         }
@@ -218,16 +227,16 @@ fn merge_command(args: &[String]) -> Result<(), String> {
 
     if inputs.len() < 2 {
         return Err(
-            "usage: sourceweaver merge -o <out.vmf> [--landmark name] <base.vmf> <add.vmf> [...]"
+            "usage: sourceweaver merge -o <out.vmf> [--landmark name] [--changelevel-policy preserve|disable|delete|rewrite-internal] <base.vmf> <add.vmf> [...]"
                 .to_string(),
         );
     }
     let output = output.ok_or("merge needs -o/--output")?;
 
     let mut merge_inputs = Vec::new();
-    for path in inputs {
+    for path in &inputs {
         let label = path.display().to_string();
-        let document = load_document(&path)?;
+        let document = load_document(path)?;
         let integrity = validate_document_integrity(&document, &label);
         for issue in integrity.warnings() {
             eprintln!("{}", format_integrity_issue(issue));
@@ -238,13 +247,47 @@ fn merge_command(args: &[String]) -> Result<(), String> {
         merge_inputs.push(MergeInput { label, document });
     }
 
-    let (document, report) = merge_maps(merge_inputs, &MergeOptions { landmark })?;
+    let output_map = output
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string());
+    let stitched_maps = inputs
+        .iter()
+        .filter_map(|path| {
+            path.file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+        })
+        .collect::<Vec<_>>();
+    let (document, report) = merge_maps(
+        merge_inputs,
+        &MergeOptions {
+            landmark,
+            changelevel: ChangelevelPolicyOptions {
+                policy: changelevel_policy,
+                output_map,
+                stitched_maps,
+            },
+        },
+    )?;
     write_document(&output, &document)?;
     println!("merged maps: {}", report.merged_maps);
     println!("appended world solids: {}", report.appended_world_solids);
     println!("appended entities: {}", report.appended_entities);
-    for (label, offset) in report.applied_offsets {
+    for (label, offset) in &report.applied_offsets {
         println!("offset\t{}\t{}", label, offset);
+    }
+    println!("changelevel policy: {}", report.changelevel.policy);
+    println!(
+        "changelevel changes: {}",
+        report.changelevel.changed_count()
+    );
+    for warning in &report.changelevel.warnings {
+        println!("changelevel warning\t{warning}");
+    }
+    for change in &report.changelevel.changed {
+        println!(
+            "changelevel\t{}\tentity[{}]\t{}",
+            change.action, change.entity_index, change.rationale
+        );
     }
     println!("wrote {}", output.display());
     Ok(())
@@ -2609,6 +2652,8 @@ struct AutomationJob {
     #[serde(default)]
     landmark: Option<String>,
     #[serde(default)]
+    changelevel_policy: Option<String>,
+    #[serde(default)]
     delete: DeleteConfig,
     #[serde(default)]
     dry_run: bool,
@@ -2648,6 +2693,7 @@ struct AutomationReport {
     transitions: Vec<TransitionSnapshot>,
     campaign_order: CampaignOrderSnapshot,
     merge: Option<MergeSnapshot>,
+    changelevel: ChangelevelPolicySnapshot,
     result_entity_types: BTreeMap<String, usize>,
     result_entity_records: usize,
 }
@@ -2705,6 +2751,24 @@ struct TransitionSnapshot {
     landmark: Option<String>,
     origin: Option<String>,
     solid_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ChangelevelPolicySnapshot {
+    policy: String,
+    changed: Vec<ChangelevelChangeSnapshot>,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ChangelevelChangeSnapshot {
+    entity_index: usize,
+    targetname: Option<String>,
+    action: String,
+    old_map: Option<String>,
+    new_map: Option<String>,
+    landmark: Option<String>,
+    rationale: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3126,6 +3190,7 @@ struct MergeSnapshot {
     appended_world_solids: usize,
     appended_entities: usize,
     applied_offsets: Vec<OffsetSnapshot>,
+    changelevel: ChangelevelPolicySnapshot,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3224,6 +3289,18 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
             .into_iter()
             .map(|(label, document)| MergeInput { label, document })
             .collect::<Vec<_>>();
+        let changelevel_policy = selected_job_changelevel_policy(job)?;
+        let output_map = output_path.as_ref().and_then(|path| {
+            path.file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+        });
+        let stitched_maps = map_paths
+            .iter()
+            .filter_map(|path| {
+                path.file_stem()
+                    .map(|stem| stem.to_string_lossy().to_string())
+            })
+            .collect::<Vec<_>>();
         let (document, merge_report) = merge_maps(
             merge_inputs,
             &MergeOptions {
@@ -3231,6 +3308,11 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
                     .landmark
                     .clone()
                     .filter(|value| !value.trim().is_empty()),
+                changelevel: ChangelevelPolicyOptions {
+                    policy: changelevel_policy,
+                    output_map,
+                    stitched_maps,
+                },
             },
         )?;
         (
@@ -3297,6 +3379,14 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
         integrity: snapshot_integrity_report(&integrity_report),
         transitions: transition_reports,
         campaign_order: snapshot_campaign_order(&campaign_order),
+        changelevel: merge_snapshot
+            .as_ref()
+            .map(|merge| merge.changelevel.clone())
+            .unwrap_or_else(|| ChangelevelPolicySnapshot {
+                policy: "preserve".to_string(),
+                changed: Vec::new(),
+                warnings: Vec::new(),
+            }),
         merge: merge_snapshot,
         result_entity_types,
         result_entity_records,
@@ -3354,6 +3444,33 @@ fn snapshot_merge_report(report: MergeReport) -> MergeSnapshot {
                 offset: offset.to_string(),
             })
             .collect(),
+        changelevel: snapshot_changelevel_policy_report(&report.changelevel),
+    }
+}
+
+fn snapshot_changelevel_policy_report(
+    report: &ChangelevelPolicyReport,
+) -> ChangelevelPolicySnapshot {
+    ChangelevelPolicySnapshot {
+        policy: report.policy.to_string(),
+        changed: report
+            .changed
+            .iter()
+            .map(snapshot_changelevel_change)
+            .collect(),
+        warnings: report.warnings.clone(),
+    }
+}
+
+fn snapshot_changelevel_change(change: &ChangelevelChange) -> ChangelevelChangeSnapshot {
+    ChangelevelChangeSnapshot {
+        entity_index: change.entity_index,
+        targetname: change.targetname.clone(),
+        action: change.action.clone(),
+        old_map: change.old_map.clone(),
+        new_map: change.new_map.clone(),
+        landmark: change.landmark.clone(),
+        rationale: change.rationale.clone(),
     }
 }
 
@@ -3550,6 +3667,22 @@ fn print_validation_snapshot(snapshot: &ValidationSnapshot) {
     }
 }
 
+fn parse_changelevel_policy(value: &str) -> Result<ChangelevelPolicy, String> {
+    ChangelevelPolicy::parse(value).ok_or_else(|| {
+        format!(
+            "unknown changelevel policy `{value}`. available policies: {}",
+            ChangelevelPolicy::choices()
+        )
+    })
+}
+
+fn selected_job_changelevel_policy(job: &AutomationJob) -> Result<ChangelevelPolicy, String> {
+    job.changelevel_policy
+        .as_deref()
+        .map(parse_changelevel_policy)
+        .unwrap_or(Ok(ChangelevelPolicy::Preserve))
+}
+
 fn selected_validation_rule_set(
     value: Option<&str>,
 ) -> Result<Option<&'static ValidationRuleSet>, String> {
@@ -3651,7 +3784,7 @@ Usage:
   sourceweaver inspect <map.vmf>
   sourceweaver list-types <map.vmf>
   sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
-  sourceweaver merge -o <out.vmf> [--landmark targetname] <base.vmf> <add.vmf> [...]
+  sourceweaver merge -o <out.vmf> [--landmark targetname] [--changelevel-policy preserve|disable|delete|rewrite-internal] <base.vmf> <add.vmf> [...]
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--rule-set none|hl2] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver compile-profile create|validate|discover [options]
@@ -3704,6 +3837,7 @@ Source SDK workflow when VBSP is installed:
   sourceweaver validate merged.vmf --vbsp /path/to/vbsp --game /path/to/game --capture-log vbsp.log --json
 
 Rule sets are portable checks. Available rule sets: none, hl2.
+Changelevel merge policies are portable VMF edits: preserve, disable, delete, rewrite-internal.
 External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );

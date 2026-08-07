@@ -1,3 +1,7 @@
+use crate::changelevel::{
+    ChangelevelPolicy, ChangelevelPolicyOptions, ChangelevelPolicyReport, apply_changelevel_policy,
+    normalize_map_name,
+};
 use crate::id_references::{is_list_id_reference_key, is_single_id_reference_key};
 use crate::integrity::validate_merge_inputs;
 use crate::transform::{Vec3, find_landmark_origin, translate_block};
@@ -13,6 +17,7 @@ pub struct MergeInput {
 #[derive(Debug, Clone, Default)]
 pub struct MergeOptions {
     pub landmark: Option<String>,
+    pub changelevel: ChangelevelPolicyOptions,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +26,7 @@ pub struct MergeReport {
     pub appended_world_solids: usize,
     pub appended_entities: usize,
     pub applied_offsets: Vec<(String, Vec3)>,
+    pub changelevel: ChangelevelPolicyReport,
 }
 
 pub fn merge_maps(
@@ -36,6 +42,10 @@ pub fn merge_maps(
         return Err(message);
     }
 
+    let all_labels = inputs
+        .iter()
+        .map(|input| input.label.clone())
+        .collect::<Vec<_>>();
     let mut iter = inputs.into_iter();
     let first = iter.next().expect("checked non-empty");
     let base_label = first.label.clone();
@@ -60,6 +70,11 @@ pub fn merge_maps(
         appended_world_solids: 0,
         appended_entities: 0,
         applied_offsets: vec![(base_label, Vec3::ZERO)],
+        changelevel: ChangelevelPolicyReport {
+            policy: options.changelevel.policy,
+            changed: Vec::new(),
+            warnings: Vec::new(),
+        },
     };
 
     for input in iter {
@@ -108,6 +123,24 @@ pub fn merge_maps(
         base.nodes.extend(incoming_entities);
         report.merged_maps += 1;
         report.applied_offsets.push((input.label, offset));
+    }
+
+    let mut changelevel_options = options.changelevel.clone();
+    if changelevel_options.stitched_maps.is_empty() {
+        changelevel_options.stitched_maps = all_labels
+            .iter()
+            .map(|label| normalize_map_name(label))
+            .filter(|label| !label.is_empty())
+            .collect();
+    }
+    if matches!(changelevel_options.policy, ChangelevelPolicy::Preserve) {
+        report.changelevel = ChangelevelPolicyReport {
+            policy: ChangelevelPolicy::Preserve,
+            changed: Vec::new(),
+            warnings: Vec::new(),
+        };
+    } else {
+        report.changelevel = apply_changelevel_policy(&mut base, &changelevel_options);
     }
 
     Ok((base, report))
@@ -276,6 +309,7 @@ entity { "id" "5" "classname" "prop_static" "origin" "128 0 0" }
             ],
             &MergeOptions {
                 landmark: Some("lm".into()),
+                ..MergeOptions::default()
             },
         )
         .unwrap();

@@ -10,6 +10,11 @@
       "tests/jobs/../fixtures/incoming.vmf points to missing map `d1_trainstation_03` via trigger_changelevel #2."
     ]
   },
+  "changelevel": {
+    "changed": [],
+    "policy": "preserve",
+    "warnings": []
+  },
   "deletion": {
     "all_entities": false,
     "brush_entity_mode": "whole-entity",
@@ -62,6 +67,11 @@
         "offset": "-100 0 0"
       }
     ],
+    "changelevel": {
+      "changed": [],
+      "policy": "preserve",
+      "warnings": []
+    },
     "merged_maps": 2
   },
   "operation": "merge",

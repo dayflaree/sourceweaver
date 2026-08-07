@@ -17,6 +17,7 @@ base = "base.vmf"
 inputs = ["next.vmf", "another.vmf"]
 output = "stitched.vmf"
 landmark = "map_transition"
+changelevel_policy = "preserve"
 dry_run = false
 report = "sourceweaver-report.json"
 
@@ -29,7 +30,7 @@ brush_entity_mode = "whole-entity"
 protect_critical_entities = true
 ```
 
-Relative paths are resolved from the directory containing the job file. This makes jobs portable inside project folders. The desktop app can save and load the same project/job shape: UI-created files include `base`, `inputs`, `output`, `landmark`, and `[delete]` fields that are compatible with `sourceweaver run --job` where possible.
+Relative paths are resolved from the directory containing the job file. This makes jobs portable inside project folders. The desktop app can save and load the same project/job shape: UI-created files include `base`, `inputs`, `output`, `landmark`, `changelevel_policy`, and `[delete]` fields that are compatible with `sourceweaver run --job` where possible.
 
 ## Run a job
 
@@ -37,7 +38,9 @@ Relative paths are resolved from the directory containing the job file. This mak
 cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml
 ```
 
-The command prints a JSON report to stdout. If the job contains `report = "..."` or the command uses `--report`, the same report is written to disk. Reports include VMF integrity counts and issue details so missing common sections, duplicate IDs, invalid IDs, and world-block errors are visible to automation. Reports also include detected `trigger_changelevel` transitions plus transition-derived campaign order and landmark-pair suggestions.
+The command prints a JSON report to stdout. If the job contains `report = "..."` or the command uses `--report`, the same report is written to disk. Reports include VMF integrity counts and issue details so missing common sections, duplicate IDs, invalid IDs, and world-block errors are visible to automation. Reports also include detected `trigger_changelevel` transitions, the selected changelevel policy report, and transition-derived campaign order/landmark-pair suggestions.
+
+`changelevel_policy` accepts `preserve`, `disable`, `delete`, or `rewrite-internal`. See `docs/changelevel-policies.md` for behavior, JSON shape, and the external-tool validation boundary.
 
 ```bash
 cargo run -p sourceweaver-cli -- run \

@@ -31,6 +31,7 @@ Current capabilities:
 - View detected Hammer entity classnames, including unknown and game-specific classnames.
 - View individual world/entity records with classname, targetname, origin, solid count, and detected roles.
 - Detect `trigger_changelevel` campaign transitions and show target map/landmark data.
+- Preserve, disable, delete, or rewrite internal `trigger_changelevel` destinations during merge through explicit policies.
 - Suggest campaign map order and landmark pairs from detected transitions.
 - Enrich entity/classname tables with built-in, inferred, and optionally loaded FGD metadata.
 - Drag and drop `.vmf`, `.toml`, and `.fgd` files into the desktop app, with in-session recent files/projects.
@@ -114,6 +115,7 @@ The executable will be under `target\\release\\sourceweaver-desktop.exe` on Wind
 4. Review **Campaign suggestions** for a transition-derived map order and landmark pairs. Apply the suggestion or keep the manual order/base/landmark settings.
 5. Choose a discovered `info_landmark` targetname from the dropdown, or type one manually. Leave it blank to append maps without alignment.
 6. Review the **Landmark status** table. It shows which selected VMFs contain the chosen landmark and warns about missing, duplicate, or invalid landmarks before preview/export.
+7. Choose a **Changelevel policy** when transition entities should be preserved, disabled, deleted, or rewritten for a stitched campaign output.
 7. Review the **VMF integrity status** table for structural errors and warnings before preview/export.
 8. Browse for an output `.vmf` path.
 9. Use the **Preview** tab to view the scanned VMF in top, front, or side projection.
@@ -162,7 +164,7 @@ cargo run -p sourceweaver-cli -- validate stitched.vmf --rule-set hl2 --json
 cargo run -p sourceweaver-cli -- validate stitched.vmf --compile-log vbsp.log --json
 ```
 
-Use `--rule-set hl2` for portable Half-Life 2 single-player VMF semantics. Rule-set findings are reported separately from generic integrity findings and do not run Hammer, VBSP, VVIS, VRAD, or a game runtime. The same validation report also includes `entity_semantics` findings for duplicate targetnames and missing common target references plus a `complexity` summary for VMF-only Source/Hammer limit heuristics. When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. External compiler/decompiler runs default to a 900-second timeout; use `--timeout-seconds` for slower tools or quick failure tests. Captured compiler logs must include explicit success markers such as `0 errors` or `VBSP finished`; a truncated tool banner does not count as a successful compile. See `docs/compiler-validation.md`, `docs/entity-semantic-validation.md`, `docs/map-complexity.md`, and `docs/game-validation-rule-sets.md` for Linux-friendly validation, captured-log parsing, semantic checks, complexity heuristics, rule-set scope, and HL2/Black Mesa command examples.
+Use `--rule-set hl2` for portable Half-Life 2 single-player VMF semantics. Rule-set findings are reported separately from generic integrity findings and do not run Hammer, VBSP, VVIS, VRAD, or a game runtime. The same validation report also includes `entity_semantics` findings for duplicate targetnames and missing common target references plus a `complexity` summary for VMF-only Source/Hammer limit heuristics. When Source tooling is available, pass `--vbsp`, optional `--game`, and `--capture-log`. External compiler/decompiler runs default to a 900-second timeout; use `--timeout-seconds` for slower tools or quick failure tests. Captured compiler logs must include explicit success markers such as `0 errors` or `VBSP finished`; a truncated tool banner does not count as a successful compile. See `docs/compiler-validation.md`, `docs/changelevel-policies.md`, `docs/entity-semantic-validation.md`, `docs/map-complexity.md`, and `docs/game-validation-rule-sets.md` for Linux-friendly validation, captured-log parsing, changelevel policies, semantic checks, complexity heuristics, rule-set scope, and HL2/Black Mesa command examples.
 
 Create and validate a compile profile without hand-editing TOML, then run a user-configured compile pipeline when VBSP/VVIS/VRAD are available:
 
@@ -266,7 +268,7 @@ Brush-entity deletion modes are explicit. `whole-entity` preserves the original 
 
 Desktop deletion presets are transparent. Each preset shows the generated criteria and can be previewed before applying; preview and export use the same pruning code path so counts match final deletion behavior.
 
-Desktop project files use the same TOML shape as `sourceweaver run --job` where possible. Saving a project writes the current base VMF, input VMFs, landmark, output path, and deletion rules. Paths under the project file directory are saved relative to that directory; relative paths are resolved from the project file location when loaded.
+Desktop project files use the same TOML shape as `sourceweaver run --job` where possible. Saving a project writes the current base VMF, input VMFs, landmark, output path, changelevel policy, and deletion rules. Paths under the project file directory are saved relative to that directory; relative paths are resolved from the project file location when loaded.
 
 Merge multiple VMFs using a shared `info_landmark` targetname:
 

@@ -1,0 +1,9 @@
+base = "../fixtures/changelevel_d1_a.vmf"
+inputs = ["../fixtures/changelevel_d1_b.vmf"]
+output = "../target/test-output/stitched_campaign.vmf"
+landmark = "lm_exit"
+changelevel_policy = "rewrite-internal"
+dry_run = true
+
+[delete]
+protect_critical_entities = true

@@ -1,0 +1,36 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "info_landmark"
+	"targetname" "lm_exit"
+	"origin" "0 0 0"
+}
+entity
+{
+	"id" "3"
+	"classname" "trigger_changelevel"
+	"targetname" "to_internal"
+	"map" "d1_b"
+	"landmark" "lm_exit"
+	solid
+	{
+		"id" "4"
+		side
+		{
+			"id" "5"
+			"material" "TOOLS/TOOLSTRIGGER"
+		}
+	}
+}

@@ -110,6 +110,7 @@ fn fixture_merge_matches_golden_output() {
         ],
         &MergeOptions {
             landmark: Some("map_transition".to_string()),
+            ..MergeOptions::default()
         },
     )
     .unwrap();

@@ -2,11 +2,12 @@ use eframe::egui;
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BUILTIN_VALIDATION_RULE_SETS, BrushEntityDeletionMode, BrushRole, CampaignMapInput,
-    CampaignOrderSuggestion, CampaignTransition, DeletionCriteria, DeletionReport, Document,
-    EntityMetadata, EntityRecord, EntitySemanticsReport, IntegrityReport, LandmarkDiscovery,
-    LandmarkTargetStatus, MapComplexityReport, MergeInput, MergeOptions, MergeReport,
-    NO_VALIDATION_RULE_SET_ID, PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid,
-    RuleSetValidationReport, combine_preview_documents, discover_landmarks, discover_transitions,
+    CampaignOrderSuggestion, CampaignTransition, ChangelevelPolicy, ChangelevelPolicyOptions,
+    DeletionCriteria, DeletionReport, Document, EntityMetadata, EntityRecord,
+    EntitySemanticsReport, IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus,
+    MapComplexityReport, MergeInput, MergeOptions, MergeReport, NO_VALIDATION_RULE_SET_ID,
+    PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid, RuleSetValidationReport,
+    combine_preview_documents, discover_landmarks, discover_transitions,
     format_entity_semantics_issue, format_integrity_issue, format_rule_set_issue, inspect_entities,
     is_critical_entity_classname, merge_maps, metadata_for_classname_with_overrides,
     parse_fgd_metadata, preview_document, preview_document_with_source, prune_document,
@@ -42,6 +43,7 @@ struct SourceWeaverApp {
     base_index: usize,
     landmark: String,
     output_path: String,
+    changelevel_policy: ChangelevelPolicy,
     drop_classnames: String,
     drop_targetnames: String,
     role_options: Vec<RoleOption>,
@@ -327,6 +329,8 @@ struct ProjectFile {
     #[serde(default)]
     landmark: Option<String>,
     #[serde(default)]
+    changelevel_policy: Option<String>,
+    #[serde(default)]
     delete: ProjectDeleteConfig,
     #[serde(default)]
     dry_run: bool,
@@ -429,6 +433,7 @@ impl SourceWeaverApp {
             base_index: 0,
             landmark: "map_transition".to_string(),
             output_path: String::new(),
+            changelevel_policy: ChangelevelPolicy::Preserve,
             drop_classnames: String::new(),
             drop_targetnames: String::new(),
             role_options: vec![
@@ -690,6 +695,7 @@ impl SourceWeaverApp {
             output: blank_to_none(&self.output_path)
                 .map(|_| project_relative_path(&PathBuf::from(self.output_path.trim()), base_dir)),
             landmark: blank_to_none(&self.landmark),
+            changelevel_policy: Some(self.changelevel_policy.to_string()),
             delete: ProjectDeleteConfig::from_criteria(&criteria),
             dry_run: false,
             report: None,
@@ -722,6 +728,11 @@ impl SourceWeaverApp {
         self.selected_map = (!self.maps.is_empty()).then_some(0);
         self.base_index = 0;
         self.landmark = project.landmark.unwrap_or_default();
+        self.changelevel_policy = project
+            .changelevel_policy
+            .as_deref()
+            .and_then(ChangelevelPolicy::parse)
+            .unwrap_or(ChangelevelPolicy::Preserve);
         self.output_path = project
             .output
             .map(|output| display_path(&resolve_project_path(base_dir, &output)))
@@ -1502,6 +1513,48 @@ impl SourceWeaverApp {
         Ok((merge_inputs, removed_total))
     }
 
+    fn current_changelevel_options(&self) -> ChangelevelPolicyOptions {
+        let output_path = PathBuf::from(self.output_path.trim());
+        let output_map = output_path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string());
+        let stitched_maps = self
+            .maps
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .path
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().to_string())
+            })
+            .collect::<Vec<_>>();
+        ChangelevelPolicyOptions {
+            policy: self.changelevel_policy,
+            output_map,
+            stitched_maps,
+        }
+    }
+
+    fn add_changelevel_report_status(
+        &mut self,
+        report: &sourceweaver_core::ChangelevelPolicyReport,
+    ) {
+        self.add_status(format!(
+            "Changelevel policy `{}` changed {} transition entity/entities.",
+            report.policy,
+            report.changed_count()
+        ));
+        for warning in &report.warnings {
+            self.add_status(format!("Changelevel warning: {warning}"));
+        }
+        for change in &report.changed {
+            self.add_status(format!(
+                "Changelevel {} entity[{}]: {}",
+                change.action, change.entity_index, change.rationale
+            ));
+        }
+    }
+
     fn build_merged_preview(&mut self) {
         let (merge_inputs, removed_total) = match self.prepare_merge_inputs() {
             Ok(prepared) => prepared,
@@ -1520,7 +1573,13 @@ impl SourceWeaverApp {
 
         let preview_inputs = merge_inputs.clone();
         let landmark = blank_to_none(&self.landmark);
-        match merge_maps(merge_inputs, &MergeOptions { landmark }) {
+        match merge_maps(
+            merge_inputs,
+            &MergeOptions {
+                landmark,
+                changelevel: self.current_changelevel_options(),
+            },
+        ) {
             Ok((_document, report)) => {
                 let preview = build_source_colored_preview(&preview_inputs, &report);
                 let summary = MergedPreviewSummary::from_reports(&report, &removed_total);
@@ -1547,6 +1606,7 @@ impl SourceWeaverApp {
                     removed_total.removed_world_solids,
                     removed_total.removed_brush_entity_solids
                 ));
+                self.add_changelevel_report_status(&report.changelevel);
             }
             Err(error) => self.add_status(format!("Merge preview failed: {error}")),
         }
@@ -1693,7 +1753,13 @@ impl SourceWeaverApp {
         }
 
         let landmark = blank_to_none(&self.landmark);
-        match merge_maps(merge_inputs, &MergeOptions { landmark }) {
+        match merge_maps(
+            merge_inputs,
+            &MergeOptions {
+                landmark,
+                changelevel: self.current_changelevel_options(),
+            },
+        ) {
             Ok((document, report)) => {
                 let integrity = validate_document_integrity(&document, "merged output");
                 for issue in integrity.warnings() {
@@ -1719,9 +1785,10 @@ impl SourceWeaverApp {
                             removed_total.removed_world_solids,
                             removed_total.removed_brush_entity_solids
                         ));
-                        for (label, offset) in report.applied_offsets {
+                        for (label, offset) in &report.applied_offsets {
                             self.add_status(format!("Offset {label}: {offset}"));
                         }
+                        self.add_changelevel_report_status(&report.changelevel);
                         if self.compile_run_after_merge {
                             self.launch_compile_for_path(output_path.clone());
                         }
@@ -2356,6 +2423,27 @@ impl SourceWeaverApp {
             if ui.button("Browse...").clicked() {
                 self.choose_output_path();
             }
+        });
+
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Changelevel policy:");
+            egui::ComboBox::from_id_salt("changelevel_policy_combo")
+                .selected_text(self.changelevel_policy.to_string())
+                .show_ui(ui, |ui| {
+                    for policy in [
+                        ChangelevelPolicy::Preserve,
+                        ChangelevelPolicy::Disable,
+                        ChangelevelPolicy::Delete,
+                        ChangelevelPolicy::RewriteInternal,
+                    ] {
+                        ui.selectable_value(
+                            &mut self.changelevel_policy,
+                            policy,
+                            policy.to_string(),
+                        );
+                    }
+                });
+            ui.weak("Portable VMF edit only; no compile or runtime validation is implied.");
         });
 
         ui.horizontal(|ui| {

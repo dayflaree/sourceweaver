@@ -244,6 +244,87 @@ stderr:
     assert_eq!(report["complexity"]["warnings"], 0);
 }
 
+#[test]
+fn job_reports_changelevel_rewrite_policy() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["run", "--job", "tests/jobs/changelevel-rewrite.toml"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["changelevel"]["policy"], "rewrite-internal");
+    assert_eq!(
+        report["changelevel"]["changed"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        report["changelevel"]["changed"][0]["action"],
+        "rewrite-internal"
+    );
+    assert_eq!(
+        report["changelevel"]["changed"][0]["old_map"],
+        "changelevel_d1_b"
+    );
+    assert_eq!(
+        report["changelevel"]["changed"][0]["new_map"],
+        "stitched_campaign"
+    );
+    assert_eq!(
+        report["changelevel"]["warnings"].as_array().unwrap().len(),
+        0
+    );
+    assert_eq!(
+        report["merge"]["changelevel"]["changed"][0]["new_map"],
+        "stitched_campaign"
+    );
+}
+
+#[test]
+fn merge_command_applies_disable_changelevel_policy() {
+    let output_path = repo_path("target/test-output/changelevel_disabled.vmf");
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "merge",
+            "-o",
+            output_path.to_str().unwrap(),
+            "--changelevel-policy",
+            "disable",
+            "tests/fixtures/changelevel_d1_a.vmf",
+            "tests/fixtures/changelevel_d1_b.vmf",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("changelevel policy: disable"), "{stdout}");
+    assert!(stdout.contains("changelevel changes: 2"), "{stdout}");
+    let merged = std::fs::read_to_string(output_path).unwrap();
+    assert!(merged.contains("\"StartDisabled\" \"1\""));
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

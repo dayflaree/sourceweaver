@@ -1,0 +1,20 @@
+versioninfo
+{
+	"editorversion" "400"
+}
+viewsettings
+{
+	"bSnapToGrid" "1"
+}
+world
+{
+	"id" "1"
+}
+entity
+{
+	"id" "2"
+	"classname" "trigger_changelevel"
+	"targetname" "to_missing_landmark"
+	"map" "d1_b"
+	"landmark" "missing_lm"
+}
