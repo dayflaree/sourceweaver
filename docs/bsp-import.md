@@ -124,3 +124,16 @@ Future improvements can add managed BSPSource download with checksum/provenance 
 - BSPSource `LICENSE.md`: https://github.com/ata4/bspsrc/blob/master/LICENSE.md
 - BSPSource v1.4.8 release: https://github.com/ata4/bspsrc/releases/tag/v1.4.8
 - Valve Developer Union BSPSource page: https://valvedev.info/tools/bspsource/
+
+
+## Managed BSPSource helper
+
+Source Weaver keeps user-selected BSPSource launcher, jar, and wrapper paths as supported alternatives. For users who want a pinned upstream helper, `sourceweaver bspsource` provides:
+
+- `manifest --json` for the pinned BSPSource version, asset URLs, sizes, and SHA-256 digests;
+- `policy --json` for the licensing/provenance/cache/update policy;
+- `cache-path` to show where a managed asset would be cached;
+- `verify` to check a local BSPSource ZIP against a pinned asset or explicit SHA-256;
+- `download` to perform a user-accepted, checksum-verified cache download.
+
+Source Weaver does not bundle BSPSource or automatically adopt latest upstream releases. See `docs/bspsource-managed-download.md` for the research result and policy details.

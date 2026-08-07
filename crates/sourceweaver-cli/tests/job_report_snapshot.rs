@@ -642,6 +642,122 @@ fn inspect_text_reports_fgd_property_labels() {
     );
 }
 
+#[test]
+fn bspsource_manifest_policy_and_cache_are_reported() {
+    let manifest = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["bspsource", "manifest", "--json"])
+        .output()
+        .unwrap();
+    assert!(manifest.status.success());
+    let manifest_json: serde_json::Value = serde_json::from_slice(&manifest.stdout).unwrap();
+    assert_eq!(manifest_json["version"], "v1.4.8");
+    assert!(
+        manifest_json["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|asset| {
+                asset["id"] == "jar-only"
+                    && asset["sha256"]
+                        == "d5effc38b78c4f60f8eb4f9be1db717bb808227a9013f82d20f34860a128b0e7"
+            })
+    );
+
+    let policy = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["bspsource", "policy", "--json"])
+        .output()
+        .unwrap();
+    assert!(policy.status.success());
+    let policy_json: serde_json::Value = serde_json::from_slice(&policy.stdout).unwrap();
+    assert_eq!(
+        policy_json["redistribution_decision"],
+        "do-not-bundle; user-initiated download/cache only"
+    );
+    assert_eq!(policy_json["local_paths_supported"], true);
+
+    let cache = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "bspsource",
+            "cache-path",
+            "--asset",
+            "jar-only",
+            "--cache-dir",
+            "target/test-output/bspsource-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(cache.status.success());
+    let cache_json: serde_json::Value = serde_json::from_slice(&cache.stdout).unwrap();
+    assert!(
+        cache_json["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("bspsource/v1.4.8/bspsrc-jar-only.zip")
+    );
+}
+
+#[test]
+fn bspsource_verify_supports_explicit_sha256() {
+    let fixture = repo_path("target/test-output/bspsource-checksum-fixture.txt");
+    if let Some(parent) = fixture.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&fixture, b"abc").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "bspsource",
+            "verify",
+            "--file",
+            fixture.to_str().unwrap(),
+            "--sha256",
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["size"], 3);
+    assert_eq!(
+        report["actual_sha256"],
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+}
+
+#[test]
+fn bspsource_download_requires_explicit_policy_acceptance() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "bspsource",
+            "download",
+            "--asset",
+            "jar-only",
+            "--cache-dir",
+            "target/test-output/bspsource-cache-no-download",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--accept-download-policy"), "{stderr}");
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

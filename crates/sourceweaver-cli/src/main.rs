@@ -1,3 +1,4 @@
+mod bspsource;
 use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignAdjacencyGraph, CampaignMapInput,
@@ -46,6 +47,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "model-inspect" => model_inspect_command(&args[1..]),
         "model-compile" => model_compile_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
+        "bspsource" | "bspsrc" => bspsource::command(&args[1..]),
         "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
         "campaign-run" | "campaign-batch" | "campaign-plan" => campaign_run_command(&args[1..]),
