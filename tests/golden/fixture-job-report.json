@@ -13,6 +13,8 @@
   "changelevel": {
     "changed": [],
     "policy": "preserve",
+    "preserved": [],
+    "scope": "all",
     "warnings": []
   },
   "deletion": {
@@ -70,6 +72,8 @@
     "changelevel": {
       "changed": [],
       "policy": "preserve",
+      "preserved": [],
+      "scope": "all",
       "warnings": []
     },
     "merged_maps": 2

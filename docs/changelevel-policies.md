@@ -23,7 +23,7 @@ sourceweaver merge \
   d1_a.vmf d1_b.vmf
 ```
 
-The merge command prints the chosen policy, the number of changed transition entities, policy warnings, and one line per changed transition with the rationale.
+The merge command prints the chosen policy, cleanup scope, the number of changed transition entities, the number of preserved transitions, policy warnings, and one line per changed/preserved transition with the rationale. Use `--changelevel-scope internal-only` to clean only stitched-map transitions, and use `--preserve-external-map`, `--preserve-external-landmark`, or `--preserve-external-targetname` to keep selected external transitions. See `docs/transition-cleanup-rules.md` for selector semantics and dry-run JSON examples.
 
 ## CLI job usage
 
@@ -39,7 +39,7 @@ dry_run = true
 protect_critical_entities = true
 ```
 
-Job JSON reports include a top-level `changelevel` object and the same report under `merge.changelevel`:
+Job JSON reports include a top-level `changelevel` object and the same report under `merge.changelevel`. Dry-run jobs include this diff before writing output, with `changed` and `preserved` arrays:
 
 ```json
 {
@@ -61,7 +61,7 @@ Job JSON reports include a top-level `changelevel` object and the same report un
 
 ## Desktop usage
 
-The desktop **Merge setup** panel includes a **Changelevel policy** selector. Preview and export use the same core policy pass. Status messages report the chosen policy, changed entity count, warnings, and per-transition rationale. Saved desktop project files include `changelevel_policy` so CLI jobs can replay the same choice.
+The desktop **Merge setup** panel includes **Changelevel policy**, **Scope**, and **Preserve external by map/landmark/targetname** controls. Preview and export use the same core policy pass. Status messages report the chosen policy, scope, changed entity count, preserved transition count, warnings, and per-transition rationale. Saved desktop project files include `changelevel_policy`, `changelevel_scope`, and preserve fields so CLI jobs can replay the same choice.
 
 ## Landmark warnings
 

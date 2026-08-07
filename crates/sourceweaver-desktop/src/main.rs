@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BUILTIN_VALIDATION_RULE_SETS, BrushEntityDeletionMode, BrushRole, CampaignMapInput,
     CampaignOrderSuggestion, CampaignTransition, ChangelevelPolicy, ChangelevelPolicyOptions,
-    DeletionCriteria, DeletionReport, Document, EntityMetadata, EntityRecord,
-    EntitySemanticsReport, IntegrityReport, LandmarkDiscovery, LandmarkTargetStatus,
-    MapComplexityReport, MergeInput, MergeOptions, MergeReport, NO_VALIDATION_RULE_SET_ID,
-    PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid, RuleSetValidationReport,
-    combine_preview_documents, discover_landmarks, discover_transitions,
+    ChangelevelPreserveRule, ChangelevelScope, DeletionCriteria, DeletionReport, Document,
+    EntityMetadata, EntityRecord, EntitySemanticsReport, IntegrityReport, LandmarkDiscovery,
+    LandmarkTargetStatus, MapComplexityReport, MergeInput, MergeOptions, MergeReport,
+    NO_VALIDATION_RULE_SET_ID, PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid,
+    RuleSetValidationReport, combine_preview_documents, discover_landmarks, discover_transitions,
     format_entity_semantics_issue, format_integrity_issue, format_rule_set_issue, inspect_entities,
     is_critical_entity_classname, merge_maps, metadata_for_classname_with_overrides,
     parse_fgd_metadata, preview_document, preview_document_with_source, prune_document,
@@ -44,6 +44,10 @@ struct SourceWeaverApp {
     landmark: String,
     output_path: String,
     changelevel_policy: ChangelevelPolicy,
+    changelevel_scope: ChangelevelScope,
+    preserve_external_map: String,
+    preserve_external_landmark: String,
+    preserve_external_targetname: String,
     drop_classnames: String,
     drop_targetnames: String,
     role_options: Vec<RoleOption>,
@@ -331,6 +335,14 @@ struct ProjectFile {
     #[serde(default)]
     changelevel_policy: Option<String>,
     #[serde(default)]
+    changelevel_scope: Option<String>,
+    #[serde(default)]
+    preserve_external_map: Option<String>,
+    #[serde(default)]
+    preserve_external_landmark: Option<String>,
+    #[serde(default)]
+    preserve_external_targetname: Option<String>,
+    #[serde(default)]
     delete: ProjectDeleteConfig,
     #[serde(default)]
     dry_run: bool,
@@ -434,6 +446,10 @@ impl SourceWeaverApp {
             landmark: "map_transition".to_string(),
             output_path: String::new(),
             changelevel_policy: ChangelevelPolicy::Preserve,
+            changelevel_scope: ChangelevelScope::All,
+            preserve_external_map: String::new(),
+            preserve_external_landmark: String::new(),
+            preserve_external_targetname: String::new(),
             drop_classnames: String::new(),
             drop_targetnames: String::new(),
             role_options: vec![
@@ -696,6 +712,10 @@ impl SourceWeaverApp {
                 .map(|_| project_relative_path(&PathBuf::from(self.output_path.trim()), base_dir)),
             landmark: blank_to_none(&self.landmark),
             changelevel_policy: Some(self.changelevel_policy.to_string()),
+            changelevel_scope: Some(self.changelevel_scope.to_string()),
+            preserve_external_map: blank_to_none(&self.preserve_external_map),
+            preserve_external_landmark: blank_to_none(&self.preserve_external_landmark),
+            preserve_external_targetname: blank_to_none(&self.preserve_external_targetname),
             delete: ProjectDeleteConfig::from_criteria(&criteria),
             dry_run: false,
             report: None,
@@ -733,6 +753,15 @@ impl SourceWeaverApp {
             .as_deref()
             .and_then(ChangelevelPolicy::parse)
             .unwrap_or(ChangelevelPolicy::Preserve);
+        self.changelevel_scope = project
+            .changelevel_scope
+            .as_deref()
+            .and_then(ChangelevelScope::parse)
+            .unwrap_or(ChangelevelScope::All);
+        self.preserve_external_map = project.preserve_external_map.unwrap_or_default();
+        self.preserve_external_landmark = project.preserve_external_landmark.unwrap_or_default();
+        self.preserve_external_targetname =
+            project.preserve_external_targetname.unwrap_or_default();
         self.output_path = project
             .output
             .map(|output| display_path(&resolve_project_path(base_dir, &output)))
@@ -1528,10 +1557,34 @@ impl SourceWeaverApp {
                     .map(|stem| stem.to_string_lossy().to_string())
             })
             .collect::<Vec<_>>();
+        let mut preserve_external = Vec::new();
+        if let Some(map) = blank_to_none(&self.preserve_external_map) {
+            preserve_external.push(ChangelevelPreserveRule {
+                map: Some(map),
+                landmark: None,
+                targetname: None,
+            });
+        }
+        if let Some(landmark) = blank_to_none(&self.preserve_external_landmark) {
+            preserve_external.push(ChangelevelPreserveRule {
+                map: None,
+                landmark: Some(landmark),
+                targetname: None,
+            });
+        }
+        if let Some(targetname) = blank_to_none(&self.preserve_external_targetname) {
+            preserve_external.push(ChangelevelPreserveRule {
+                map: None,
+                landmark: None,
+                targetname: Some(targetname),
+            });
+        }
         ChangelevelPolicyOptions {
             policy: self.changelevel_policy,
+            scope: self.changelevel_scope,
             output_map,
             stitched_maps,
+            preserve_external,
         }
     }
 
@@ -1540,9 +1593,11 @@ impl SourceWeaverApp {
         report: &sourceweaver_core::ChangelevelPolicyReport,
     ) {
         self.add_status(format!(
-            "Changelevel policy `{}` changed {} transition entity/entities.",
+            "Changelevel policy `{}` with scope `{}` changed {} transition entity/entities and preserved {}.",
             report.policy,
-            report.changed_count()
+            report.scope,
+            report.changed_count(),
+            report.preserved.len()
         ));
         for warning in &report.warnings {
             self.add_status(format!("Changelevel warning: {warning}"));
@@ -1551,6 +1606,12 @@ impl SourceWeaverApp {
             self.add_status(format!(
                 "Changelevel {} entity[{}]: {}",
                 change.action, change.entity_index, change.rationale
+            ));
+        }
+        for preserved in &report.preserved {
+            self.add_status(format!(
+                "Changelevel preserved entity[{}]: {}",
+                preserved.entity_index, preserved.reason
             ));
         }
     }

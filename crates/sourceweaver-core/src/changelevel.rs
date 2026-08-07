@@ -38,19 +38,82 @@ impl fmt::Display for ChangelevelPolicy {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChangelevelScope {
+    #[default]
+    All,
+    InternalOnly,
+}
+
+impl ChangelevelScope {
+    pub fn parse(value: &str) -> Option<Self> {
+        match normalize_policy(value).as_str() {
+            "all" | "alltransitions" => Some(Self::All),
+            "internalonly" | "internal" | "stitched" => Some(Self::InternalOnly),
+            _ => None,
+        }
+    }
+
+    pub fn choices() -> &'static str {
+        "all, internal-only"
+    }
+}
+
+impl fmt::Display for ChangelevelScope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::All => f.write_str("all"),
+            Self::InternalOnly => f.write_str("internal-only"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ChangelevelPreserveRule {
+    pub map: Option<String>,
+    pub landmark: Option<String>,
+    pub targetname: Option<String>,
+}
+
+impl ChangelevelPreserveRule {
+    pub fn is_empty(&self) -> bool {
+        self.map
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty()
+            && self
+                .landmark
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default()
+                .is_empty()
+            && self
+                .targetname
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default()
+                .is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangelevelPolicyOptions {
     pub policy: ChangelevelPolicy,
+    pub scope: ChangelevelScope,
     pub output_map: Option<String>,
     pub stitched_maps: Vec<String>,
+    pub preserve_external: Vec<ChangelevelPreserveRule>,
 }
 
 impl Default for ChangelevelPolicyOptions {
     fn default() -> Self {
         Self {
             policy: ChangelevelPolicy::Preserve,
+            scope: ChangelevelScope::All,
             output_map: None,
             stitched_maps: Vec::new(),
+            preserve_external: Vec::new(),
         }
     }
 }
@@ -58,14 +121,25 @@ impl Default for ChangelevelPolicyOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangelevelPolicyReport {
     pub policy: ChangelevelPolicy,
+    pub scope: ChangelevelScope,
     pub changed: Vec<ChangelevelChange>,
     pub warnings: Vec<String>,
+    pub preserved: Vec<ChangelevelPreservedTransition>,
 }
 
 impl ChangelevelPolicyReport {
     pub fn changed_count(&self) -> usize {
         self.changed.len()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangelevelPreservedTransition {
+    pub entity_index: usize,
+    pub targetname: Option<String>,
+    pub map: Option<String>,
+    pub landmark: Option<String>,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,14 +172,30 @@ pub fn apply_changelevel_policy(
 
     let mut report = ChangelevelPolicyReport {
         policy: options.policy,
+        scope: options.scope,
         changed: Vec::new(),
         warnings: Vec::new(),
+        preserved: Vec::new(),
     };
 
     match options.policy {
         ChangelevelPolicy::Preserve => {}
-        ChangelevelPolicy::Disable => disable_changelevels(document, &landmarks, &mut report),
-        ChangelevelPolicy::Delete => delete_changelevels(document, &landmarks, &mut report),
+        ChangelevelPolicy::Disable => disable_changelevels(
+            document,
+            &internal_maps,
+            options.scope,
+            &options.preserve_external,
+            &landmarks,
+            &mut report,
+        ),
+        ChangelevelPolicy::Delete => delete_changelevels(
+            document,
+            &internal_maps,
+            options.scope,
+            &options.preserve_external,
+            &landmarks,
+            &mut report,
+        ),
         ChangelevelPolicy::RewriteInternal => rewrite_internal_changelevels(
             document,
             &internal_maps,
@@ -120,17 +210,30 @@ pub fn apply_changelevel_policy(
 
 fn disable_changelevels(
     document: &mut Document,
+    internal_maps: &BTreeSet<String>,
+    scope: ChangelevelScope,
+    preserve_external: &[ChangelevelPreserveRule],
     landmarks: &BTreeSet<String>,
     report: &mut ChangelevelPolicyReport,
 ) {
     for (entity_index, body) in top_level_changelevel_bodies_mut(document) {
         let old_map = non_empty_property(body, "map");
         let landmark = transition_landmark(body);
+        let targetname = non_empty_property(body, "targetname");
+        let candidate = TransitionCleanupCandidate {
+            entity_index,
+            targetname: targetname.as_deref(),
+            map: old_map.as_deref(),
+            landmark: landmark.as_deref(),
+        };
+        if should_preserve_transition(&candidate, internal_maps, scope, preserve_external, report) {
+            continue;
+        }
         push_missing_landmark_warning(entity_index, landmark.as_deref(), landmarks, report);
         Node::set_property(body, "StartDisabled", "1");
         report.changed.push(ChangelevelChange {
             entity_index,
-            targetname: non_empty_property(body, "targetname"),
+            targetname,
             action: "disable".to_string(),
             old_map,
             new_map: None,
@@ -142,6 +245,9 @@ fn disable_changelevels(
 
 fn delete_changelevels(
     document: &mut Document,
+    internal_maps: &BTreeSet<String>,
+    scope: ChangelevelScope,
+    preserve_external: &[ChangelevelPreserveRule],
     landmarks: &BTreeSet<String>,
     report: &mut ChangelevelPolicyReport,
 ) {
@@ -152,13 +258,30 @@ fn delete_changelevels(
                 let current_index = entity_index;
                 entity_index += 1;
                 if is_changelevel_body(body) {
+                    let old_map = non_empty_property(body, "map");
                     let landmark = transition_landmark(body);
+                    let targetname = non_empty_property(body, "targetname");
+                    let candidate = TransitionCleanupCandidate {
+                        entity_index: current_index,
+                        targetname: targetname.as_deref(),
+                        map: old_map.as_deref(),
+                        landmark: landmark.as_deref(),
+                    };
+                    if should_preserve_transition(
+                        &candidate,
+                        internal_maps,
+                        scope,
+                        preserve_external,
+                        report,
+                    ) {
+                        return true;
+                    }
                     push_missing_landmark_warning(current_index, landmark.as_deref(), landmarks, report);
                     report.changed.push(ChangelevelChange {
                         entity_index: current_index,
-                        targetname: non_empty_property(body, "targetname"),
+                        targetname,
                         action: "delete".to_string(),
-                        old_map: non_empty_property(body, "map"),
+                        old_map,
                         new_map: None,
                         landmark,
                         rationale: "policy `delete` removes trigger_changelevel entities from the stitched output".to_string(),
@@ -213,6 +336,85 @@ fn rewrite_internal_changelevels(
             rationale,
         });
     }
+}
+
+struct TransitionCleanupCandidate<'a> {
+    entity_index: usize,
+    targetname: Option<&'a str>,
+    map: Option<&'a str>,
+    landmark: Option<&'a str>,
+}
+
+fn should_preserve_transition(
+    candidate: &TransitionCleanupCandidate<'_>,
+    internal_maps: &BTreeSet<String>,
+    scope: ChangelevelScope,
+    preserve_external: &[ChangelevelPreserveRule],
+    report: &mut ChangelevelPolicyReport,
+) -> bool {
+    let is_internal = candidate
+        .map
+        .map(normalize_map_name)
+        .is_some_and(|map| internal_maps.contains(&map));
+    if scope == ChangelevelScope::InternalOnly && !is_internal {
+        report.preserved.push(ChangelevelPreservedTransition {
+            entity_index: candidate.entity_index,
+            targetname: candidate.targetname.map(ToOwned::to_owned),
+            map: candidate.map.map(ToOwned::to_owned),
+            landmark: candidate.landmark.map(ToOwned::to_owned),
+            reason: "scope `internal-only` preserves external transition".to_string(),
+        });
+        return true;
+    }
+
+    if !is_internal {
+        for rule in preserve_external.iter().filter(|rule| !rule.is_empty()) {
+            if preserve_rule_matches(
+                rule,
+                candidate.targetname,
+                candidate.map,
+                candidate.landmark,
+            ) {
+                report.preserved.push(ChangelevelPreservedTransition {
+                    entity_index: candidate.entity_index,
+                    targetname: candidate.targetname.map(ToOwned::to_owned),
+                    map: candidate.map.map(ToOwned::to_owned),
+                    landmark: candidate.landmark.map(ToOwned::to_owned),
+                    reason: format!(
+                        "external transition matched preserve rule map={:?} landmark={:?} targetname={:?}",
+                        rule.map, rule.landmark, rule.targetname
+                    ),
+                });
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn preserve_rule_matches(
+    rule: &ChangelevelPreserveRule,
+    targetname: Option<&str>,
+    map: Option<&str>,
+    landmark: Option<&str>,
+) -> bool {
+    rule.map
+        .as_deref()
+        .map(|rule_map| {
+            map.is_some_and(|map| normalize_map_name(map) == normalize_map_name(rule_map))
+        })
+        .unwrap_or(true)
+        && rule
+            .landmark
+            .as_deref()
+            .map(|rule_landmark| landmark == Some(rule_landmark))
+            .unwrap_or(true)
+        && rule
+            .targetname
+            .as_deref()
+            .map(|rule_targetname| targetname == Some(rule_targetname))
+            .unwrap_or(true)
 }
 
 fn push_missing_landmark_warning(
@@ -314,6 +516,7 @@ mod tests {
                 policy: ChangelevelPolicy::Disable,
                 output_map: Some("stitched_campaign".to_string()),
                 stitched_maps: vec!["d1_a".to_string(), "d1_b".to_string()],
+                ..ChangelevelPolicyOptions::default()
             },
         );
 
@@ -340,6 +543,7 @@ mod tests {
                 policy: ChangelevelPolicy::Delete,
                 output_map: Some("stitched_campaign".to_string()),
                 stitched_maps: vec!["d1_a".to_string(), "d1_b".to_string()],
+                ..ChangelevelPolicyOptions::default()
             },
         );
 
@@ -359,6 +563,7 @@ mod tests {
                 policy: ChangelevelPolicy::RewriteInternal,
                 output_map: Some("stitched_campaign".to_string()),
                 stitched_maps: vec!["d1_a".to_string(), "d1_b".to_string()],
+                ..ChangelevelPolicyOptions::default()
             },
         );
 
@@ -371,6 +576,58 @@ mod tests {
         let output = document.to_vmf_string();
         assert!(output.contains("\"map\" \"stitched_campaign\""));
         assert!(output.contains("\"map\" \"d1_c_external\""));
+    }
+
+    #[test]
+    fn internal_only_delete_preserves_external_transitions() {
+        let mut document = parse_document(include_str!(
+            "../../../tests/fixtures/changelevel_policy_external.vmf"
+        ))
+        .unwrap();
+        let report = apply_changelevel_policy(
+            &mut document,
+            &ChangelevelPolicyOptions {
+                policy: ChangelevelPolicy::Delete,
+                scope: ChangelevelScope::InternalOnly,
+                output_map: Some("stitched_campaign".to_string()),
+                stitched_maps: vec!["d1_a".to_string(), "d1_b".to_string()],
+                preserve_external: Vec::new(),
+            },
+        );
+
+        assert_eq!(report.changed_count(), 1);
+        assert_eq!(report.preserved.len(), 1);
+        let output = document.to_vmf_string();
+        assert!(!output.contains("\"targetname\" \"to_internal\""));
+        assert!(output.contains("\"targetname\" \"to_external\""));
+    }
+
+    #[test]
+    fn external_preserve_rule_keeps_selected_transition() {
+        let mut document = parse_document(include_str!(
+            "../../../tests/fixtures/changelevel_policy_external.vmf"
+        ))
+        .unwrap();
+        let report = apply_changelevel_policy(
+            &mut document,
+            &ChangelevelPolicyOptions {
+                policy: ChangelevelPolicy::Delete,
+                scope: ChangelevelScope::All,
+                output_map: Some("stitched_campaign".to_string()),
+                stitched_maps: vec!["d1_a".to_string(), "d1_b".to_string()],
+                preserve_external: vec![ChangelevelPreserveRule {
+                    map: Some("d1_c_external".to_string()),
+                    landmark: Some("lm_exit".to_string()),
+                    targetname: Some("to_external".to_string()),
+                }],
+            },
+        );
+
+        assert_eq!(report.changed_count(), 1);
+        assert_eq!(report.preserved.len(), 1);
+        let output = document.to_vmf_string();
+        assert!(!output.contains("\"targetname\" \"to_internal\""));
+        assert!(output.contains("\"targetname\" \"to_external\""));
     }
 
     #[test]

@@ -18,6 +18,7 @@ inputs = ["next.vmf", "another.vmf"]
 output = "stitched.vmf"
 landmark = "map_transition"
 changelevel_policy = "preserve"
+changelevel_scope = "all"
 dry_run = false
 report = "sourceweaver-report.json"
 
@@ -40,7 +41,7 @@ cargo run -p sourceweaver-cli -- run --job sourceweaver-job.toml
 
 The command prints a JSON report to stdout. If the job contains `report = "..."` or the command uses `--report`, the same report is written to disk. Reports include VMF integrity counts and issue details so missing common sections, duplicate IDs, invalid IDs, and world-block errors are visible to automation. Reports also include detected `trigger_changelevel` transitions, the selected changelevel policy report, and transition-derived campaign order/landmark-pair suggestions.
 
-`changelevel_policy` accepts `preserve`, `disable`, `delete`, or `rewrite-internal`. See `docs/changelevel-policies.md` for behavior, JSON shape, and the external-tool validation boundary.
+`changelevel_policy` accepts `preserve`, `disable`, `delete`, or `rewrite-internal`. `changelevel_scope` accepts `all` or `internal-only`. Add repeated `[[preserve_external_transition]]` tables with `map`, `landmark`, and/or `targetname` to preserve selected external transitions. See `docs/changelevel-policies.md` and `docs/transition-cleanup-rules.md` for behavior, JSON shape, dry-run cleanup diffs, and the external-tool validation boundary.
 
 ```bash
 cargo run -p sourceweaver-cli -- run \

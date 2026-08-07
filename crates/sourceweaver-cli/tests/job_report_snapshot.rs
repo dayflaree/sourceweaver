@@ -325,6 +325,96 @@ stderr:
     assert!(merged.contains("\"StartDisabled\" \"1\""));
 }
 
+#[test]
+fn job_reports_transition_cleanup_preserve_diff() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args(["run", "--job", "tests/jobs/transition-cleanup.toml"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(report["output_written"], false);
+    assert_eq!(report["changelevel"]["policy"], "delete");
+    assert_eq!(report["changelevel"]["scope"], "all");
+    assert_eq!(
+        report["changelevel"]["changed"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(report["changelevel"]["changed"][0]["action"], "delete");
+    assert_eq!(
+        report["changelevel"]["changed"][0]["old_map"],
+        "changelevel_d1_b"
+    );
+    assert_eq!(
+        report["changelevel"]["preserved"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        report["changelevel"]["preserved"][0]["map"],
+        "external_entry"
+    );
+    assert!(
+        report["changelevel"]["preserved"][0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("preserve rule")
+    );
+}
+
+#[test]
+fn merge_command_internal_only_scope_preserves_external_transition() {
+    let output_path = repo_path("target/test-output/changelevel_internal_only.vmf");
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .current_dir(repo_root())
+        .args([
+            "merge",
+            "-o",
+            output_path.to_str().unwrap(),
+            "--changelevel-policy",
+            "delete",
+            "--changelevel-scope",
+            "internal-only",
+            "tests/fixtures/changelevel_d1_a.vmf",
+            "tests/fixtures/changelevel_d1_b.vmf",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:
+{}
+stderr:
+{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("changelevel scope: internal-only"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("changelevel changes: 1"), "{stdout}");
+    assert!(stdout.contains("changelevel preserved: 1"), "{stdout}");
+    let merged = std::fs::read_to_string(output_path).unwrap();
+    assert!(!merged.contains("\"targetname\" \"to_internal\""));
+    assert!(merged.contains("\"targetname\" \"to_external\""));
+}
+
 #[cfg(unix)]
 #[test]
 fn bsp_import_supports_bspsource_cli_argument_shape() {

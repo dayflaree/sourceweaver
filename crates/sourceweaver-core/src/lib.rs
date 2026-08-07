@@ -28,6 +28,7 @@ pub use campaign::{
 };
 pub use changelevel::{
     ChangelevelChange, ChangelevelPolicy, ChangelevelPolicyOptions, ChangelevelPolicyReport,
+    ChangelevelPreserveRule, ChangelevelPreservedTransition, ChangelevelScope,
     apply_changelevel_policy, normalize_map_name,
 };
 pub use classify::{BrushRole, EntityRecord, inspect_entities, summarize_entity_types};

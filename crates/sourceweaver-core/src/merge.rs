@@ -72,8 +72,10 @@ pub fn merge_maps(
         applied_offsets: vec![(base_label, Vec3::ZERO)],
         changelevel: ChangelevelPolicyReport {
             policy: options.changelevel.policy,
+            scope: options.changelevel.scope,
             changed: Vec::new(),
             warnings: Vec::new(),
+            preserved: Vec::new(),
         },
     };
 
@@ -136,8 +138,10 @@ pub fn merge_maps(
     if matches!(changelevel_options.policy, ChangelevelPolicy::Preserve) {
         report.changelevel = ChangelevelPolicyReport {
             policy: ChangelevelPolicy::Preserve,
+            scope: changelevel_options.scope,
             changed: Vec::new(),
             warnings: Vec::new(),
+            preserved: Vec::new(),
         };
     } else {
         report.changelevel = apply_changelevel_policy(&mut base, &changelevel_options);

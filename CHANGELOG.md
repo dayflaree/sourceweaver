@@ -24,6 +24,7 @@
 - Centralized VMF ID-reference remap policy plus integrity warnings for unsupported suspected ID-reference fields.
 - VMF complexity heuristic summary for entities, brush solids, sides/faces, displacements, and overlays in CLI JSON/text output and desktop validation UI.
 - Changelevel preservation, disable, delete, and internal-rewrite policies for CLI merge, CLI jobs, and desktop merge workflows.
+- Configurable transition cleanup scope and external preserve selectors with dry-run JSON diffs and desktop project persistence.
 
 ### Changed
 

@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use sourceweaver_core::{
     BrushEntityDeletionMode, BrushRole, CampaignMapInput, CampaignOrderSuggestion,
     CampaignTransition, ChangelevelChange, ChangelevelPolicy, ChangelevelPolicyOptions,
-    ChangelevelPolicyReport, DeletionCriteria, DeletionReport, Document, EntitySemanticsReport,
+    ChangelevelPolicyReport, ChangelevelPreserveRule, ChangelevelPreservedTransition,
+    ChangelevelScope, DeletionCriteria, DeletionReport, Document, EntitySemanticsReport,
     IntegrityReport, MapComplexityReport, MergeInput, MergeOptions, MergeReport,
     RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport, discover_landmarks,
     discover_transitions, format_integrity_issue, inspect_entities, merge_maps, parse_compile_log,
@@ -197,6 +198,8 @@ fn merge_command(args: &[String]) -> Result<(), String> {
     let mut output: Option<PathBuf> = None;
     let mut landmark: Option<String> = None;
     let mut changelevel_policy = ChangelevelPolicy::Preserve;
+    let mut changelevel_scope = ChangelevelScope::All;
+    let mut preserve_external = Vec::new();
     let mut inputs = Vec::new();
 
     let mut cursor = 0;
@@ -219,6 +222,46 @@ fn merge_command(args: &[String]) -> Result<(), String> {
                     .ok_or("--changelevel-policy needs a value")?;
                 changelevel_policy = parse_changelevel_policy(value)?;
             }
+            "--changelevel-scope" => {
+                cursor += 1;
+                let value = args
+                    .get(cursor)
+                    .ok_or("--changelevel-scope needs a value")?;
+                changelevel_scope = parse_changelevel_scope(value)?;
+            }
+            "--preserve-external-map" => {
+                cursor += 1;
+                let value = args
+                    .get(cursor)
+                    .ok_or("--preserve-external-map needs a map name")?;
+                preserve_external.push(ChangelevelPreserveRule {
+                    map: Some(value.clone()),
+                    landmark: None,
+                    targetname: None,
+                });
+            }
+            "--preserve-external-landmark" => {
+                cursor += 1;
+                let value = args
+                    .get(cursor)
+                    .ok_or("--preserve-external-landmark needs a landmark")?;
+                preserve_external.push(ChangelevelPreserveRule {
+                    map: None,
+                    landmark: Some(value.clone()),
+                    targetname: None,
+                });
+            }
+            "--preserve-external-targetname" => {
+                cursor += 1;
+                let value = args
+                    .get(cursor)
+                    .ok_or("--preserve-external-targetname needs a targetname")?;
+                preserve_external.push(ChangelevelPreserveRule {
+                    map: None,
+                    landmark: None,
+                    targetname: Some(value.clone()),
+                });
+            }
             value if value.starts_with('-') => return Err(format!("unknown merge flag `{value}`")),
             value => inputs.push(PathBuf::from(value)),
         }
@@ -227,7 +270,7 @@ fn merge_command(args: &[String]) -> Result<(), String> {
 
     if inputs.len() < 2 {
         return Err(
-            "usage: sourceweaver merge -o <out.vmf> [--landmark name] [--changelevel-policy preserve|disable|delete|rewrite-internal] <base.vmf> <add.vmf> [...]"
+            "usage: sourceweaver merge -o <out.vmf> [--landmark name] [--changelevel-policy preserve|disable|delete|rewrite-internal] [--changelevel-scope all|internal-only] [--preserve-external-map map] [--preserve-external-landmark name] [--preserve-external-targetname name] <base.vmf> <add.vmf> [...]"
                 .to_string(),
         );
     }
@@ -263,8 +306,10 @@ fn merge_command(args: &[String]) -> Result<(), String> {
             landmark,
             changelevel: ChangelevelPolicyOptions {
                 policy: changelevel_policy,
+                scope: changelevel_scope,
                 output_map,
                 stitched_maps,
+                preserve_external,
             },
         },
     )?;
@@ -276,6 +321,7 @@ fn merge_command(args: &[String]) -> Result<(), String> {
         println!("offset\t{}\t{}", label, offset);
     }
     println!("changelevel policy: {}", report.changelevel.policy);
+    println!("changelevel scope: {}", report.changelevel.scope);
     println!(
         "changelevel changes: {}",
         report.changelevel.changed_count()
@@ -287,6 +333,16 @@ fn merge_command(args: &[String]) -> Result<(), String> {
         println!(
             "changelevel\t{}\tentity[{}]\t{}",
             change.action, change.entity_index, change.rationale
+        );
+    }
+    println!(
+        "changelevel preserved: {}",
+        report.changelevel.preserved.len()
+    );
+    for preserved in &report.changelevel.preserved {
+        println!(
+            "changelevel-preserved\tentity[{}]\t{}",
+            preserved.entity_index, preserved.reason
         );
     }
     println!("wrote {}", output.display());
@@ -2654,11 +2710,26 @@ struct AutomationJob {
     #[serde(default)]
     changelevel_policy: Option<String>,
     #[serde(default)]
+    changelevel_scope: Option<String>,
+    #[serde(default)]
+    preserve_external_transition: Vec<ChangelevelPreserveRuleConfig>,
+    #[serde(default)]
     delete: DeleteConfig,
     #[serde(default)]
     dry_run: bool,
     #[serde(default)]
     report: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChangelevelPreserveRuleConfig {
+    #[serde(default)]
+    map: Option<String>,
+    #[serde(default)]
+    landmark: Option<String>,
+    #[serde(default)]
+    targetname: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -2756,7 +2827,9 @@ struct TransitionSnapshot {
 #[derive(Debug, Clone, Serialize)]
 struct ChangelevelPolicySnapshot {
     policy: String,
+    scope: String,
     changed: Vec<ChangelevelChangeSnapshot>,
+    preserved: Vec<ChangelevelPreservedSnapshot>,
     warnings: Vec<String>,
 }
 
@@ -2769,6 +2842,15 @@ struct ChangelevelChangeSnapshot {
     new_map: Option<String>,
     landmark: Option<String>,
     rationale: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ChangelevelPreservedSnapshot {
+    entity_index: usize,
+    targetname: Option<String>,
+    map: Option<String>,
+    landmark: Option<String>,
+    reason: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3290,6 +3372,8 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
             .map(|(label, document)| MergeInput { label, document })
             .collect::<Vec<_>>();
         let changelevel_policy = selected_job_changelevel_policy(job)?;
+        let changelevel_scope = selected_job_changelevel_scope(job)?;
+        let preserve_external = job_preserve_external_rules(job)?;
         let output_map = output_path.as_ref().and_then(|path| {
             path.file_stem()
                 .map(|stem| stem.to_string_lossy().to_string())
@@ -3310,8 +3394,10 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
                     .filter(|value| !value.trim().is_empty()),
                 changelevel: ChangelevelPolicyOptions {
                     policy: changelevel_policy,
+                    scope: changelevel_scope,
                     output_map,
                     stitched_maps,
+                    preserve_external,
                 },
             },
         )?;
@@ -3384,7 +3470,9 @@ fn execute_job(job: &AutomationJob, base_dir: &Path) -> Result<AutomationReport,
             .map(|merge| merge.changelevel.clone())
             .unwrap_or_else(|| ChangelevelPolicySnapshot {
                 policy: "preserve".to_string(),
+                scope: "all".to_string(),
                 changed: Vec::new(),
+                preserved: Vec::new(),
                 warnings: Vec::new(),
             }),
         merge: merge_snapshot,
@@ -3453,12 +3541,30 @@ fn snapshot_changelevel_policy_report(
 ) -> ChangelevelPolicySnapshot {
     ChangelevelPolicySnapshot {
         policy: report.policy.to_string(),
+        scope: report.scope.to_string(),
         changed: report
             .changed
             .iter()
             .map(snapshot_changelevel_change)
             .collect(),
+        preserved: report
+            .preserved
+            .iter()
+            .map(snapshot_changelevel_preserved)
+            .collect(),
         warnings: report.warnings.clone(),
+    }
+}
+
+fn snapshot_changelevel_preserved(
+    preserved: &ChangelevelPreservedTransition,
+) -> ChangelevelPreservedSnapshot {
+    ChangelevelPreservedSnapshot {
+        entity_index: preserved.entity_index,
+        targetname: preserved.targetname.clone(),
+        map: preserved.map.clone(),
+        landmark: preserved.landmark.clone(),
+        reason: preserved.reason.clone(),
     }
 }
 
@@ -3667,6 +3773,15 @@ fn print_validation_snapshot(snapshot: &ValidationSnapshot) {
     }
 }
 
+fn parse_changelevel_scope(value: &str) -> Result<ChangelevelScope, String> {
+    ChangelevelScope::parse(value).ok_or_else(|| {
+        format!(
+            "unknown changelevel scope `{value}`. available scopes: {}",
+            ChangelevelScope::choices()
+        )
+    })
+}
+
 fn parse_changelevel_policy(value: &str) -> Result<ChangelevelPolicy, String> {
     ChangelevelPolicy::parse(value).ok_or_else(|| {
         format!(
@@ -3681,6 +3796,37 @@ fn selected_job_changelevel_policy(job: &AutomationJob) -> Result<ChangelevelPol
         .as_deref()
         .map(parse_changelevel_policy)
         .unwrap_or(Ok(ChangelevelPolicy::Preserve))
+}
+
+fn selected_job_changelevel_scope(job: &AutomationJob) -> Result<ChangelevelScope, String> {
+    job.changelevel_scope
+        .as_deref()
+        .map(parse_changelevel_scope)
+        .unwrap_or(Ok(ChangelevelScope::All))
+}
+
+fn job_preserve_external_rules(
+    job: &AutomationJob,
+) -> Result<Vec<ChangelevelPreserveRule>, String> {
+    let mut rules = Vec::new();
+    for rule in &job.preserve_external_transition {
+        let rule = ChangelevelPreserveRule {
+            map: rule.map.clone().filter(|value| !value.trim().is_empty()),
+            landmark: rule
+                .landmark
+                .clone()
+                .filter(|value| !value.trim().is_empty()),
+            targetname: rule
+                .targetname
+                .clone()
+                .filter(|value| !value.trim().is_empty()),
+        };
+        if rule.is_empty() {
+            return Err("preserve_external_transition entries need at least one of map, landmark, or targetname".to_string());
+        }
+        rules.push(rule);
+    }
+    Ok(rules)
 }
 
 fn selected_validation_rule_set(
@@ -3784,7 +3930,7 @@ Usage:
   sourceweaver inspect <map.vmf>
   sourceweaver list-types <map.vmf>
   sourceweaver prune <map.vmf> -o <out.vmf> [--drop-classname name] [--drop-targetname name] [--drop-role role] [--drop-all-entities] [--brush-entity-mode whole-entity|matching-solids] [--allow-critical-deletion]
-  sourceweaver merge -o <out.vmf> [--landmark targetname] [--changelevel-policy preserve|disable|delete|rewrite-internal] <base.vmf> <add.vmf> [...]
+  sourceweaver merge -o <out.vmf> [--landmark targetname] [--changelevel-policy preserve|disable|delete|rewrite-internal] [--changelevel-scope all|internal-only] [--preserve-external-map map] [--preserve-external-landmark name] [--preserve-external-targetname name] <base.vmf> <add.vmf> [...]
   sourceweaver validate <map.vmf> [--compile-log log.txt] [--rule-set none|hl2] [--vbsp path] [--game game-dir] [--capture-log log.txt] [--timeout-seconds seconds] [--json]
   sourceweaver compile <map.vmf> [--profile profile.toml] [--vbsp path] [--vvis path] [--vrad path] [--game game-dir] [--steps vbsp,vvis,vrad] [--log-dir dir] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver compile-profile create|validate|discover [options]
@@ -3837,7 +3983,7 @@ Source SDK workflow when VBSP is installed:
   sourceweaver validate merged.vmf --vbsp /path/to/vbsp --game /path/to/game --capture-log vbsp.log --json
 
 Rule sets are portable checks. Available rule sets: none, hl2.
-Changelevel merge policies are portable VMF edits: preserve, disable, delete, rewrite-internal.
+Changelevel merge policies are portable VMF edits: preserve, disable, delete, rewrite-internal. Cleanup scope can be all or internal-only; external transitions can be preserved by map, landmark, or targetname.
 External tool runs default to a 900 second timeout. Override with --timeout-seconds.
 "#
     );
