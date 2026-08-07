@@ -60,12 +60,21 @@ if ($LASTEXITCODE -ne 0) {
 
 $uninstaller = Join-Path $InstallDir "Uninstall Source Weaver.exe"
 Write-Output "Uninstalling $InstallDir"
-$uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @("/S", "_?=$InstallDir") -Wait -PassThru
+$uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @("/S") -Wait -PassThru
 if ($null -ne $uninstallProcess.ExitCode -and $uninstallProcess.ExitCode -ne 0) {
     throw "Uninstaller exited with code $($uninstallProcess.ExitCode)"
 }
 
+foreach ($attempt in 1..20) {
+    if (-not (Test-Path $InstallDir) -and -not (Test-Path $startMenuShortcut) -and -not (Test-Path $desktopShortcut)) {
+        break
+    }
+    Start-Sleep -Milliseconds 250
+}
+
 if (Test-Path $InstallDir) {
+    Write-Output "Remaining install directory entries:"
+    Get-ChildItem -Force -Recurse $InstallDir | ForEach-Object { Write-Output $_.FullName }
     throw "Install directory still exists after uninstall: $InstallDir"
 }
 foreach ($shortcut in @($startMenuShortcut, $desktopShortcut)) {
