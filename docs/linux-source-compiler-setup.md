@@ -89,6 +89,84 @@ examples/wrappers/proton-source-tool.sh -game "/path/to/game" stitched.vmf
 
 Create one small wrapper per tool or set `SOURCE_TOOL_EXE` in the environment that launches Source Weaver.
 
+
+## Verified Proton compile row: Garry's Mod Source++ tools
+
+The following local validation row was completed on 2026-08-07 and is recorded in `docs/source-compiler-smoke-test-matrix.md` Row C.
+
+Environment:
+
+```text
+os: Linux OldBeast 7.0.0-29-generic x86_64
+steam_root: /home/elijah/snap/steam/common/.local/share/Steam
+proton_path: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/Proton 10.0/proton
+proton_compat_version_file: /home/elijah/snap/steam/common/.local/share/hammerplusplus-gmod/compatdata/version = 10.1000-105
+steam_compat_client_install_path: /home/elijah/snap/steam/common/.local/share/Steam
+steam_compat_data_path: /home/elijah/snap/steam/common/.local/share/hammerplusplus-gmod/compatdata
+steam_app_id: 4000
+game_dir: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod
+```
+
+Local wrapper shape:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+STEAM_ROOT="${STEAM_ROOT:-$HOME/snap/steam/common/.local/share/Steam}"
+GMOD_ROOT="$STEAM_ROOT/steamapps/common/GarrysMod"
+DATA_ROOT="$HOME/snap/steam/common/.local/share/hammerplusplus-gmod"
+
+case "${0##*/}" in
+    vbspplusplus-gmod) TOOL=vbspplusplus.exe ;;
+    vvisplusplus-gmod) TOOL=vvisplusplus.exe ;;
+    vradplusplus-gmod) TOOL=vradplusplus.exe ;;
+    *) exit 2 ;;
+esac
+
+PROTON="$STEAM_ROOT/steamapps/common/Proton 10.0/proton"
+EXE="$GMOD_ROOT/bin/win64/$TOOL"
+mkdir -p "$DATA_ROOT/compatdata"
+export STEAM_COMPAT_CLIENT_INSTALL_PATH="$STEAM_ROOT"
+export STEAM_COMPAT_DATA_PATH="$DATA_ROOT/compatdata"
+export STEAM_COMPAT_APP_ID=4000
+export SteamAppId=4000
+export SteamGameId=4000
+cd "$GMOD_ROOT/bin/win64"
+exec "$PROTON" run "$EXE" "$@"
+```
+
+Source Weaver profile validation command used for the row:
+
+```bash
+sourceweaver compile-profile create   --output /tmp/sourceweaver-real-compiler-smoke-118/smoke-compile-profile.toml   --vbsp /home/elijah/.local/bin/vbspplusplus-gmod   --vvis /home/elijah/.local/bin/vvisplusplus-gmod   --vrad /home/elijah/.local/bin/vradplusplus-gmod   --game /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod   --steps vbsp,vvis,vrad   --log-dir /tmp/sourceweaver-real-compiler-smoke-118/logs   --timeout-seconds 1800   --validate   --json
+```
+
+Real compile command used for the row:
+
+```bash
+sourceweaver compile /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.vmf   --profile /tmp/sourceweaver-real-compiler-smoke-118/smoke-compile-profile.toml   --steps vbsp,vvis,vrad   --log-dir /tmp/sourceweaver-real-compiler-smoke-118/logs   --timeout-seconds 1800   --report /tmp/sourceweaver-real-compiler-smoke-118/smoke-compile-report.json   --json
+```
+
+Observed result:
+
+```text
+sourceweaver_report_ok: true
+vbsp_exit: 0
+vvis_exit: 0
+vrad_exit: 0
+output_bsp: /tmp/sourceweaver-real-compiler-smoke-118/smoke_box.bsp
+output_bsp_size: 65,808 bytes
+leak_detected: false
+```
+
+Caveats:
+
+- This was a real Proton-backed VBSP++/VVIS++/VRAD++ compile run, not a native Linux tool run.
+- The smoke VMF, temporary validation material, generated BSP, and logs remain outside the repository because they depend on local game/runtime content and are evidence artifacts, not redistributable fixtures.
+- The compiler transcript reported `Could not locate GameData file garrysmod.fgd` and an instance-collapse caveat, but the tiny smoke map used no instances and all Source Weaver step reports passed.
+- No Hammer/Hammer++, HLMV, BSPZIP, game runtime map-load, SDK installer, proprietary model, proprietary BSP, or committed game content was run or bundled for this row.
+
 ## Desktop use
 
 After creating and validating a profile, open the desktop app and use **Optional external compile**. Select the same profile, choose logs/report paths, and enable **Run compile after successful Merge selected VMFs** when you want a post-export compile. Set `SOURCEWEAVER_CLI` before launching the desktop app if the CLI executable is not next to the desktop executable.

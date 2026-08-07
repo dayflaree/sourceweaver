@@ -53,6 +53,7 @@
 - Completed Proton-backed real VBSP++/VVIS++/VRAD++ smoke-test matrix row for Garry's Mod Source++ tools and adjusted compile-step reporting for quiet wrapper logs.
 - Hammer/Hammer++ open/save validation workflow documentation with required evidence fields, saved-VMF diff checks, and sanitization rules.
 - Runtime map-load validation workflow planning command and documentation for console/log evidence, missing assets, crashes, and gameplay smoke notes.
+- Verified Proton compile setup documentation for the Garry's Mod Source++ real compiler row, including compatdata and evidence paths.
 
 ### Changed
 
