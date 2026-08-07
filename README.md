@@ -281,6 +281,8 @@ cargo run -p sourceweaver-cli -- model-decompile models/props/example.mdl \
   --log model-decompile.log \
   --report model-decompile-report.json \
   --json
+
+cargo run -p sourceweaver-cli -- model-source-manifest decompiled/example --json
 ```
 
 See `docs/model-tooling.md` and `docs/model-decompile.md` for Crowbar research, licensing notes, wrapper usage, and model-tooling boundaries.

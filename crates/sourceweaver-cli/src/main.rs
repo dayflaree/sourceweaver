@@ -58,6 +58,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "model-inspect" => model_inspect_command(&args[1..]),
         "model-compile" => model_compile_command(&args[1..]),
         "model-decompile" | "decompile-model" => model_decompile_command(&args[1..]),
+        "model-source-manifest" | "model-sources" => model_source_manifest_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "bsp-import-presets" | "bspsource-presets" => bsp_import_presets_command(&args[1..]),
         "external-decompiler-presets" | "decompiler-presets" => {
@@ -3133,6 +3134,86 @@ fn finish_model_compile_report(
     Ok(())
 }
 
+fn model_source_manifest_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_model_source_manifest_help();
+        return Ok(());
+    }
+    let mut output_dir = None;
+    let mut json = false;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown model-source-manifest flag `{value}`"));
+            }
+            value => {
+                if output_dir.is_some() {
+                    return Err("model-source-manifest accepts one output directory".to_string());
+                }
+                output_dir = Some(PathBuf::from(value));
+            }
+        }
+    }
+    let output_dir = output_dir
+        .ok_or("usage: sourceweaver model-source-manifest <decompiled-output-dir> [--json]")?;
+    if !output_dir.is_dir() {
+        return Err(format!(
+            "model source output directory does not exist: {}",
+            output_dir.display()
+        ));
+    }
+    let discovered_outputs = collect_model_decompile_outputs(&output_dir)?;
+    let report = ModelSourceManifestReport {
+        ok: true,
+        output_dir: output_dir.display().to_string(),
+        source_outputs: build_model_source_manifest(&discovered_outputs),
+        discovered_outputs,
+        external_tool_boundary: vec![
+            "Source Weaver classified files already present in the output directory only.".to_string(),
+            "No Crowbar, StudioMDL, HLMV, model decompiler, SDK install, game runtime, proprietary model, or game content was run by this command.".to_string(),
+            "QC/SMD/DMX/VTA ownership and redistribution rights remain the user's responsibility.".to_string(),
+        ],
+        real_tool_validation: false,
+    };
+    let encoded = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode model source manifest report: {error}"))?;
+    if json {
+        println!("{encoded}");
+    } else {
+        println!("model source manifest: ok");
+        println!("output dir: {}", report.output_dir);
+        println!("qc: {}", report.source_outputs.qc_files.len());
+        println!("smd: {}", report.source_outputs.smd_files.len());
+        println!("dmx: {}", report.source_outputs.dmx_files.len());
+        println!("vta: {}", report.source_outputs.vta_files.len());
+        println!("other: {}", report.source_outputs.other_files.len());
+    }
+    Ok(())
+}
+
+fn build_model_source_manifest(outputs: &[String]) -> ModelSourceOutputManifest {
+    let mut manifest = ModelSourceOutputManifest {
+        total_files: outputs.len(),
+        ..ModelSourceOutputManifest::default()
+    };
+    for output in outputs {
+        let lower = output.to_ascii_lowercase();
+        if lower.ends_with(".qc") || lower.ends_with(".qci") {
+            manifest.qc_files.push(output.clone());
+        } else if lower.ends_with(".smd") {
+            manifest.smd_files.push(output.clone());
+        } else if lower.ends_with(".dmx") {
+            manifest.dmx_files.push(output.clone());
+        } else if lower.ends_with(".vta") {
+            manifest.vta_files.push(output.clone());
+        } else {
+            manifest.other_files.push(output.clone());
+        }
+    }
+    manifest
+}
+
 fn model_decompile_command(args: &[String]) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_model_decompile_help();
@@ -3223,6 +3304,7 @@ fn model_decompile_command(args: &[String]) -> Result<(), String> {
         input_mdl: input_mdl.display().to_string(),
         output_dir: output_dir.display().to_string(),
         output_dir_exists: output_dir.is_dir(),
+        source_outputs: build_model_source_manifest(&outputs),
         discovered_outputs: outputs,
         game: config.game.as_ref().map(|path| path.display().to_string()),
         exit_code: tool_output.status.code(),
@@ -5443,6 +5525,26 @@ struct ModelDecompileInvocation {
     uses_argument_template: bool,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+struct ModelSourceOutputManifest {
+    total_files: usize,
+    qc_files: Vec<String>,
+    smd_files: Vec<String>,
+    dmx_files: Vec<String>,
+    vta_files: Vec<String>,
+    other_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelSourceManifestReport {
+    ok: bool,
+    output_dir: String,
+    source_outputs: ModelSourceOutputManifest,
+    discovered_outputs: Vec<String>,
+    external_tool_boundary: Vec<String>,
+    real_tool_validation: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct ModelDecompileReport {
     ok: bool,
@@ -5455,6 +5557,7 @@ struct ModelDecompileReport {
     input_mdl: String,
     output_dir: String,
     output_dir_exists: bool,
+    source_outputs: ModelSourceOutputManifest,
     discovered_outputs: Vec<String>,
     game: Option<String>,
     exit_code: Option<i32>,
@@ -6341,6 +6444,7 @@ Usage:
   sourceweaver model-inspect <model.mdl> [--asset-root dir] [--json]
   sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver model-source-manifest <decompiled-output-dir> [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--context-profile id] [--tool-cwd dir] [--library-path dir] [--game-dir dir] [--pass-game-dir] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bspzip-context-profiles [--json]
@@ -6497,6 +6601,18 @@ Command shape:
   studiomdl [--tool-arg values...] [-game <game-dir>] <model.qc>
 
 Use --tool-arg once per additional StudioMDL option. External tool runs default to a 900 second timeout.
+"#
+    );
+}
+
+fn print_model_source_manifest_help() {
+    println!(
+        r#"Usage:
+  sourceweaver model-source-manifest <decompiled-output-dir> [--json]
+
+Classifies files already present in a model decompile output directory into
+QC/QCI, SMD, DMX, VTA, and other output groups. This command does not run
+Crowbar, StudioMDL, HLMV, model decompilers, SDK tools, or game runtimes.
 "#
     );
 }

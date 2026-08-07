@@ -2870,3 +2870,89 @@ fn model_inspect_reports_synthetic_vvd_vtx_phy_companions() {
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn model_source_manifest_classifies_qc_smd_dmx_outputs() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-source-manifest-test-{}-{nonce}",
+        std::process::id()
+    ));
+    let source_dir = temp_dir.join("sources");
+    std::fs::create_dir_all(source_dir.join("anims")).unwrap();
+    std::fs::write(source_dir.join("model.qc"), b"$modelname test.mdl").unwrap();
+    std::fs::write(source_dir.join("shared.qci"), b"$cdmaterials models/test").unwrap();
+    std::fs::write(source_dir.join("reference.smd"), b"version 1").unwrap();
+    std::fs::write(source_dir.join("anims/idle.smd"), b"version 1").unwrap();
+    std::fs::write(source_dir.join("shape.dmx"), b"<!-- dmx fixture -->").unwrap();
+    std::fs::write(source_dir.join("flex.vta"), b"version 1").unwrap();
+    std::fs::write(source_dir.join("notes.txt"), b"notes").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "model-source-manifest",
+            source_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["source_outputs"]["total_files"], 7);
+    assert_eq!(
+        report["source_outputs"]["qc_files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        report["source_outputs"]["smd_files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        report["source_outputs"]["dmx_files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        report["source_outputs"]["vta_files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        report["source_outputs"]["other_files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        report["external_tool_boundary"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str().unwrap().contains("No Crowbar"))
+    );
+    assert_eq!(report["real_tool_validation"], false);
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

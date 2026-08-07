@@ -44,6 +44,7 @@ The JSON report includes:
 - `command_shape`, `command_args`, and raw `--tool-arg` values;
 - whether placeholder expansion was used;
 - input `.mdl` path and output directory;
+- `source_outputs`, a classified manifest of generated QC/QCI, SMD, DMX, VTA, and other files;
 - recursively discovered output files such as QC, SMD, DMX, VTA, or wrapper-specific logs;
 - optional game/content directory;
 - exit status;
@@ -60,6 +61,24 @@ The JSON report includes:
 
 The wrapper is an example only. Review and adapt it to the actual local tool before use.
 
+## Source output manifest
+
+Classify a decompile output directory without running any external tool:
+
+```bash
+sourceweaver model-source-manifest decompiled/example --json
+```
+
+The manifest groups discovered files into:
+
+- `qc_files` for `.qc` and `.qci` files;
+- `smd_files`;
+- `dmx_files`;
+- `vta_files`;
+- `other_files`.
+
+This command supports an external-tool delegated workflow: a user runs their own legal model decompiler or wrapper, then Source Weaver records a reproducible manifest of the generated sources for review, packaging, or UI display. It does not prove that the files are correct, editable, or legally redistributable.
+
 ## Crowbar research boundary
 
 Sources checked on 2026-08-07:
@@ -75,8 +94,8 @@ Findings used for this implementation:
 - The upstream README directs users to the Crowbar Steam group for official links and describes Visual Basic/Visual Studio builds.
 - The source scan found GUI startup and command-line argument plumbing, but no stable documented headless decompile command shape suitable for Source Weaver to bake in as a tool-specific command.
 
-Source Weaver therefore provides a generic headless wrapper runner rather than a Crowbar-specific runner. Source Weaver does not bundle Crowbar, copy Crowbar implementation details, redistribute model decompilers, run StudioMDL, run HLMV, install SDKs, or include proprietary game models/content.
+Source Weaver therefore provides a generic headless wrapper runner and output-manifest classifier rather than a Crowbar-specific native decompiler. Source Weaver does not bundle Crowbar, copy Crowbar implementation details, redistribute model decompilers, run StudioMDL, run HLMV, install SDKs, or include proprietary game models/content.
 
 ## Validation evidence
 
-The repository test suite uses a synthetic `.mdl` header and a local fake wrapper that writes QC/SMD fixture outputs. That verifies Source Weaver command shaping, placeholder expansion, log capture, output discovery, report fields, and boundary text. It is not real Crowbar validation and does not prove any real model was decompiled.
+The repository test suite uses a synthetic `.mdl` header, local fake wrappers, and synthetic QC/QCI/SMD/DMX/VTA output trees. That verifies Source Weaver command shaping, placeholder expansion, log capture, output discovery, source-output manifest classification, report fields, and boundary text. It is not real Crowbar validation and does not prove any real model was decompiled.

@@ -143,6 +143,14 @@ sourceweaver model-decompile models/props/example.mdl \
 
 See `docs/model-decompile.md` for placeholder expansion, report fields, wrapper examples, and the Crowbar boundary. Source Weaver does not assume Crowbar has a supported headless CLI unless current Crowbar documentation confirms one. If Crowbar is used through Wine or manually by the user, Source Weaver treats it as an external user workflow and avoids bundling Crowbar binaries.
 
+Classify already-generated QC/SMD/DMX/VTA outputs without launching a decompiler:
+
+```bash
+sourceweaver model-source-manifest decompiled/example --json
+```
+
+This supports external-tool delegated workflows by recording which source-like files were produced while keeping ownership/licensing and tool validation separate.
+
 ## Release wording
 
 Use precise wording:
@@ -154,7 +162,7 @@ Use precise wording:
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
+This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, synthetic QC/QCI/SMD/DMX/VTA source-output manifests, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
 
 ## Desktop model tooling panel
 
