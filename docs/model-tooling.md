@@ -151,6 +151,22 @@ sourceweaver model-source-manifest decompiled/example --json
 
 This supports external-tool delegated workflows by recording which source-like files were produced while keeping ownership/licensing and tool validation separate.
 
+Build a reviewable model package manifest, optionally copying resolved files into package-relative paths:
+
+```bash
+sourceweaver model-package models/props/example.mdl \
+  --asset-root /path/to/game \
+  --asset-root /path/to/mod \
+  --output-dir package-root \
+  --copy \
+  --report model-package-report.json \
+  --json
+```
+
+`model-package` includes the input MDL, sibling VVD/VTX/PHY companion files, and resolved model material dependencies from the `model-inspect` metadata pipeline. Default mode is review-only. `--copy` must be paired with `--output-dir` and copies only resolved local files selected from the input path or configured asset roots. Missing companion/material files, ambiguous materials, and ownership caveats are recorded in the report.
+
+Package manifests do not bundle assets by themselves and do not grant redistribution rights. They are a review/copy workflow for user-owned local content.
+
 ## Release wording
 
 Use precise wording:
@@ -162,7 +178,7 @@ Use precise wording:
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, synthetic QC/QCI/SMD/DMX/VTA source-output manifests, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
+This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, synthetic model package copy trees, synthetic QC/QCI/SMD/DMX/VTA source-output manifests, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
 
 ## Desktop model tooling panel
 

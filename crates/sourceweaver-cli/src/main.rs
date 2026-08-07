@@ -59,6 +59,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "model-compile" => model_compile_command(&args[1..]),
         "model-decompile" | "decompile-model" => model_decompile_command(&args[1..]),
         "model-source-manifest" | "model-sources" => model_source_manifest_command(&args[1..]),
+        "model-package" | "package-model" => model_package_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "bsp-import-presets" | "bspsource-presets" => bsp_import_presets_command(&args[1..]),
         "external-decompiler-presets" | "decompiler-presets" => {
@@ -3134,6 +3135,274 @@ fn finish_model_compile_report(
     Ok(())
 }
 
+fn model_package_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_model_package_help();
+        return Ok(());
+    }
+    let config = parse_model_package_args(args)?;
+    let model = config.input_mdl.as_ref().ok_or("usage: sourceweaver model-package <model.mdl> --asset-root dir [--output-dir dir] [--copy] [--report report.json] [--json]")?;
+    if !model.is_file() {
+        return Err(format!(
+            "model-package input MDL does not exist: {}",
+            model.display()
+        ));
+    }
+    if config.copy && config.output_dir.is_none() {
+        return Err("model-package --copy needs --output-dir".to_string());
+    }
+    let inspect = inspect_mdl_header(model, &config.asset_roots)?;
+    let mut files = Vec::new();
+    let mut warnings = Vec::new();
+    let model_internal = internal_path_from_roots(&config.asset_roots, model)
+        .unwrap_or_else(|| fallback_model_internal_path(model));
+    if internal_path_from_roots(&config.asset_roots, model).is_none() {
+        warnings.push(format!(
+            "input MDL {} is not under any --asset-root; package internal path defaults to {}",
+            model.display(),
+            model_internal
+        ));
+    }
+    files.push(ModelPackageFileEntry {
+        kind: "mdl".to_string(),
+        internal_path: model_internal,
+        source_path: Some(model.display().to_string()),
+        selected_path: Some(model.display().to_string()),
+        candidates: vec![model.display().to_string()],
+        status: "resolved".to_string(),
+        copied_to: None,
+        warnings: Vec::new(),
+    });
+    if let Some(companions) = &inspect.companion_files {
+        for companion in &companions.files {
+            let path = PathBuf::from(&companion.path);
+            let internal_path = internal_path_from_roots(&config.asset_roots, &path)
+                .unwrap_or_else(|| fallback_companion_internal_path(model, &path));
+            files.push(ModelPackageFileEntry {
+                kind: companion.kind.clone(),
+                internal_path,
+                source_path: Some(companion.path.clone()),
+                selected_path: Some(companion.path.clone()),
+                candidates: vec![companion.path.clone()],
+                status: if companion.errors.is_empty() {
+                    "resolved"
+                } else {
+                    "warning"
+                }
+                .to_string(),
+                copied_to: None,
+                warnings: companion.warnings.clone(),
+            });
+        }
+        for missing in &companions.missing {
+            files.push(ModelPackageFileEntry {
+                kind: "companion".to_string(),
+                internal_path: fallback_companion_internal_path(model, &PathBuf::from(missing)),
+                source_path: None,
+                selected_path: None,
+                candidates: Vec::new(),
+                status: "missing".to_string(),
+                copied_to: None,
+                warnings: vec!["expected companion file was not found".to_string()],
+            });
+        }
+        warnings.extend(companions.warnings.iter().cloned());
+    }
+    if let Some(materials) = &inspect.material_dependencies {
+        let mut seen_materials = BTreeSet::new();
+        for material in &materials.materials {
+            if !seen_materials.insert(material.internal_path.clone()) {
+                continue;
+            }
+            files.push(ModelPackageFileEntry {
+                kind: "material".to_string(),
+                internal_path: material.internal_path.clone(),
+                source_path: material.selected_path.clone(),
+                selected_path: material.selected_path.clone(),
+                candidates: material.candidates.clone(),
+                status: material.status.clone(),
+                copied_to: None,
+                warnings: if material.status == "ambiguous" {
+                    vec![
+                        "material exists under more than one asset root; first root selected"
+                            .to_string(),
+                    ]
+                } else {
+                    Vec::new()
+                },
+            });
+        }
+        warnings.extend(materials.warnings.iter().cloned());
+    }
+    let mut missing_files = files
+        .iter()
+        .filter(|file| file.status == "missing")
+        .map(|file| file.internal_path.clone())
+        .collect::<Vec<_>>();
+    missing_files.sort();
+    missing_files.dedup();
+    let mut ambiguous_files = files
+        .iter()
+        .filter(|file| file.status == "ambiguous")
+        .map(|file| file.internal_path.clone())
+        .collect::<Vec<_>>();
+    ambiguous_files.sort();
+    ambiguous_files.dedup();
+    let mut copied_files = Vec::new();
+    if config.copy {
+        let output_dir = config.output_dir.as_ref().expect("checked above");
+        for file in &mut files {
+            let Some(source) = &file.selected_path else {
+                continue;
+            };
+            let destination = output_dir.join(Path::new(&file.internal_path));
+            create_parent_dir(&destination, "model package output")?;
+            fs::copy(source, &destination).map_err(|error| {
+                format!(
+                    "failed to copy model package file {} to {}: {error}",
+                    source,
+                    destination.display()
+                )
+            })?;
+            let copied_to = destination.display().to_string();
+            file.copied_to = Some(copied_to.clone());
+            copied_files.push(copied_to);
+        }
+    }
+    warnings.sort();
+    warnings.dedup();
+    let report = ModelPackageReport {
+        ok: missing_files.is_empty(),
+        input_mdl: model.display().to_string(),
+        asset_roots: stringify_paths(&config.asset_roots),
+        output_dir: config.output_dir.as_ref().map(|path| path.display().to_string()),
+        copy_requested: config.copy,
+        copy_performed: config.copy,
+        files,
+        missing_files,
+        ambiguous_files,
+        copied_files,
+        warnings,
+        ownership_caveats: vec![
+            "Source Weaver does not bundle or redistribute game/model assets.".to_string(),
+            "Copying user-selected files into a package directory does not grant redistribution rights.".to_string(),
+            "Review every MDL, VVD, VTX, PHY, VMT, VTF, QC, SMD, DMX, and related output before release.".to_string(),
+        ],
+        external_tool_boundary: vec![
+            "Source Weaver inspected local metadata and copied local files only when --copy was supplied.".to_string(),
+            "No Crowbar, StudioMDL, HLMV, model decompiler, SDK install, Steam client, or game runtime was launched.".to_string(),
+        ],
+        real_tool_validation: false,
+    };
+    finish_model_package_report(&config, report)
+}
+
+fn parse_model_package_args(args: &[String]) -> Result<ModelPackageConfig, String> {
+    let mut config = ModelPackageConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--asset-root" | "--content-root" => {
+                cursor += 1;
+                config.asset_roots.push(PathBuf::from(
+                    args.get(cursor).ok_or("--asset-root needs a directory")?,
+                ));
+            }
+            "--output-dir" | "--output" => {
+                cursor += 1;
+                config.output_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--output-dir needs a directory")?,
+                ));
+            }
+            "--copy" => config.copy = true,
+            "--report" => {
+                cursor += 1;
+                config.report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--report needs a path")?,
+                ));
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown model-package flag `{value}`"));
+            }
+            value => {
+                if config.input_mdl.is_some() {
+                    return Err("model-package accepts one MDL path".to_string());
+                }
+                config.input_mdl = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn finish_model_package_report(
+    config: &ModelPackageConfig,
+    report: ModelPackageReport,
+) -> Result<(), String> {
+    let encoded = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode model package report: {error}"))?;
+    if let Some(report_path) = &config.report {
+        create_parent_dir(report_path, "model package report")?;
+        fs::write(report_path, &encoded).map_err(|error| {
+            format!(
+                "failed to write model package report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+    if config.json {
+        println!("{encoded}");
+    } else {
+        println!(
+            "model package: {}",
+            if report.ok { "ok" } else { "missing-files" }
+        );
+        println!("files: {}", report.files.len());
+        println!("missing: {}", report.missing_files.len());
+        println!("ambiguous: {}", report.ambiguous_files.len());
+        println!("copied: {}", report.copied_files.len());
+    }
+    if !report.ok {
+        return Err("model package has missing files".to_string());
+    }
+    Ok(())
+}
+
+fn internal_path_from_roots(roots: &[PathBuf], path: &Path) -> Option<String> {
+    let absolute = path.canonicalize().ok()?;
+    for root in roots {
+        let root = root.canonicalize().ok()?;
+        if let Ok(relative) = absolute.strip_prefix(&root) {
+            return Some(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    None
+}
+
+fn fallback_model_internal_path(path: &Path) -> String {
+    let filename = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "model.mdl".to_string());
+    format!("models/{filename}")
+}
+
+fn fallback_companion_internal_path(model: &Path, companion: &Path) -> String {
+    let model_internal = fallback_model_internal_path(model);
+    let prefix = model_internal.trim_end_matches(".mdl");
+    let extension = companion
+        .file_name()
+        .and_then(|name| {
+            name.to_string_lossy()
+                .split_once('.')
+                .map(|(_, suffix)| suffix.to_string())
+        })
+        .unwrap_or_else(|| "companion".to_string());
+    format!("{prefix}.{extension}")
+}
+
 fn model_source_manifest_command(args: &[String]) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_model_source_manifest_help();
@@ -5525,6 +5794,46 @@ struct ModelDecompileInvocation {
     uses_argument_template: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ModelPackageConfig {
+    input_mdl: Option<PathBuf>,
+    asset_roots: Vec<PathBuf>,
+    output_dir: Option<PathBuf>,
+    copy: bool,
+    report: Option<PathBuf>,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelPackageReport {
+    ok: bool,
+    input_mdl: String,
+    asset_roots: Vec<String>,
+    output_dir: Option<String>,
+    copy_requested: bool,
+    copy_performed: bool,
+    files: Vec<ModelPackageFileEntry>,
+    missing_files: Vec<String>,
+    ambiguous_files: Vec<String>,
+    copied_files: Vec<String>,
+    warnings: Vec<String>,
+    ownership_caveats: Vec<String>,
+    external_tool_boundary: Vec<String>,
+    real_tool_validation: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelPackageFileEntry {
+    kind: String,
+    internal_path: String,
+    source_path: Option<String>,
+    selected_path: Option<String>,
+    candidates: Vec<String>,
+    status: String,
+    copied_to: Option<String>,
+    warnings: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 struct ModelSourceOutputManifest {
     total_files: usize,
@@ -6445,6 +6754,7 @@ Usage:
   sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver model-source-manifest <decompiled-output-dir> [--json]
+  sourceweaver model-package <model.mdl> --asset-root dir [--output-dir dir] [--copy] [--report report.json] [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--context-profile id] [--tool-cwd dir] [--library-path dir] [--game-dir dir] [--pass-game-dir] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bspzip-context-profiles [--json]
@@ -6601,6 +6911,19 @@ Command shape:
   studiomdl [--tool-arg values...] [-game <game-dir>] <model.qc>
 
 Use --tool-arg once per additional StudioMDL option. External tool runs default to a 900 second timeout.
+"#
+    );
+}
+
+fn print_model_package_help() {
+    println!(
+        r#"Usage:
+  sourceweaver model-package <model.mdl> --asset-root dir [--output-dir dir] [--copy] [--report report.json] [--json]
+
+Builds a reviewable model package manifest from an MDL, sibling VVD/VTX/PHY
+files, and resolved MDL material dependencies. Default mode is dry-run/report
+only. Use --copy with --output-dir to copy resolved files into package-relative
+paths. Source Weaver does not grant redistribution rights or bundle assets.
 "#
     );
 }

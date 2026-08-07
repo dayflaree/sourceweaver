@@ -2956,3 +2956,155 @@ fn model_source_manifest_classifies_qc_smd_dmx_outputs() {
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn model_package_copies_synthetic_model_companions_and_materials() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn put_i32(data: &mut [u8], offset: usize, value: i32) {
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_u16(data: &mut [u8], offset: usize, value: u16) {
+        data[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_name64(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    fn put_cstring(data: &mut [u8], offset: usize, value: &str) {
+        let bytes = value.as_bytes();
+        data[offset..offset + bytes.len()].copy_from_slice(bytes);
+        data[offset + bytes.len()] = 0;
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-package-test-{}-{nonce}",
+        std::process::id()
+    ));
+    let asset_root = temp_dir.join("game");
+    let model_dir = asset_root.join("models/props");
+    let material_dir = asset_root.join("materials/models/props");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    std::fs::create_dir_all(&material_dir).unwrap();
+    let mdl_path = model_dir.join("package_fixture.mdl");
+    let checksum = 13579;
+
+    let mut mdl = vec![0_u8; 1100];
+    mdl[0..4].copy_from_slice(b"IDST");
+    put_i32(&mut mdl, 4, 48);
+    put_i32(&mut mdl, 8, checksum);
+    put_name64(&mut mdl, 12, "models/props/package_fixture.mdl");
+    let mdl_len = mdl.len() as i32;
+    put_i32(&mut mdl, 76, mdl_len);
+    put_i32(&mut mdl, 204, 1);
+    put_i32(&mut mdl, 208, 300);
+    put_i32(&mut mdl, 212, 1);
+    put_i32(&mut mdl, 216, 600);
+    let texture0 = 300;
+    put_i32(&mut mdl, texture0, 700);
+    put_i32(&mut mdl, texture0 + 4, 0);
+    put_i32(&mut mdl, texture0 + 8, 1);
+    put_i32(&mut mdl, 600, 900);
+    put_cstring(&mut mdl, 1000, "package_body");
+    put_cstring(&mut mdl, 900, "models/props/");
+    std::fs::write(&mdl_path, mdl).unwrap();
+
+    let mut vvd = vec![0_u8; 64];
+    vvd[0..4].copy_from_slice(b"IDSV");
+    put_i32(&mut vvd, 4, 4);
+    put_i32(&mut vvd, 8, checksum);
+    put_i32(&mut vvd, 12, 1);
+    put_i32(&mut vvd, 16, 12);
+    std::fs::write(model_dir.join("package_fixture.vvd"), vvd).unwrap();
+
+    let mut vtx = vec![0_u8; 36];
+    put_i32(&mut vtx, 0, 7);
+    put_i32(&mut vtx, 4, 24);
+    put_u16(&mut vtx, 8, 3);
+    put_u16(&mut vtx, 10, 2);
+    put_i32(&mut vtx, 12, 3);
+    put_i32(&mut vtx, 16, checksum);
+    put_i32(&mut vtx, 20, 1);
+    put_i32(&mut vtx, 24, 36);
+    put_i32(&mut vtx, 28, 1);
+    put_i32(&mut vtx, 32, 64);
+    std::fs::write(model_dir.join("package_fixture.dx90.vtx"), vtx).unwrap();
+    std::fs::write(model_dir.join("package_fixture.phy"), b"VPHY").unwrap();
+    std::fs::write(
+        material_dir.join("package_body.vmt"),
+        b"VertexLitGeneric {}",
+    )
+    .unwrap();
+
+    let output_dir = temp_dir.join("package");
+    let report_path = temp_dir.join("model-package-report.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "model-package",
+            mdl_path.to_str().unwrap(),
+            "--asset-root",
+            asset_root.to_str().unwrap(),
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+            "--copy",
+            "--report",
+            report_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["copy_requested"], true);
+    assert_eq!(report["copy_performed"], true);
+    assert_eq!(report["missing_files"].as_array().unwrap().len(), 0);
+    let internal_paths = report["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["internal_path"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    for expected in [
+        "models/props/package_fixture.mdl",
+        "models/props/package_fixture.vvd",
+        "models/props/package_fixture.dx90.vtx",
+        "models/props/package_fixture.phy",
+        "materials/models/props/package_body.vmt",
+    ] {
+        assert!(
+            internal_paths.contains(expected),
+            "missing {expected}: {internal_paths:?}"
+        );
+        assert!(
+            output_dir.join(expected).is_file(),
+            "not copied: {expected}"
+        );
+    }
+    assert!(
+        report["ownership_caveats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value
+                .as_str()
+                .unwrap()
+                .contains("does not grant redistribution rights"))
+    );
+    assert_eq!(report["real_tool_validation"], false);
+    assert!(report_path.exists());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

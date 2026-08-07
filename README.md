@@ -283,6 +283,13 @@ cargo run -p sourceweaver-cli -- model-decompile models/props/example.mdl \
   --json
 
 cargo run -p sourceweaver-cli -- model-source-manifest decompiled/example --json
+
+cargo run -p sourceweaver-cli -- model-package models/props/example.mdl \
+  --asset-root /path/to/game \
+  --output-dir package-root \
+  --copy \
+  --report model-package-report.json \
+  --json
 ```
 
 See `docs/model-tooling.md` and `docs/model-decompile.md` for Crowbar research, licensing notes, wrapper usage, and model-tooling boundaries.

@@ -47,6 +47,7 @@
 - Native `model-inspect` material dependency parsing from Source MDL texture/material-directory tables, with optional asset-root resolution and missing/ambiguous reports.
 - Native `model-inspect` VVD/VTX/PHY companion-file metadata probing with missing and checksum-mismatch reporting.
 - Model source-output manifest workflow for classifying externally generated QC/QCI, SMD, DMX, VTA, and other decompile outputs without running proprietary tools.
+- Model package manifest/copy workflow for MDL, VVD/VTX/PHY companions, and resolved material dependencies from user-selected asset roots.
 
 ### Changed
 
