@@ -28,6 +28,7 @@
 - Campaign adjacency graph report with high-confidence trigger edges and separate shared-landmark/filename-sequence heuristic edges.
 - Multi-step campaign batch plan runner with per-step reports, summary artifact links, and dry-run planning.
 - Desktop BSP packing panel with user-configured packer tool, BSP paths, asset/filelist inputs, reports, output tails, and optional pack-after-compile.
+- Desktop model tooling panel for MDL metadata inspection and background StudioMDL-compatible model compile integrations.
 
 ### Changed
 

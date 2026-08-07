@@ -115,6 +115,18 @@ struct SourceWeaverApp {
     bsp_pack_after_compile: bool,
     bsp_pack_status: DesktopBspPackStatus,
     bsp_pack_receiver: Option<Receiver<DesktopBspPackMessage>>,
+    model_inspect_mdl_path: String,
+    model_inspect_status: DesktopModelInspectStatus,
+    model_inspect_receiver: Option<Receiver<DesktopModelInspectMessage>>,
+    model_compile_qc_path: String,
+    model_compile_studiomdl_path: String,
+    model_compile_game_path: String,
+    model_compile_tool_args: String,
+    model_compile_log_path: String,
+    model_compile_report_path: String,
+    model_compile_timeout_seconds: String,
+    model_compile_status: DesktopModelCompileStatus,
+    model_compile_receiver: Option<Receiver<DesktopModelCompileMessage>>,
     last_error_dialog: Option<String>,
     use_dark_theme: bool,
     preview_panel_height: f32,
@@ -240,6 +252,77 @@ struct DesktopBspPackMessage {
     stderr_tail: Vec<String>,
     missing_files: usize,
     packed_file_count: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopModelInspectStatus {
+    running: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+}
+
+impl Default for DesktopModelInspectStatus {
+    fn default() -> Self {
+        Self {
+            running: false,
+            summary: "Model inspect idle. Select an MDL to inspect metadata.".to_string(),
+            command: Vec::new(),
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DesktopModelInspectRequest {
+    cli_path: PathBuf,
+    mdl_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopModelInspectMessage {
+    ok: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DesktopModelCompileStatus {
+    running: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopModelCompileRequest {
+    cli_path: PathBuf,
+    qc_path: PathBuf,
+    studiomdl_path: PathBuf,
+    game_path: Option<PathBuf>,
+    tool_args: Vec<String>,
+    log_path: Option<PathBuf>,
+    report_path: PathBuf,
+    timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopModelCompileMessage {
+    ok: bool,
+    summary: String,
+    command: Vec<String>,
+    report_json: Option<String>,
+    stdout_tail: Vec<String>,
+    stderr_tail: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -591,6 +674,21 @@ impl SourceWeaverApp {
                 ..Default::default()
             },
             bsp_pack_receiver: None,
+            model_inspect_mdl_path: String::new(),
+            model_inspect_status: DesktopModelInspectStatus::default(),
+            model_inspect_receiver: None,
+            model_compile_qc_path: String::new(),
+            model_compile_studiomdl_path: String::new(),
+            model_compile_game_path: String::new(),
+            model_compile_tool_args: String::new(),
+            model_compile_log_path: String::new(),
+            model_compile_report_path: String::new(),
+            model_compile_timeout_seconds: "900".to_string(),
+            model_compile_status: DesktopModelCompileStatus {
+                summary: "Model compile idle. StudioMDL-compatible tools and model assets are user-provided.".to_string(),
+                ..Default::default()
+            },
+            model_compile_receiver: None,
             last_error_dialog: None,
             use_dark_theme: true,
             preview_panel_height: 560.0,
@@ -2404,6 +2502,163 @@ impl SourceWeaverApp {
         }
     }
 
+    fn launch_model_inspect(&mut self) {
+        if self.model_inspect_status.running {
+            self.add_status("A model inspect run is already in progress.");
+            return;
+        }
+        let Some(mdl_path) = blank_to_none(&self.model_inspect_mdl_path).map(PathBuf::from) else {
+            self.add_status("Select an MDL file before model inspection.");
+            return;
+        };
+        let request = DesktopModelInspectRequest {
+            cli_path: sourceweaver_cli_executable(),
+            mdl_path,
+        };
+        let command_preview = desktop_model_inspect_command_preview(&request);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let message = run_desktop_model_inspect_request(request);
+            let _ = sender.send(message);
+        });
+        self.model_inspect_receiver = Some(receiver);
+        self.model_inspect_status = DesktopModelInspectStatus {
+            running: true,
+            summary: "Model inspect running in background.".to_string(),
+            command: command_preview.clone(),
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        };
+        self.add_status(format!(
+            "Started model inspect: {}",
+            command_preview.join(" ")
+        ));
+    }
+
+    fn poll_model_inspect_status(&mut self) {
+        let Some(receiver) = self.model_inspect_receiver.take() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(message) => {
+                self.model_inspect_status.running = false;
+                self.model_inspect_status.summary = message.summary.clone();
+                self.model_inspect_status.command = message.command;
+                self.model_inspect_status.report_json = message.report_json;
+                self.model_inspect_status.stdout_tail = message.stdout_tail;
+                self.model_inspect_status.stderr_tail = message.stderr_tail;
+                self.add_status(message.summary);
+                if !message.ok {
+                    self.last_error_dialog = Some(
+                        "Model inspect failed. Review the model tooling panel JSON/output details."
+                            .to_string(),
+                    );
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => self.model_inspect_receiver = Some(receiver),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.model_inspect_status.running = false;
+                self.model_inspect_status.summary =
+                    "Model inspect worker disconnected before reporting a result.".to_string();
+                self.add_status("Model inspect worker disconnected before reporting a result.");
+            }
+        }
+    }
+
+    fn launch_model_compile(&mut self) {
+        if self.model_compile_status.running {
+            self.add_status("A model compile run is already in progress.");
+            return;
+        }
+        let Some(qc_path) = blank_to_none(&self.model_compile_qc_path).map(PathBuf::from) else {
+            self.add_status("Select a QC file before model compile.");
+            return;
+        };
+        let Some(studiomdl_path) =
+            blank_to_none(&self.model_compile_studiomdl_path).map(PathBuf::from)
+        else {
+            self.add_status(
+                "Select a user-provided StudioMDL-compatible tool before model compile.",
+            );
+            return;
+        };
+        let timeout_seconds = match blank_to_none(&self.model_compile_timeout_seconds) {
+            Some(value) => match value.parse::<u64>() {
+                Ok(seconds) if seconds > 0 => Some(seconds),
+                _ => {
+                    self.add_status(
+                        "Model compile timeout must be a positive integer number of seconds.",
+                    );
+                    return;
+                }
+            },
+            None => None,
+        };
+        let report_path = blank_to_none(&self.model_compile_report_path)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_model_compile_report_path_for_qc(&qc_path));
+        let request = DesktopModelCompileRequest {
+            cli_path: sourceweaver_cli_executable(),
+            qc_path,
+            studiomdl_path,
+            game_path: blank_to_none(&self.model_compile_game_path).map(PathBuf::from),
+            tool_args: split_whitespace_args(&self.model_compile_tool_args),
+            log_path: blank_to_none(&self.model_compile_log_path).map(PathBuf::from),
+            report_path,
+            timeout_seconds,
+        };
+        let command_preview = desktop_model_compile_command_preview(&request);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let message = run_desktop_model_compile_request(request);
+            let _ = sender.send(message);
+        });
+        self.model_compile_receiver = Some(receiver);
+        self.model_compile_status = DesktopModelCompileStatus {
+            running: true,
+            summary: "Model compile running in background. StudioMDL-compatible tools and assets are user-provided.".to_string(),
+            command: command_preview.clone(),
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        };
+        self.add_status(format!(
+            "Started model compile: {}",
+            command_preview.join(" ")
+        ));
+    }
+
+    fn poll_model_compile_status(&mut self) {
+        let Some(receiver) = self.model_compile_receiver.take() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(message) => {
+                self.model_compile_status.running = false;
+                self.model_compile_status.summary = message.summary.clone();
+                self.model_compile_status.command = message.command;
+                self.model_compile_status.report_json = message.report_json;
+                self.model_compile_status.stdout_tail = message.stdout_tail;
+                self.model_compile_status.stderr_tail = message.stderr_tail;
+                self.add_status(message.summary);
+                if !message.ok {
+                    self.last_error_dialog = Some(
+                        "Model compile failed. Review the model tooling panel JSON/log details."
+                            .to_string(),
+                    );
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => self.model_compile_receiver = Some(receiver),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.model_compile_status.running = false;
+                self.model_compile_status.summary =
+                    "Model compile worker disconnected before reporting a result.".to_string();
+                self.add_status("Model compile worker disconnected before reporting a result.");
+            }
+        }
+    }
+
     fn poll_compile_status(&mut self) {
         let Some(receiver) = self.compile_receiver.take() else {
             return;
@@ -2445,6 +2700,8 @@ impl eframe::App for SourceWeaverApp {
         self.poll_compile_status();
         self.poll_bsp_decompile_status();
         self.poll_bsp_pack_status();
+        self.poll_model_inspect_status();
+        self.poll_model_compile_status();
 
         if let Some(error) = self.last_error_dialog.clone() {
             egui::Window::new("Source Weaver needs attention")
@@ -2918,6 +3175,8 @@ impl SourceWeaverApp {
         }
         ui.separator();
         self.bsp_pack_panel(ui);
+        ui.separator();
+        self.model_tooling_panel(ui);
     }
 
     fn bsp_pack_panel(&mut self, ui: &mut egui::Ui) {
@@ -3029,6 +3288,128 @@ impl SourceWeaverApp {
                 }
             });
         }
+    }
+
+    fn model_tooling_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Optional model tooling");
+        ui.label("MDL inspection uses Source Weaver metadata parsing. Model compile runs a user-provided StudioMDL-compatible tool. StudioMDL, Crowbar, model assets, game content, and SDKs are not bundled.");
+        ui.group(|ui| {
+            ui.strong("Model inspect");
+            ui.horizontal(|ui| {
+                ui.label("MDL file:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.model_inspect_mdl_path)
+                        .desired_width(f32::INFINITY),
+                );
+            });
+            if ui
+                .add_enabled(
+                    !self.model_inspect_status.running,
+                    egui::Button::new("Inspect MDL metadata"),
+                )
+                .clicked()
+            {
+                self.launch_model_inspect();
+            }
+            if self.model_inspect_status.running {
+                ui.add(egui::Spinner::new());
+            }
+            ui.label(&self.model_inspect_status.summary);
+            if !self.model_inspect_status.command.is_empty() {
+                ui.collapsing("Model inspect command", |ui| {
+                    ui.monospace(self.model_inspect_status.command.join(" "));
+                });
+            }
+            if let Some(report_json) = &self.model_inspect_status.report_json {
+                ui.collapsing("Model inspect report JSON", |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut report_json.clone())
+                            .desired_rows(12)
+                            .code_editor(),
+                    );
+                });
+            }
+            if !self.model_inspect_status.stdout_tail.is_empty()
+                || !self.model_inspect_status.stderr_tail.is_empty()
+            {
+                ui.collapsing("Model inspect output tail", |ui| {
+                    for line in &self.model_inspect_status.stdout_tail {
+                        ui.small(format!("stdout: {line}"));
+                    }
+                    for line in &self.model_inspect_status.stderr_tail {
+                        ui.colored_label(egui::Color32::YELLOW, format!("stderr: {line}"));
+                    }
+                });
+            }
+        });
+
+        ui.group(|ui| {
+            ui.strong("Model compile");
+            ui.horizontal(|ui| {
+                ui.label("QC file:");
+                ui.add(egui::TextEdit::singleline(&mut self.model_compile_qc_path).desired_width(f32::INFINITY));
+            });
+            ui.horizontal(|ui| {
+                ui.label("StudioMDL/wrapper:");
+                ui.add(egui::TextEdit::singleline(&mut self.model_compile_studiomdl_path).desired_width(f32::INFINITY));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Game path:");
+                ui.add(egui::TextEdit::singleline(&mut self.model_compile_game_path).desired_width(f32::INFINITY));
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Tool args:");
+                ui.add(egui::TextEdit::singleline(&mut self.model_compile_tool_args).desired_width(260.0));
+                ui.label("Timeout seconds:");
+                ui.add(egui::TextEdit::singleline(&mut self.model_compile_timeout_seconds).desired_width(80.0));
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Log:");
+                ui.add(egui::TextEdit::singleline(&mut self.model_compile_log_path).desired_width(240.0));
+                ui.label("Report JSON:");
+                ui.add(egui::TextEdit::singleline(&mut self.model_compile_report_path).desired_width(240.0));
+            });
+            if ui
+                .add_enabled(
+                    !self.model_compile_status.running,
+                    egui::Button::new("Run model compile"),
+                )
+                .clicked()
+            {
+                self.launch_model_compile();
+            }
+            ui.weak("Model compile runs in a background worker and is reported separately from VMF/BSP workflows.");
+            if self.model_compile_status.running {
+                ui.add(egui::Spinner::new());
+            }
+            ui.label(&self.model_compile_status.summary);
+            if !self.model_compile_status.command.is_empty() {
+                ui.collapsing("Model compile command", |ui| {
+                    ui.monospace(self.model_compile_status.command.join(" "));
+                });
+            }
+            if let Some(report_json) = &self.model_compile_status.report_json {
+                ui.collapsing("Model compile report JSON", |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut report_json.clone())
+                            .desired_rows(12)
+                            .code_editor(),
+                    );
+                });
+            }
+            if !self.model_compile_status.stdout_tail.is_empty()
+                || !self.model_compile_status.stderr_tail.is_empty()
+            {
+                ui.collapsing("Model compile output tail", |ui| {
+                    for line in &self.model_compile_status.stdout_tail {
+                        ui.small(format!("stdout: {line}"));
+                    }
+                    for line in &self.model_compile_status.stderr_tail {
+                        ui.colored_label(egui::Color32::YELLOW, format!("stderr: {line}"));
+                    }
+                });
+            }
+        });
     }
 
     fn cleanup_panel(&mut self, ui: &mut egui::Ui) {
@@ -3837,6 +4218,191 @@ fn default_compile_report_path(output_path: &str) -> PathBuf {
         PathBuf::from("sourceweaver-compile-report.json")
     } else {
         default_compile_report_path_for_map(&PathBuf::from(output_path.trim()))
+    }
+}
+
+fn split_whitespace_args(value: &str) -> Vec<String> {
+    value.split_whitespace().map(ToOwned::to_owned).collect()
+}
+
+fn default_model_compile_report_path_for_qc(qc_path: &Path) -> PathBuf {
+    let stem = qc_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("model");
+    qc_path.with_file_name(format!("{stem}-model-compile-report.json"))
+}
+
+fn desktop_model_inspect_command_preview(request: &DesktopModelInspectRequest) -> Vec<String> {
+    vec![
+        request.cli_path.display().to_string(),
+        "model-inspect".to_string(),
+        request.mdl_path.display().to_string(),
+        "--json".to_string(),
+    ]
+}
+
+fn run_desktop_model_inspect_request(
+    request: DesktopModelInspectRequest,
+) -> DesktopModelInspectMessage {
+    let command_preview = desktop_model_inspect_command_preview(&request);
+    let output = Command::new(&request.cli_path)
+        .arg("model-inspect")
+        .arg(&request.mdl_path)
+        .arg("--json")
+        .output();
+    match output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let report_json = stdout
+                .trim_start()
+                .starts_with('{')
+                .then_some(stdout.clone());
+            let parsed_ok = report_json
+                .as_ref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false);
+            let ok = output.status.success() && parsed_ok;
+            let summary = if ok {
+                format!(
+                    "Model inspect completed for {}.",
+                    display_path(&request.mdl_path)
+                )
+            } else {
+                format!(
+                    "Model inspect failed. Exit code: {:?}. Input: {}",
+                    output.status.code(),
+                    display_path(&request.mdl_path)
+                )
+            };
+            DesktopModelInspectMessage {
+                ok,
+                summary,
+                command: command_preview,
+                report_json,
+                stdout_tail: tail_lines(&stdout, 40),
+                stderr_tail: tail_lines(&stderr, 40),
+            }
+        }
+        Err(error) => DesktopModelInspectMessage {
+            ok: false,
+            summary: format!(
+                "Failed to start Source Weaver CLI model-inspect command `{}`: {error}.",
+                request.cli_path.display()
+            ),
+            command: command_preview,
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        },
+    }
+}
+
+fn desktop_model_compile_command_preview(request: &DesktopModelCompileRequest) -> Vec<String> {
+    let mut parts = vec![
+        request.cli_path.display().to_string(),
+        "model-compile".to_string(),
+        request.qc_path.display().to_string(),
+        "--studiomdl".to_string(),
+        request.studiomdl_path.display().to_string(),
+        "--report".to_string(),
+        request.report_path.display().to_string(),
+        "--json".to_string(),
+    ];
+    if let Some(game_path) = &request.game_path {
+        parts.push("--game".to_string());
+        parts.push(game_path.display().to_string());
+    }
+    for arg in &request.tool_args {
+        parts.push("--tool-arg".to_string());
+        parts.push(arg.clone());
+    }
+    if let Some(log_path) = &request.log_path {
+        parts.push("--log".to_string());
+        parts.push(log_path.display().to_string());
+    }
+    if let Some(timeout) = request.timeout_seconds {
+        parts.push("--timeout-seconds".to_string());
+        parts.push(timeout.to_string());
+    }
+    parts
+}
+
+fn run_desktop_model_compile_request(
+    request: DesktopModelCompileRequest,
+) -> DesktopModelCompileMessage {
+    let command_preview = desktop_model_compile_command_preview(&request);
+    let mut command = Command::new(&request.cli_path);
+    command
+        .arg("model-compile")
+        .arg(&request.qc_path)
+        .arg("--studiomdl")
+        .arg(&request.studiomdl_path)
+        .arg("--report")
+        .arg(&request.report_path)
+        .arg("--json");
+    if let Some(game_path) = &request.game_path {
+        command.arg("--game").arg(game_path);
+    }
+    for arg in &request.tool_args {
+        command.arg("--tool-arg").arg(arg);
+    }
+    if let Some(log_path) = &request.log_path {
+        command.arg("--log").arg(log_path);
+    }
+    if let Some(timeout) = request.timeout_seconds {
+        command.arg("--timeout-seconds").arg(timeout.to_string());
+    }
+
+    match command.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let report_json = if stdout.trim_start().starts_with('{') {
+                Some(stdout.clone())
+            } else {
+                fs::read_to_string(&request.report_path).ok()
+            };
+            let parsed_ok = report_json
+                .as_ref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false);
+            let ok = output.status.success() && parsed_ok;
+            let summary = if ok {
+                format!(
+                    "Model compile completed successfully. Report: {}",
+                    display_path(&request.report_path)
+                )
+            } else {
+                format!(
+                    "Model compile failed or reported errors. Exit code: {:?}. Report: {}",
+                    output.status.code(),
+                    display_path(&request.report_path)
+                )
+            };
+            DesktopModelCompileMessage {
+                ok,
+                summary,
+                command: command_preview,
+                report_json,
+                stdout_tail: tail_lines(&stdout, 40),
+                stderr_tail: tail_lines(&stderr, 40),
+            }
+        }
+        Err(error) => DesktopModelCompileMessage {
+            ok: false,
+            summary: format!(
+                "Failed to start Source Weaver CLI model-compile command `{}`: {error}.",
+                request.cli_path.display()
+            ),
+            command: command_preview,
+            report_json: None,
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+        },
     }
 }
 

@@ -104,3 +104,28 @@ Use precise wording:
 ## Current validation evidence
 
 This implementation is validated with synthetic MDL headers and fake StudioMDL-compatible shell tools. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
+
+## Desktop model tooling panel
+
+The desktop app exposes optional model tooling in the **Optional external compile** panel under **Optional model tooling**.
+
+Model inspect controls:
+
+- MDL file path;
+- **Inspect MDL metadata** action;
+- command preview;
+- JSON report display;
+- stdout/stderr tail display.
+
+Model compile controls:
+
+- QC file path;
+- StudioMDL-compatible executable or wrapper path;
+- optional game path;
+- whitespace-separated tool args;
+- log path, JSON report path, and timeout seconds;
+- **Run model compile** action.
+
+Model compile runs in a background worker and uses `sourceweaver model-compile` with a user-provided tool. Source Weaver does not bundle StudioMDL, Crowbar, HLMV, game SDKs, game content, model assets, QC/SMD/DMX files, or wrappers. A model compile failure is reported in the model tooling panel and attention dialog, and it remains separate from VMF merge/export, BSP compile, and BSP packing results.
+
+No real model decompile/compile/runtime validation is implied unless the actual external tool was run and its report/log evidence is recorded.
