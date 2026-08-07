@@ -29,7 +29,7 @@ Conclusion:
 
 | Crowbar area | Source Weaver approach |
 | --- | --- |
-| MDL/QC/SMD decompile | Future external-tool integration first; no copied Crowbar implementation. |
+| MDL/QC/SMD decompile | User-provided headless wrapper runner first; no copied Crowbar implementation. |
 | Model compile through StudioMDL | User-provided `studiomdl` or wrapper with logs and reports. |
 | Model package/extract workflows | Future research; keep separate from VMF merge/edit. |
 | Model metadata inspection | Native lightweight MDL header inspection is acceptable and testable. |
@@ -88,22 +88,36 @@ The report includes:
 - log path;
 - parsed warning/error/leak summary from captured output.
 
-## Future decompile boundary
+## CLI: decompile MDL through external headless wrapper
 
-A future `model-decompile` command should start as an external-tool runner that records command provenance and output paths. It should not assume Crowbar has a supported headless CLI unless current Crowbar documentation confirms one. If Crowbar is used through Wine or manually by the user, Source Weaver should document it as an external user workflow and avoid bundling Crowbar binaries.
+`model-decompile` runs a user-provided headless wrapper and records command provenance, logs, output paths, and parsed warning/error summaries:
+
+```bash
+sourceweaver model-decompile models/props/example.mdl \
+  --tool ./examples/wrappers/model-decompile-wrapper.sh \
+  --output-dir decompiled/example \
+  --tool-arg --input \
+  --tool-arg '{input}' \
+  --tool-arg --output \
+  --tool-arg '{output-dir}' \
+  --report model-decompile-report.json \
+  --json
+```
+
+See `docs/model-decompile.md` for placeholder expansion, report fields, wrapper examples, and the Crowbar boundary. Source Weaver does not assume Crowbar has a supported headless CLI unless current Crowbar documentation confirms one. If Crowbar is used through Wine or manually by the user, Source Weaver treats it as an external user workflow and avoids bundling Crowbar binaries.
 
 ## Release wording
 
 Use precise wording:
 
-- Allowed: `Source Weaver can inspect basic MDL header metadata and run user-provided StudioMDL-compatible model compile tools.`
+- Allowed: `Source Weaver can inspect basic MDL header metadata and run user-provided StudioMDL-compatible model compile or headless model-decompile wrappers.`
 - Allowed: `Crowbar research is documented; Source Weaver does not bundle or port Crowbar.`
 - Not allowed without evidence: `Source Weaver decompiles models like Crowbar.`
 - Not allowed without actual tool runs: `Model compile was validated with real StudioMDL.`
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers and fake StudioMDL-compatible shell tools. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
+This implementation is validated with synthetic MDL headers, fake StudioMDL-compatible shell tools, and fake model-decompile wrappers. No real Crowbar, StudioMDL, HLMV, game SDK, model decompile, model compile, or game runtime validation was run in this repository state.
 
 ## Desktop model tooling panel
 

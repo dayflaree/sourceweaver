@@ -25,7 +25,7 @@ Current capabilities:
 - Run optional user-configured VBSP/VVIS/VRAD compile pipelines, create/validate compile profiles, and capture parsed JSON reports.
 - Run optional BSP content packing with user-provided `bspzip`-compatible tools, explicit or VMF-discovered asset lists, context profiles, wrappers, and JSON reports.
 - Generate cubemap/buildcubemaps runtime workflow reports and cfg helpers without launching game runtimes.
-- Inspect basic MDL model headers and run user-provided StudioMDL-compatible model compile tools.
+- Inspect basic MDL model headers and run user-provided StudioMDL-compatible model compile tools or headless model-decompile wrappers.
 - Run optional user-selected BSPSource decompile commands or generic wrappers and validate generated VMFs before import.
 - Preserve incoming world brushes, including skybox brushes.
 - Preserve incoming point entities and brush entities.
@@ -258,7 +258,7 @@ cargo run -p sourceweaver-cli -- cubemap-workflow map.bsp \
 
 The cubemap workflow command writes a report and optional cfg helper only. It does not launch Steam, a Source game runtime, Hammer, Hammer++, VBSP, VVIS, VRAD, BSPZIP, or BSPSource. See `docs/cubemap-workflow.md` for profile caveats, log capture expectations, and real-runtime evidence requirements.
 
-Inspect a model header or run a user-provided StudioMDL-compatible wrapper:
+Inspect a model header, run a user-provided StudioMDL-compatible wrapper, or launch a user-provided headless model-decompile wrapper:
 
 ```bash
 cargo run -p sourceweaver-cli -- model-inspect models/props/example.mdl --json
@@ -270,9 +270,20 @@ cargo run -p sourceweaver-cli -- model-compile model.qc \
   --log model-compile.log \
   --report model-compile-report.json \
   --json
+
+cargo run -p sourceweaver-cli -- model-decompile models/props/example.mdl \
+  --tool ./examples/wrappers/model-decompile-wrapper.sh \
+  --output-dir decompiled/example \
+  --tool-arg --input \
+  --tool-arg '{input}' \
+  --tool-arg --output \
+  --tool-arg '{output-dir}' \
+  --log model-decompile.log \
+  --report model-decompile-report.json \
+  --json
 ```
 
-See `docs/model-tooling.md` for Crowbar research, licensing notes, and model-tooling boundaries.
+See `docs/model-tooling.md` and `docs/model-decompile.md` for Crowbar research, licensing notes, wrapper usage, and model-tooling boundaries.
 
 ## CLI usage
 

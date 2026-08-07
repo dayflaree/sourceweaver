@@ -2080,3 +2080,133 @@ echo "0 errors, 0 warnings"
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn model_decompile_generic_wrapper_captures_outputs_and_boundary() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-model-decompile-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let wrapper = temp_dir.join("model-decompile-wrapper.sh");
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+input=""
+output=""
+game=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --input) input="$2"; shift 2 ;;
+    --output|--output-dir) output="$2"; shift 2 ;;
+    --game) game="$2"; shift 2 ;;
+    *) echo "unexpected arg: $1" >&2; exit 64 ;;
+  esac
+done
+[[ -n "$input" && -n "$output" && -n "$game" ]]
+mkdir -p "$output/anims"
+cat > "$output/model.qc" <<'QC'
+$modelname "props/sourceweaver_fixture.mdl"
+QC
+echo "version 1" > "$output/reference.smd"
+echo "version 1" > "$output/anims/idle.smd"
+echo "WARNING: fake wrapper emitted a recoverable decompile note"
+"#;
+    let mut file = std::fs::File::create(&wrapper).unwrap();
+    file.write_all(script.as_bytes()).unwrap();
+    drop(file);
+    let mut permissions = std::fs::metadata(&wrapper).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&wrapper, permissions).unwrap();
+
+    let mdl_path = temp_dir.join("sourceweaver_fixture.mdl");
+    let mut mdl = vec![0_u8; 80];
+    mdl[0..4].copy_from_slice(b"IDST");
+    std::fs::write(&mdl_path, mdl).unwrap();
+    let game_dir = temp_dir.join("game");
+    std::fs::create_dir_all(&game_dir).unwrap();
+    let output_dir = temp_dir.join("decompiled");
+    let log_path = temp_dir.join("model-decompile.log");
+    let report_path = temp_dir.join("model-decompile-report.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "model-decompile",
+            mdl_path.to_str().unwrap(),
+            "--tool",
+            wrapper.to_str().unwrap(),
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+            "--game",
+            game_dir.to_str().unwrap(),
+            "--tool-arg",
+            "--input",
+            "--tool-arg",
+            "{input}",
+            "--tool-arg",
+            "--output",
+            "--tool-arg",
+            "{output-dir}",
+            "--tool-arg",
+            "--game",
+            "--tool-arg",
+            "{game}",
+            "--log",
+            log_path.to_str().unwrap(),
+            "--report",
+            report_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["tool_kind"], "generic-headless-wrapper");
+    assert_eq!(report["uses_argument_template"], true);
+    assert_eq!(report["real_tool_validation"], false);
+    assert_eq!(report["game"], game_dir.display().to_string());
+    assert_eq!(report["log_summary"]["warnings"], 1);
+    assert!(
+        report["external_tool_boundary"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str().unwrap().contains("does not bundle Crowbar"))
+    );
+    let outputs = report["discovered_outputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    for expected in ["model.qc", "reference.smd", "anims/idle.smd"] {
+        assert!(
+            outputs.contains(expected),
+            "missing {expected}: {outputs:?}"
+        );
+    }
+    assert!(log_path.exists());
+    assert!(report_path.exists());
+    assert!(
+        repo_root()
+            .join("examples/wrappers/model-decompile-wrapper.sh")
+            .is_file()
+    );
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}

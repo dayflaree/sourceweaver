@@ -57,6 +57,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "compile-profile" | "profile" => compile_profile_command(&args[1..]),
         "model-inspect" => model_inspect_command(&args[1..]),
         "model-compile" => model_compile_command(&args[1..]),
+        "model-decompile" | "decompile-model" => model_decompile_command(&args[1..]),
         "bsp-import" | "decompile-bsp" => bsp_import_command(&args[1..]),
         "bsp-import-presets" | "bspsource-presets" => bsp_import_presets_command(&args[1..]),
         "external-decompiler-presets" | "decompiler-presets" => {
@@ -2028,6 +2029,319 @@ fn finish_model_compile_report(
     Ok(())
 }
 
+fn model_decompile_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_model_decompile_help();
+        return Ok(());
+    }
+    let config = parse_model_decompile_args(args)?;
+    let input_mdl = config.input_mdl.as_ref().ok_or("usage: sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
+    let tool = config
+        .tool
+        .as_ref()
+        .ok_or("model-decompile needs --tool <headless-wrapper>")?;
+    let output_dir = config
+        .output_dir
+        .as_ref()
+        .ok_or("model-decompile needs --output-dir <dir>")?;
+    if !input_mdl.exists() {
+        return Err(format!("MDL file does not exist: {}", input_mdl.display()));
+    }
+    if input_mdl
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase() != "mdl")
+        .unwrap_or(true)
+    {
+        return Err(format!(
+            "model-decompile input should be an .mdl file: {}",
+            input_mdl.display()
+        ));
+    }
+    create_parent_dir(output_dir, "model decompile output directory marker")?;
+    fs::create_dir_all(output_dir).map_err(|error| {
+        format!(
+            "failed to create model decompile output directory {}: {error}",
+            output_dir.display()
+        )
+    })?;
+
+    let invocation = resolve_model_decompile_invocation(&config, input_mdl, output_dir, tool)?;
+    let tool_output = run_model_decompile_tool(
+        &invocation,
+        Duration::from_secs(tool_timeout_seconds(config.timeout_seconds)),
+    )?;
+    let log_text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&tool_output.stdout),
+        String::from_utf8_lossy(&tool_output.stderr)
+    );
+    if let Some(log_path) = &config.log {
+        create_parent_dir(log_path, "model decompile log")?;
+        fs::write(log_path, &log_text).map_err(|error| {
+            format!(
+                "failed to write model decompile log {}: {error}",
+                log_path.display()
+            )
+        })?;
+    }
+    let summary = parse_compile_log(&log_text);
+    let mut warnings = Vec::new();
+    if !invocation.uses_argument_template {
+        warnings.push("no placeholder --tool-arg values were supplied; Source Weaver appended <input.mdl> and <output-dir> after raw tool args".to_string());
+    }
+    if config.game.is_some() && !config.tool_args.iter().any(|arg| arg.contains("{game}")) {
+        warnings.push("--game was recorded in the report; add a `{game}` placeholder in --tool-arg values when the wrapper needs it".to_string());
+    }
+    let outputs = collect_model_decompile_outputs(output_dir)?;
+    if outputs.is_empty() {
+        warnings.push(
+            "output directory exists but no files were discovered after the wrapper run"
+                .to_string(),
+        );
+    }
+    let log_snapshot = CompileLogSnapshot {
+        ok: summary.errors.is_empty() && !summary.leak_detected,
+        errors: summary.errors.len(),
+        warnings: summary.warnings.len(),
+        leak_detected: summary.leak_detected,
+        error_lines: summary.errors,
+        warning_lines: summary.warnings,
+    };
+    let ok = tool_output.status.success() && output_dir.is_dir() && log_snapshot.errors == 0;
+    let report = ModelDecompileReport {
+        ok,
+        tool: invocation.executable.display().to_string(),
+        tool_kind: "generic-headless-wrapper".to_string(),
+        command_shape: invocation.command_shape.to_string(),
+        command_args: invocation.args,
+        raw_tool_args: config.tool_args.clone(),
+        uses_argument_template: invocation.uses_argument_template,
+        input_mdl: input_mdl.display().to_string(),
+        output_dir: output_dir.display().to_string(),
+        output_dir_exists: output_dir.is_dir(),
+        discovered_outputs: outputs,
+        game: config.game.as_ref().map(|path| path.display().to_string()),
+        exit_code: tool_output.status.code(),
+        log_path: config.log.as_ref().map(|path| path.display().to_string()),
+        log_summary: log_snapshot,
+        warnings,
+        external_tool_boundary: vec![
+            "Source Weaver launched only the user-selected headless model-decompile wrapper with the reported arguments.".to_string(),
+            "Source Weaver does not bundle Crowbar, copy Crowbar implementation details, run StudioMDL, or inspect proprietary game content for this command.".to_string(),
+            "Crowbar research found a GUI model decompiler/front-end; use a local wrapper only when the chosen tool has a verified headless path.".to_string(),
+        ],
+        real_tool_validation: false,
+    };
+    finish_model_decompile_report(&config, report)
+}
+
+fn parse_model_decompile_args(args: &[String]) -> Result<ModelDecompileConfig, String> {
+    let mut config = ModelDecompileConfig::default();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--tool" | "--wrapper" => {
+                cursor += 1;
+                config.tool = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--tool needs a path")?,
+                ));
+            }
+            "--output-dir" | "--output" | "-o" => {
+                cursor += 1;
+                config.output_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--output-dir needs a path")?,
+                ));
+            }
+            "--game" | "--game-dir" => {
+                cursor += 1;
+                config.game = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--game needs a path")?,
+                ));
+            }
+            "--tool-arg" => {
+                cursor += 1;
+                config
+                    .tool_args
+                    .push(args.get(cursor).ok_or("--tool-arg needs a value")?.clone());
+            }
+            "--log" => {
+                cursor += 1;
+                config.log = Some(PathBuf::from(args.get(cursor).ok_or("--log needs a path")?));
+            }
+            "--report" => {
+                cursor += 1;
+                config.report = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--report needs a path")?,
+                ));
+            }
+            "--timeout-seconds" => {
+                cursor += 1;
+                config.timeout_seconds = Some(parse_timeout_seconds(
+                    args.get(cursor).ok_or("--timeout-seconds needs a value")?,
+                )?);
+            }
+            "--json" => config.json = true,
+            value if value.starts_with('-') => {
+                return Err(format!("unknown model-decompile flag `{value}`"));
+            }
+            value => {
+                if config.input_mdl.is_some() {
+                    return Err("model-decompile accepts one MDL path".to_string());
+                }
+                config.input_mdl = Some(PathBuf::from(value));
+            }
+        }
+        cursor += 1;
+    }
+    Ok(config)
+}
+
+fn resolve_model_decompile_invocation(
+    config: &ModelDecompileConfig,
+    input_mdl: &Path,
+    output_dir: &Path,
+    tool: &Path,
+) -> Result<ModelDecompileInvocation, String> {
+    let uses_argument_template = config.tool_args.iter().any(|arg| {
+        arg.contains("{input}") || arg.contains("{output-dir}") || arg.contains("{game}")
+    });
+    let mut args = if uses_argument_template {
+        config
+            .tool_args
+            .iter()
+            .map(|arg| expand_model_decompile_arg(arg, config, input_mdl, output_dir))
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        let mut args = config.tool_args.clone();
+        args.push(input_mdl.display().to_string());
+        args.push(output_dir.display().to_string());
+        args
+    };
+    if args.is_empty() {
+        args.push(input_mdl.display().to_string());
+        args.push(output_dir.display().to_string());
+    }
+    Ok(ModelDecompileInvocation {
+        executable: tool.to_path_buf(),
+        args,
+        command_shape: if uses_argument_template {
+            "<headless-wrapper> [expanded --tool-arg placeholders]"
+        } else {
+            "<headless-wrapper> [tool-args] <input.mdl> <output-dir>"
+        },
+        uses_argument_template,
+    })
+}
+
+fn expand_model_decompile_arg(
+    arg: &str,
+    config: &ModelDecompileConfig,
+    input_mdl: &Path,
+    output_dir: &Path,
+) -> Result<String, String> {
+    let mut expanded = arg
+        .replace("{input}", &input_mdl.display().to_string())
+        .replace("{output-dir}", &output_dir.display().to_string());
+    if expanded.contains("{game}") {
+        let game = config
+            .game
+            .as_ref()
+            .ok_or("--tool-arg uses {game}, so --game is required")?;
+        expanded = expanded.replace("{game}", &game.display().to_string());
+    }
+    Ok(expanded)
+}
+
+fn run_model_decompile_tool(
+    invocation: &ModelDecompileInvocation,
+    timeout: Duration,
+) -> Result<Output, String> {
+    let mut command = Command::new(&invocation.executable);
+    command.args(&invocation.args);
+    run_command_with_timeout(
+        &mut command,
+        &format!(
+            "model decompile wrapper {}",
+            invocation.executable.display()
+        ),
+        timeout,
+    )
+}
+
+fn collect_model_decompile_outputs(output_dir: &Path) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    if !output_dir.is_dir() {
+        return Ok(paths);
+    }
+    collect_model_decompile_outputs_inner(output_dir, output_dir, &mut paths)?;
+    paths.sort();
+    Ok(paths)
+}
+
+fn collect_model_decompile_outputs_inner(
+    root: &Path,
+    current: &Path,
+    paths: &mut Vec<String>,
+) -> Result<(), String> {
+    for entry in fs::read_dir(current).map_err(|error| {
+        format!(
+            "failed to read output directory {}: {error}",
+            current.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            format!(
+                "failed to inspect output directory entry under {}: {error}",
+                current.display()
+            )
+        })?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_model_decompile_outputs_inner(root, &path, paths)?;
+        } else if path.is_file() {
+            let relative = path.strip_prefix(root).unwrap_or(&path);
+            paths.push(relative.display().to_string());
+        }
+    }
+    Ok(())
+}
+
+fn finish_model_decompile_report(
+    config: &ModelDecompileConfig,
+    report: ModelDecompileReport,
+) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("failed to encode model decompile report: {error}"))?;
+    if let Some(report_path) = &config.report {
+        create_parent_dir(report_path, "model decompile report")?;
+        fs::write(report_path, &json).map_err(|error| {
+            format!(
+                "failed to write model decompile report {}: {error}",
+                report_path.display()
+            )
+        })?;
+    }
+    if config.json {
+        println!("{json}");
+    } else {
+        println!(
+            "model decompile: {}",
+            if report.ok { "ok" } else { "failed" }
+        );
+        println!("tool: {}", report.tool);
+        println!("input mdl: {}", report.input_mdl);
+        println!("output dir: {}", report.output_dir);
+        println!("outputs: {}", report.discovered_outputs.len());
+        println!("exit code: {:?}", report.exit_code);
+        println!("log errors: {}", report.log_summary.errors);
+        println!("log warnings: {}", report.log_summary.warnings);
+    }
+    if !report.ok {
+        return Err("model decompile reported errors".to_string());
+    }
+    Ok(())
+}
+
 fn external_decompiler_presets_command(args: &[String]) -> Result<(), String> {
     let json = args.iter().any(|arg| arg == "--json");
     let presets = external_decompilers::preset_snapshots();
@@ -3827,6 +4141,49 @@ struct ModelCompileReport {
 }
 
 #[derive(Debug, Clone, Default)]
+struct ModelDecompileConfig {
+    input_mdl: Option<PathBuf>,
+    tool: Option<PathBuf>,
+    output_dir: Option<PathBuf>,
+    game: Option<PathBuf>,
+    tool_args: Vec<String>,
+    log: Option<PathBuf>,
+    report: Option<PathBuf>,
+    timeout_seconds: Option<u64>,
+    json: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ModelDecompileInvocation {
+    executable: PathBuf,
+    args: Vec<String>,
+    command_shape: &'static str,
+    uses_argument_template: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelDecompileReport {
+    ok: bool,
+    tool: String,
+    tool_kind: String,
+    command_shape: String,
+    command_args: Vec<String>,
+    raw_tool_args: Vec<String>,
+    uses_argument_template: bool,
+    input_mdl: String,
+    output_dir: String,
+    output_dir_exists: bool,
+    discovered_outputs: Vec<String>,
+    game: Option<String>,
+    exit_code: Option<i32>,
+    log_path: Option<String>,
+    log_summary: CompileLogSnapshot,
+    warnings: Vec<String>,
+    external_tool_boundary: Vec<String>,
+    real_tool_validation: bool,
+}
+
+#[derive(Debug, Clone, Default)]
 struct BspImportConfig {
     input: Option<PathBuf>,
     tool: Option<PathBuf>,
@@ -4701,6 +5058,7 @@ Usage:
   sourceweaver compile-profile create|validate|discover [options]
   sourceweaver model-inspect <model.mdl> [--json]
   sourceweaver model-compile <model.qc> --studiomdl <path> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bsp-import <map.bsp> (--bspsource <bspsrc> | --bspsource-jar <bspsrc.jar> | --tool <wrapper>) --output <out.vmf> [--java java] [--preset id] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--context-profile id] [--tool-cwd dir] [--library-path dir] [--game-dir dir] [--pass-game-dir] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bspzip-context-profiles [--json]
@@ -4857,6 +5215,29 @@ Command shape:
   studiomdl [--tool-arg values...] [-game <game-dir>] <model.qc>
 
 Use --tool-arg once per additional StudioMDL option. External tool runs default to a 900 second timeout.
+"#
+    );
+}
+
+fn print_model_decompile_help() {
+    println!(
+        r#"Usage:
+  sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+
+Runs a user-provided headless model decompile wrapper and captures a JSON report.
+
+Default generic wrapper command shape:
+  <headless-wrapper> [--tool-arg values...] <input.mdl> <output-dir>
+
+Template wrapper command shape:
+  sourceweaver model-decompile model.mdl --tool ./wrapper.sh --output-dir out \
+    --tool-arg --input --tool-arg {{input}} --tool-arg --output --tool-arg {{output-dir}}
+
+Supported placeholders in --tool-arg values: {{input}}, {{output-dir}}, {{game}}.
+Use --game only when the wrapper needs a game/content directory.
+
+Crowbar boundary:
+  Crowbar research found a GUI model decompiler/front-end. Source Weaver does not bundle Crowbar, copy Crowbar implementation details, or claim real Crowbar validation from this command.
 "#
     );
 }
