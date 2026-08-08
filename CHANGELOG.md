@@ -72,6 +72,7 @@
 - Real Source SDK Base 2013 Singleplayer game-dir compiler validation row using Source++ VBSP++/VVIS++/VRAD++ through Proton/Wine wrappers, producing a BSP and documenting stock SDK compiler-binary absence.
 - Compatibility and validation matrix with Hammer/Hammer++ open/save marked `not validated` and preview release wording locked to `Hammer/Hammer++ open/save: not certified.`
 - Compiler smoke-test matrix Row B with native Windows Source compiler execution marked `not validated`, preserving future certification in #142 and separating CI Windows Rust checks, Windows packaging, and Proton/Wine compiler rows from native Windows VBSP/VVIS/VRAD evidence.
+- Unsigned-preview release signing/provenance policy with decision table, exact GitHub Actions signing inputs, verification commands, and release-note template.
 
 ### Changed
 
@@ -88,4 +89,5 @@
 - Real StudioMDL++ validation produced local evidence artifacts only; generated model outputs are not committed or redistributed.
 - Hammer/Hammer++ open/save: not certified. Real editor certification remains future issue #141 and requires a runnable editor plus saved-VMF evidence.
 - Native Windows Source compiler execution: not certified. Future issue #142 requires real native Windows VBSP/VVIS/VRAD execution evidence.
+- Unsigned preview releases must explicitly say artifacts are unsigned and list absent OpenPGP, update-manifest, attestation, and SBOM status.
 - Real VBSP/VVIS/VRAD validation requires installed Source tooling or captured compile logs, and wrapper rows must stay labeled as wrapper evidence.

@@ -11,11 +11,46 @@ Source Weaver release signing is signing-ready but unsigned by default until rel
 - Signed update metadata is generated only when `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` is configured. The workflow does not publish unsigned update metadata.
 - Linux AppImages, Linux tarballs, Windows zip archives, and Windows setup executables remain downloadable without signatures so portable releases continue to work.
 
+
+## Decision table
+
+| Release posture | Required credentials | Workflow behavior | Release-note wording | Verification commands |
+| --- | --- | --- | --- | --- |
+| Unsigned preview release | none | Packages are published with `SHA256SUMS`; Windows Authenticode, OpenPGP checksum signature, signed update manifest, SBOM, and artifact attestations are absent unless separately configured. This is allowed for preview releases only when release notes say artifacts from that run are unsigned. | `Unsigned preview release: Windows executables/installers and Linux artifacts are not production-signed. Use SHA256SUMS for corruption checks. No publisher identity signature is present unless SHA256SUMS.asc or attestation entries are listed below.` | `sha256sum -c SHA256SUMS`; no `signtool`, `gpg --verify`, update-manifest, or attestation success may be claimed when the corresponding artifact is absent. |
+| OpenPGP checksum signing | real `SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64`; optional `SOURCEWEAVER_GPG_PASSPHRASE` | `scripts/sign-release-checksums.sh` imports the key into a temporary keyring, writes `SHA256SUMS.asc`, verifies it, then removes the keyring. If `SOURCEWEAVER_REQUIRE_RELEASE_SIGNATURES=1` is set, missing key material fails the run. | `SHA256SUMS.asc is present and verifies with the published OpenPGP release key fingerprint <fingerprint>.` | `sha256sum -c SHA256SUMS`; `gpg --verify SHA256SUMS.asc SHA256SUMS`. |
+| Windows Authenticode signing | real code-signing certificate/PFX, password when needed, SignTool, timestamp URL | `scripts/package-windows.ps1` signs staged Windows executables before zip creation and the NSIS setup executable after `makensis`. Missing credentials are a no-op unless `-RequireSigning` is used. | `Windows artifacts were Authenticode-signed during this run by <publisher/certificate summary>; verification output is recorded below.` | `Get-AuthenticodeSignature .\sourceweaver-vX.Y.Z-windows-x86_64-setup.exe | Format-List`; `signtool verify /pa /v .\sourceweaver-vX.Y.Z-windows-x86_64-setup.exe`. |
+| Signed update manifest | real Ed25519 private key in `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64`; published public key | The release workflow writes `sourceweaver-update-manifest.json` only when the key is configured. When the key is absent, it prints a refusal message and publishes no unsigned update metadata. | `sourceweaver-update-manifest.json is present and verifies with the published Ed25519 update public key <key/fingerprint>.` | `sourceweaver update check --manifest sourceweaver-update-manifest.json --public-key <published-key> --current-version vX.Y.Z --channel preview --target <target> --json`. |
+| GitHub artifact attestations and SBOM provenance | future workflow changes tracked by #144 | Not enabled by this policy ticket. Attestations/SBOMs improve provenance and dependency visibility, but they do not replace Authenticode, OpenPGP, update-manifest signatures, or platform trust prompts. | `Artifact attestations/SBOM: not included in this preview; tracked by #144.` until #144 records implementation evidence. | Future verification should include `gh attestation verify <artifact> --repo dayflaree/sourceweaver` and SBOM validation commands once implemented. |
+
+## Exact GitHub Actions inputs
+
+The current release workflow and packaging scripts recognize these inputs. Put private values only in GitHub Actions secrets or a restricted signing environment.
+
+| Input | GitHub storage in current workflow | Local/script input | Purpose | Required for unsigned preview? |
+| --- | --- | --- | --- | --- |
+| `SOURCEWEAVER_WINDOWS_SIGNING_PFX_BASE64` | secret | env var or `-SigningCertificatePfxBase64` | Base64-encoded Windows code-signing PFX. | no |
+| `SOURCEWEAVER_WINDOWS_SIGNING_PFX_PASSWORD` | secret | env var or `-SigningCertificatePassword` | PFX password when needed. | no |
+| `SOURCEWEAVER_WINDOWS_TIMESTAMP_URL` | variable | env var or `-TimestampUrl` | RFC 3161 timestamp URL; defaults locally to `http://timestamp.digicert.com` when unset. | no |
+| `SOURCEWEAVER_WINDOWS_SIGNTOOL` | variable | env var or `-SignToolPath`; local fallback `SIGNTOOL` is also accepted | SignTool path or command. | no |
+| `SOURCEWEAVER_WINDOWS_SIGNING_PFX_PATH` | not used by current GitHub workflow | env var or `-SigningCertificatePfxPath` | Local/staging path to a PFX already present on the Windows host. | no |
+| `SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64` | secret | env var | OpenPGP private key export for `SHA256SUMS.asc`. | no |
+| `SOURCEWEAVER_GPG_PASSPHRASE` | secret | env var | OpenPGP private key passphrase when needed. | no |
+| `SOURCEWEAVER_REQUIRE_RELEASE_SIGNATURES` | not set by current GitHub workflow | env var | Makes `scripts/sign-release-checksums.sh` fail when no OpenPGP key is configured. | no |
+| `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` | secret | env var or `sourceweaver update manifest --signing-key-env <name>` | Ed25519 private key for signed update metadata. | no |
+
+Unsigned preview releases must leave every private-key/certificate input empty and must not use test keys as production signing evidence.
+
 ## Research notes
 
 Microsoft SignTool documentation checked on 2026-08-07 describes SignTool as the command-line tool for digitally signing files, verifying signatures, removing signatures, and time stamping files. It is distributed with the Windows SDK. Current SignTool documentation also says modern Windows SDK builds require `/fd` for the file digest algorithm and `/td` for the timestamp digest algorithm, and it recommends SHA-256.
 
 GnuPG documentation checked on 2026-08-07 describes detached signatures as a separate signature file created from a private key and verified with the corresponding public key. It documents that both the original document and detached signature are needed for verification, for example `gpg --verify doc.sig doc`.
+
+External references checked for this policy:
+
+- Microsoft SignTool documentation, checked 2026-08-08: https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool . SignTool signs, verifies, removes signatures, and timestamps files; modern Windows SDK builds require `/fd` and `/td`, with SHA-256 recommended.
+- GnuPG detached-signature documentation, checked 2026-08-08: https://www.gnupg.org/gph/en/manual/x135.html . Detached signatures require both the original document and signature for `gpg --verify`.
+- GitHub artifact-attestation documentation and action README, checked 2026-08-08: https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds and https://github.com/actions/attest-build-provenance . GitHub artifact attestations bind artifact names/digests to SLSA provenance and are verified with GitHub CLI attestation commands.
 
 ## Windows Authenticode plan
 
@@ -126,6 +161,20 @@ The update manifest covers:
 
 The manifest signature protects those fields. Artifact bytes are still verified separately by SHA-256 before Source Weaver writes a downloaded artifact.
 
+Release verification command when the public key is published:
+
+```bash
+sourceweaver update check \
+  --manifest sourceweaver-update-manifest.json \
+  --public-key <published-ed25519-public-key> \
+  --current-version vX.Y.Z \
+  --channel preview \
+  --target linux-x86_64 \
+  --json
+```
+
+Use `--target windows-x86_64` for Windows artifacts. This verifies signed metadata and selected artifact hashes. It does not install the artifact automatically.
+
 ## Key and certificate ownership
 
 - The repository owner or designated release maintainer owns release-signing decisions.
@@ -168,15 +217,34 @@ Rotation steps:
 
 ## Release checklist additions
 
-For every signed release:
+For every preview or signed release:
 
-1. Confirm the Windows job shows SignTool signing output for each expected executable.
-2. Confirm `SHA256SUMS` exists in the release artifacts.
-3. Confirm `SHA256SUMS.asc` exists when OpenPGP signing is configured or required.
-4. Download release artifacts and verify `sha256sum -c SHA256SUMS`.
-5. Verify `gpg --verify SHA256SUMS.asc SHA256SUMS` when the detached signature exists.
-6. Verify Windows Authenticode signatures with `Get-AuthenticodeSignature` or `signtool verify /pa /v` when a certificate was configured.
-7. Record which signing credentials were used in the release evidence without exposing secrets.
+1. Fill the release-note signing/provenance template below before publishing.
+2. Confirm `SHA256SUMS` exists in the release artifacts and verify `sha256sum -c SHA256SUMS` after download.
+3. If no Windows certificate was configured, state that Windows artifacts are unsigned. If a certificate was configured, confirm the Windows job shows SignTool signing output for each expected executable and verify with `Get-AuthenticodeSignature` or `signtool verify /pa /v`.
+4. If no OpenPGP key was configured, state that `SHA256SUMS.asc` is absent. If a key was configured or required, confirm `SHA256SUMS.asc` exists and verify `gpg --verify SHA256SUMS.asc SHA256SUMS`.
+5. If no Ed25519 update-signing key was configured, confirm no `sourceweaver-update-manifest.json` was published. If a key was configured, verify `sourceweaver update check --manifest sourceweaver-update-manifest.json --public-key <published-key>` succeeds.
+6. If no artifact attestations or SBOMs are implemented, state that provenance/SBOM support is tracked by #144. If #144 or a successor issue implements them, run the documented verification commands and record the results.
+7. Record which signing/provenance credentials or systems were used in release evidence without exposing secrets.
+
+
+## Release-note signing/provenance template
+
+Every preview release must include a completed version of this section.
+
+```markdown
+## Signing and provenance status
+
+- Release posture: unsigned preview / signed release / mixed signing status.
+- Windows Authenticode: unsigned; or signed with <publisher/certificate summary> and verified with <command/output reference>.
+- Checksum manifest: SHA256SUMS published; verify with `sha256sum -c SHA256SUMS`.
+- OpenPGP checksum signature: absent; or SHA256SUMS.asc published and verified with key fingerprint <fingerprint>.
+- Signed update manifest: absent because SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64 was not configured; or sourceweaver-update-manifest.json published and verified with Ed25519 public key <key/fingerprint>.
+- Artifact attestations/SBOM: absent and tracked by #144; or published and verified with <command/output reference>.
+- Production signing boundary: #143 remains open unless this release records real production signing credentials and verification output.
+```
+
+Do not delete lines for absent features. Mark them `absent`, `unsigned`, or `not included` so the limitation is visible in release notes and issue evidence.
 
 ## Unsigned limitations
 
