@@ -141,7 +141,9 @@ jobs:
         with:
           subject-path: target/release-artifacts/*
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: CHANGELOG.md
+          prerelease: true
+          make_latest: false
           files: target/release-artifacts/*
