@@ -194,7 +194,105 @@ Use precise wording:
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, synthetic model package copy trees, synthetic QC/QCI/SMD/DMX/VTA source-output manifests, fake HLMV-compatible preview wrappers, fake StudioMDL-compatible shell tools, fake model-decompile wrappers, one completed real StudioMDL++ model-compile validation row recorded in `docs/source-compiler-smoke-test-matrix.md`, and one completed real Crowbar 0.74 model-decompile validation row recorded below. No real HLMV or game runtime validation is implied by model-tooling evidence.
+This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, synthetic model package copy trees, synthetic QC/QCI/SMD/DMX/VTA source-output manifests, fake HLMV-compatible preview wrappers, fake StudioMDL-compatible shell tools, fake model-decompile wrappers, one completed real StudioMDL++ model-compile validation row recorded in `docs/source-compiler-smoke-test-matrix.md`, one completed real HLMV++ launch-failure validation row recorded below, and one completed real Crowbar 0.74 model-decompile validation row recorded below. The HLMV++ row proves real viewer launch plumbing and a Proton/runtime failure only; it does not prove a rendered HLMV window or visual model-preview success.
+
+
+## Real HLMV++ launch-failure validation row
+
+Completed on 2026-08-08 for issue #135. This row records a real HLMV-compatible viewer launch failure. It does not record a rendered model-preview success.
+
+Viewer and runtime:
+
+```text
+viewer: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/hlmvplusplus.exe
+viewer_name: HLMV++ / Half-Life Model Viewer++
+viewer_file_type: PE32+ executable for MS Windows 6.00 (GUI), x86-64, 7 sections
+viewer_build_string_from_binary: Apr 14 2026
+viewer_sha256: 5799e21ae2b585e8556d0deb82b4533dcc64233d4404f7cc072db16703000559
+runtime_mode: Proton 10.0 on native Linux host using the Steam snap library
+game_dir: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod
+display_environment: DISPLAY, WAYLAND_DISPLAY, and XDG_SESSION_TYPE were empty in the validation shell
+```
+
+Input model and ownership:
+
+```text
+model_input: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod/models/sourceweaver_issue116/issue116_triangle.mdl
+model_sha256: cf407e91f64f51a245def453912d6f1ae04e88bf3f0d8ba19da6d9b81be4e929
+model_status: Source Weaver-authored local synthetic validation model from earlier issue evidence
+redistribution: not committed and not redistributed in this row
+```
+
+Source Weaver command:
+
+```bash
+SOURCEWEAVER_HLMV_COMPATDATA=/tmp/sourceweaver-hlmv-validation-issue135/compatdata \
+SOURCEWEAVER_HLMV_TIMEOUT=60 \
+cargo run -q -p sourceweaver-cli -- model-preview \
+  /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod/models/sourceweaver_issue116/issue116_triangle.mdl \
+  --asset-root /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod \
+  --hlmv /tmp/sourceweaver-hlmv-validation-issue135/hlmvplusplus-proton-wrapper.sh \
+  --game-dir /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod \
+  --launch \
+  --log /tmp/sourceweaver-hlmv-validation-issue135/sourceweaver-hlmv-launch.log \
+  --timeout-seconds 75 \
+  --report /tmp/sourceweaver-hlmv-validation-issue135/sourceweaver-model-preview-report.json \
+  --json
+```
+
+Observed result:
+
+```text
+sourceweaver_report_ok: false
+native_preview_status: metadata-only
+hlmv_launch_status: failed
+hlmv_exit_code: 1
+rendered_window_observed: false
+visual_result: no rendered HLMV++ window was available for inspection
+log_result: Proton/Wine aborted before viewer startup with unimplemented function tier0.dll.CommandLine
+```
+
+The Source Weaver report deliberately keeps native metadata preview separate from HLMV launch status. Native metadata parsing succeeded far enough to identify the synthetic MDL name, version, mesh count, animation/sequence counts, material candidate count, and companion-file count, but the overall report is failed because the requested external HLMV++ launch failed.
+
+Additional Proton checks:
+
+```text
+Proton 10.0 compat version 10.1000-105: tier0.dll.CommandLine abort
+Proton 9.0 Beta compat version 9.0-203: tier0.dll.CommandLine abort; also reported SteamAPI_Init could not locate a running Steam instance
+Proton Experimental compat version 11.0-100: tier0.dll.CommandLine abort
+```
+
+Evidence artifacts:
+
+```text
+primary evidence directory: /tmp/sourceweaver-hlmv-validation-issue135-final
+summary JSON: /tmp/sourceweaver-hlmv-validation-issue135-final/hlimv-validation-summary.json
+Source Weaver report: /tmp/sourceweaver-hlmv-validation-issue135-final/sourceweaver-model-preview-report.json
+HLMV++ launch log: /tmp/sourceweaver-hlmv-validation-issue135-final/sourceweaver-hlmv-launch.log
+direct launch stderr: /tmp/sourceweaver-hlmv-validation-issue135-final/direct-stderr.log
+tool/input hashes: /tmp/sourceweaver-hlmv-validation-issue135-final/tool-input-sha256.txt
+```
+
+Selected hashes:
+
+```text
+f3d5598b13aa70b82ae62a05b2abc877259629117ba06d7f0e619bff8a7c7a1f  hlimv-validation-summary.json
+a63d88105b45e8e359f41f6d7a0c0fb3489c9c200039f4887f3fccd5fd45a194  hlimv-version-strings.txt
+d460068e6404fbb287915d08b3808847828dadcd0b352d3791f642aeb3ee3cd0  hlmvplusplus-proton-wrapper.sh
+a91ca87b52e81682bfb918c3656599cb084700686180550c5ba1418704a5ca0e  sourceweaver-hlmv-launch.log
+3829995db04049f3e2bf5cb5417f10fb15ab34e24b44ca8b43b430e6237ff3f0  sourceweaver-model-preview-report.json
+5236ae8d02c610b49ddcb107b87f255f58fd88e7a7dcab5ba974289b86f36b79  direct-stderr.log
+503adf3ece3f2f1d4141f4fa1349a28b41f6e5a3b55d0a880acaf3501475f0bf  tool-input-sha256.txt
+```
+
+Caveats and limitations:
+
+- A real HLMV++ executable was launched through Source Weaver, but the process failed before a rendered viewer window opened.
+- No model was visually inspected in HLMV++.
+- No screenshot or recording was produced because no window rendered.
+- This row validates Source Weaver's external HLMV launch/report plumbing and records an HLMV++/Proton failure. It does not validate successful HLMV rendering, animation playback, material display, lighting, or game-runtime model behavior.
+- Source Weaver does not bundle HLMV++, Proton, Steam, Garry's Mod content, model assets, or wrappers.
+
 
 ## Real Crowbar 0.74 decompile validation row
 
