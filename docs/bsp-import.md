@@ -8,7 +8,7 @@ Use BSPSource or another trusted external decompiler to generate a VMF, then imp
 
 BSPSource is the most viable current option because it is an actively maintained Source-engine BSP-to-VMF decompiler. Its project README describes it as a Java Source engine map decompiler that converts `.bsp` maps back to `.vmf` files for Hammer. BSPSource 1.4.8 was checked on 2026-08-06; its CLI accepts `-o <path>` to choose the VMF output path.
 
-Source Weaver does not bundle BSPSource, VMEX, game BSPs, or decompiled content. The current implementation is first-class user-selected BSPSource execution plus a generic wrapper escape hatch. Managed downloads or bundled binaries remain deferred until dependency redistribution, checksums, update policy, and support expectations are reviewed for a release.
+Source Weaver does not bundle BSPSource, VMEX, game BSPs, or decompiled content. The current implementation is first-class user-selected BSPSource execution plus a generic wrapper escape hatch. Managed downloads or bundled binaries require the review gate in `docs/third-party-redistribution-policy.md` before release.
 
 ## CLI decompiler runner
 
@@ -136,7 +136,7 @@ Source Weaver keeps user-selected BSPSource launcher, jar, and wrapper paths as 
 - `verify` to check a local BSPSource ZIP against a pinned asset or explicit SHA-256;
 - `download` to perform a user-accepted, checksum-verified cache download.
 
-Source Weaver does not bundle BSPSource or automatically adopt latest upstream releases. See `docs/bspsource-managed-download.md` for the research result and policy details.
+Source Weaver does not bundle BSPSource or automatically adopt latest upstream releases. See `docs/bspsource-managed-download.md` for the research result and `docs/third-party-redistribution-policy.md` for the broader managed-download review policy.
 
 
 ## BSPSource quality and warning categories

@@ -84,4 +84,4 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 - Windows NSIS installer packaging is wired into the release workflow, but interactive GUI smoke evidence outside silent CI install/uninstall must be recorded per release.
 - Release artifacts are unsigned unless Windows code-signing and OpenPGP release-signing secrets are configured; see `docs/code-signing.md`.
 - Automatic updates are not enabled; use the manual update path in `docs/update-strategy.md` until signed update metadata is required.
-- Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims.
+- Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims. Any managed third-party download or bundled third-party asset must pass `docs/third-party-redistribution-policy.md` before release.

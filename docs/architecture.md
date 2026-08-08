@@ -159,17 +159,17 @@ The core library provides class-level metadata for common Source entities, infer
 
 ## BSP import stance
 
-Source Weaver remains VMF-first. BSP import is a decompile-to-VMF workflow using user-selected tools such as BSPSource. Source Weaver does not bundle decompilers or game BSP assets. Managed downloads or bundled decompilers require separate redistribution and update-policy review. See `docs/bsp-import.md`.
+Source Weaver remains VMF-first. BSP import is a decompile-to-VMF workflow using user-selected tools such as BSPSource. Source Weaver does not bundle decompilers or game BSP assets. Managed downloads or bundled decompilers require `docs/third-party-redistribution-policy.md` review. See `docs/bsp-import.md`.
 
 The CLI `bsp-import` command can run a BSPSource launcher with `bspsrc -o <out.vmf> <input.bsp>`, run a BSPSource jar through Java, or fall back to a generic wrapper script for unusual tools. It captures logs, probes BSPSource version when possible, applies documented BSPSource argument presets plus raw escape-hatch args, validates the generated VMF, categorizes BSPSource warning/quality lines, and emits JSON with command provenance. The desktop **BSP decompile import** panel runs the same CLI workflow in a background worker, imports successful VMFs, and marks them with decompile-quality warnings. **Add BSP-derived VMF...** remains available for already-generated VMFs.
 
 ## Model tooling stance
 
-Model tooling is optional and separate from VMF merge/edit. The CLI can inspect a small MDL header prefix natively and can run a user-provided StudioMDL-compatible compiler/wrapper with logs and JSON reports. Crowbar research is documented in `docs/model-tooling.md`; Source Weaver does not port, bundle, vendor, or copy Crowbar code or binaries.
+Model tooling is optional and separate from VMF merge/edit. The CLI can inspect a small MDL header prefix natively and can run a user-provided StudioMDL-compatible compiler/wrapper with logs and JSON reports. Crowbar research is documented in `docs/model-tooling.md`; Source Weaver does not port, bundle, vendor, or copy Crowbar code or binaries. `docs/third-party-redistribution-policy.md` records the user-provided-only boundary.
 
 ## BSP packing stance
 
-BSP content packing is optional post-compile distribution tooling. The CLI `pack` command runs a user-provided `bspzip`-compatible packer with `-addlist <input.bsp> <filelist.txt> <output.bsp>`, can generate BSPZIP path-pair file lists from asset roots and include rules, captures logs, and emits JSON with missing assets and command provenance. Source Weaver does not bundle packers, BSPs, or custom assets. Desktop packing UI remains future work. See `docs/bsp-packing.md`.
+BSP content packing is optional post-compile distribution tooling. The CLI `pack` command runs a user-provided `bspzip`-compatible packer with `-addlist <input.bsp> <filelist.txt> <output.bsp>`, can generate BSPZIP path-pair file lists from asset roots and include rules, captures logs, and emits JSON with missing assets and command provenance. Source Weaver does not bundle packers, BSPs, or custom assets. The third-party redistribution policy covers any future packer or fixture redistribution. Desktop packing UI remains future work. See `docs/bsp-packing.md`.
 
 ## Deletion model
 

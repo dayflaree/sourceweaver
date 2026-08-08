@@ -2,7 +2,7 @@
 
 Source Weaver can run an optional BSP packing step with a user-provided `bspzip`, BSPZIP++, or compatible external tool. Packing is separate from VMF editing, VMF merging, BSP decompiling, and VMF-to-BSP compiling.
 
-Source Weaver does not bundle Valve tools, third-party packers, compiled BSPs, or custom assets. Users are responsible for owning or having permission to distribute every asset they pack.
+Source Weaver does not bundle Valve tools, third-party packers, compiled BSPs, or custom assets. Users are responsible for owning or having permission to distribute every asset they pack. `docs/third-party-redistribution-policy.md` controls any future managed packer download or redistributable packing fixture.
 
 ## CLI workflow
 
@@ -169,4 +169,4 @@ The panel shows the exact Source Weaver CLI command, JSON report, stdout/stderr 
 
 If the input BSP field is blank, the desktop action infers it from the current output VMF path by changing the extension to `.bsp`. If the output BSP or report path is blank, Source Weaver derives `*-packed.bsp` and `*-pack-report.json` paths next to the input/output BSP.
 
-Source Weaver does not bundle BSPZIP, game content, SDKs, or custom assets. The desktop panel is an integration surface for user-configured tools only.
+Source Weaver does not bundle BSPZIP, game content, SDKs, or custom assets. The desktop panel is an integration surface for user-configured tools only. The third-party redistribution policy keeps BSPZIP-compatible packers user-provided unless a later review approves another category.

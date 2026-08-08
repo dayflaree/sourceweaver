@@ -59,6 +59,7 @@
 - Windows NSIS installer packaging script, CI install/uninstall validation, release workflow integration, and packaging documentation while retaining portable zip releases.
 - Release checksum manifest generation, optional OpenPGP checksum signing, Windows Authenticode signing hooks, and code-signing policy documentation.
 - Manual latest-release check helper and documented auto-update strategy covering signing, channels, rollback, consent, and offline behavior.
+- Third-party tool redistribution policy with never-bundled, user-provided-only, managed-download, and redistributable-candidate categories plus review gates for future managed downloads.
 
 ### Changed
 
@@ -71,4 +72,5 @@
 - Windows setup installers need interactive GUI smoke evidence outside silent CI install/uninstall.
 - Release artifacts are unsigned unless Windows code-signing and OpenPGP release-signing secrets are configured.
 - Automatic updates are intentionally disabled until signed update metadata and release signing enforcement exist.
+- Third-party tools and assets stay unbundled unless the redistribution policy review records rights, provenance, attribution, checksum, update, and removal decisions.
 - Real Hammer/VBSP validation requires installed Source tooling or captured compile logs.

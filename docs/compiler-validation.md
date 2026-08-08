@@ -108,7 +108,7 @@ CI cannot assume licensed Source tools are installed. Instead, CI builds a merge
 
 ## Validation notes for issue #47
 
-This repository was validated on Linux with portable checks and synthetic VBSP log fixtures. Real Hammer/Hammer++ opening and VBSP execution still require a machine with the relevant Source game/tool installation. When such logs are captured, attach the JSON output from `sourceweaver validate --compile-log <log> --json` to the issue or release notes.
+This repository was validated on Linux with portable checks and synthetic VBSP log fixtures. Real Hammer/Hammer++ opening and VBSP execution still require a machine with the relevant Source game/tool installation. When such logs are captured, attach the JSON output from `sourceweaver validate --compile-log <log> --json` to the issue or release notes. `docs/third-party-redistribution-policy.md` governs any future attempt to redistribute compiler tools, tool wrappers, or generated fixtures.
 
 ## Desktop compile profile wizard
 

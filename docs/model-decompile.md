@@ -77,7 +77,7 @@ The manifest groups discovered files into:
 - `vta_files`;
 - `other_files`.
 
-This command supports an external-tool delegated workflow: a user runs their own legal model decompiler or wrapper, then Source Weaver records a reproducible manifest of the generated sources for review, packaging, or UI display. It does not prove that the files are correct, editable, or legally redistributable.
+This command supports an external-tool delegated workflow: a user runs their own legal model decompiler or wrapper, then Source Weaver records a reproducible manifest of the generated sources for review, packaging, or UI display. It does not prove that the files are correct, editable, or legally redistributable. `docs/third-party-redistribution-policy.md` defines the review required before any model tool or generated asset can move beyond user-provided-only handling.
 
 ## Crowbar research boundary
 

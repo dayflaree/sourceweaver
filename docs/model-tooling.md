@@ -1,6 +1,6 @@
 # Model decompile/compile tooling
 
-Source Weaver remains VMF-first. Model tooling is optional support for users who already work with Source model assets and external tools. Source Weaver does not bundle Crowbar, StudioMDL, model source files, compiled models, game SDKs, or game assets.
+Source Weaver remains VMF-first. Model tooling is optional support for users who already work with Source model assets and external tools. Source Weaver does not bundle Crowbar, StudioMDL, model source files, compiled models, game SDKs, or game assets. Any future managed model-tool download or redistributable fixture must pass `docs/third-party-redistribution-policy.md`.
 
 ## Crowbar research
 
@@ -21,7 +21,7 @@ Observed facts:
 
 Conclusion:
 
-- Source Weaver should not port, vendor, bundle, or copy Crowbar code in this phase.
+- Source Weaver should not port, vendor, bundle, or copy Crowbar code in this phase. The third-party redistribution policy keeps Crowbar in the user-provided-only category until a separate review approves a different category.
 - A direct Crowbar port would need separate license review, attribution/name handling, UI/runtime replacement, and a clear decision on ShareAlike obligations.
 - Source Weaver can safely start with independent, native metadata inspection and user-configured external compiler/decompiler boundaries.
 

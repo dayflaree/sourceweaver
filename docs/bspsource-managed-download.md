@@ -2,7 +2,7 @@
 
 Source Weaver supports user-selected BSPSource launcher, jar, and wrapper paths. Those local paths remain the primary integration path. The managed BSPSource helper adds a conservative optional workflow for users who want Source Weaver to report a pinned upstream manifest, verify a local ZIP, or perform an explicit checksum-verified cache download.
 
-Source Weaver does not bundle BSPSource, Java runtimes, game SDKs, game content, BSP files, or decompiled outputs.
+Source Weaver does not bundle BSPSource, Java runtimes, game SDKs, game content, BSP files, or decompiled outputs. `docs/third-party-redistribution-policy.md` defines the wider review gate for managed downloads and redistributable third-party assets.
 
 ## Research summary
 
@@ -89,7 +89,7 @@ sourceweaver bspsource download \
 
 The command downloads from the pinned GitHub release URL, writes a `.partial` file, verifies size and SHA-256, then renames it into the versioned cache. Without `--accept-download-policy`, the command refuses to download and reminds the user that local BSPSource tool paths are supported.
 
-Source Weaver does not automatically track the latest BSPSource release. Updating the pinned version requires a Source Weaver code/docs change with the new version, release URL, asset URLs, sizes, SHA-256 digests, and renewed license/provenance review.
+Source Weaver does not automatically track the latest BSPSource release. Updating the pinned version requires a Source Weaver code/docs change with the new version, release URL, asset URLs, sizes, SHA-256 digests, and renewed license/provenance review under `docs/third-party-redistribution-policy.md`.
 
 ## Execution boundary
 
