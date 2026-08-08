@@ -4128,7 +4128,7 @@ fn model_decompile_command(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let config = parse_model_decompile_args(args)?;
-    let input_mdl = config.input_mdl.as_ref().ok_or("usage: sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]")?;
+    let input_mdl = config.input_mdl.as_ref().ok_or("usage: sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--real-tool-validation] [--report report.json] [--json]")?;
     let tool = config
         .tool
         .as_ref()
@@ -4224,7 +4224,7 @@ fn model_decompile_command(args: &[String]) -> Result<(), String> {
             "Source Weaver does not bundle Crowbar, copy Crowbar implementation details, run StudioMDL, or inspect proprietary game content for this command.".to_string(),
             "Crowbar research found a GUI model decompiler/front-end; use a local wrapper only when the chosen tool has a verified headless path.".to_string(),
         ],
-        real_tool_validation: false,
+        real_tool_validation: config.real_tool_validation,
     };
     finish_model_decompile_report(&config, report)
 }
@@ -4274,6 +4274,7 @@ fn parse_model_decompile_args(args: &[String]) -> Result<ModelDecompileConfig, S
                     args.get(cursor).ok_or("--timeout-seconds needs a value")?,
                 )?);
             }
+            "--real-tool-validation" => config.real_tool_validation = true,
             "--json" => config.json = true,
             value if value.starts_with('-') => {
                 return Err(format!("unknown model-decompile flag `{value}`"));
@@ -6480,6 +6481,7 @@ struct ModelDecompileConfig {
     log: Option<PathBuf>,
     report: Option<PathBuf>,
     timeout_seconds: Option<u64>,
+    real_tool_validation: bool,
     json: bool,
 }
 
@@ -8243,7 +8245,7 @@ Crowbar, StudioMDL, HLMV, model decompilers, SDK tools, or game runtimes.
 fn print_model_decompile_help() {
     println!(
         r#"Usage:
-  sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
+  sourceweaver model-decompile <model.mdl> --tool <headless-wrapper> --output-dir <dir> [--game game-dir] [--tool-arg arg] [--log log.txt] [--timeout-seconds seconds] [--real-tool-validation] [--report report.json] [--json]
 
 Runs a user-provided headless model decompile wrapper and captures a JSON report.
 
@@ -8258,7 +8260,7 @@ Supported placeholders in --tool-arg values: {{input}}, {{output-dir}}, {{game}}
 Use --game only when the wrapper needs a game/content directory.
 
 Crowbar boundary:
-  Crowbar research found a GUI model decompiler/front-end. Source Weaver does not bundle Crowbar, copy Crowbar implementation details, or claim real Crowbar validation from this command.
+  Crowbar research found a GUI model decompiler/front-end. Source Weaver does not bundle Crowbar or copy Crowbar implementation details. Use --real-tool-validation only when the wrapper actually launched a real decompiler and the issue evidence records the tool, input ownership, logs, and limitations.
 "#
     );
 }

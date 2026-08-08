@@ -194,7 +194,94 @@ Use precise wording:
 
 ## Current validation evidence
 
-This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, synthetic model package copy trees, synthetic QC/QCI/SMD/DMX/VTA source-output manifests, fake HLMV-compatible preview wrappers, fake StudioMDL-compatible shell tools, fake model-decompile wrappers, and one completed real StudioMDL++ model-compile validation row recorded in `docs/source-compiler-smoke-test-matrix.md`. No real Crowbar, HLMV, model decompile, or game runtime validation was run in this repository state.
+This implementation is validated with synthetic MDL headers, synthetic Source-style bodypart/model/mesh tables, synthetic local animation/sequence descriptor tables, synthetic texture/material-directory tables, synthetic VVD/VTX/PHY companion headers, synthetic model package copy trees, synthetic QC/QCI/SMD/DMX/VTA source-output manifests, fake HLMV-compatible preview wrappers, fake StudioMDL-compatible shell tools, fake model-decompile wrappers, one completed real StudioMDL++ model-compile validation row recorded in `docs/source-compiler-smoke-test-matrix.md`, and one completed real Crowbar 0.74 model-decompile validation row recorded below. No real HLMV or game runtime validation is implied by model-tooling evidence.
+
+## Real Crowbar 0.74 decompile validation row
+
+Completed on 2026-08-08 for issue #136.
+
+Input and ownership:
+
+```text
+input_mdl: /home/elijah/.hermes/work/gmod_2924927318_dayflare/extracted/models/dayflare/ravenholm/female_01.mdl
+input_companions: female_01.dx80.vtx, female_01.dx90.vtx, female_01.phy, female_01.sw.vtx, female_01.vvd
+input_status: user-provided external Garry's Mod workshop/model content under the local Hermes work area
+redistribution: not committed and not redistributed
+```
+
+Tooling:
+
+```text
+crowbar: /home/elijah/.hermes/tools/crowbar_0_74/Crowbar.exe
+crowbar_sha256: b723a406a7f99a5565c10dd6e8c8de02e8988f6162e7fe44bd0e9ca9d58ebad9
+headless_reflection_runner: /home/elijah/.hermes/work/crowbar_reflect_runner/CrowbarHeadlessDecompile.exe
+headless_reflection_runner_sha256: 1a006851579eaa6608cb1e7f93d0f99defcd82009a67247585b573375f8c6283
+proton: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/Proton 10.0/proton
+proton_compat_version: 10.1000-105
+steam_compat_app_id: 4000
+steam_compat_data_path: /tmp/sourceweaver-crowbar-real-validation-issue136-normalized/compatdata
+game_dir: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod
+```
+
+Source Weaver command:
+
+```bash
+SOURCEWEAVER_CROWBAR_COMPATDATA=/tmp/sourceweaver-crowbar-real-validation-issue136-normalized/compatdata \
+SOURCEWEAVER_CROWBAR_RAW_LOG=/tmp/sourceweaver-crowbar-real-validation-issue136-normalized/raw-proton-crowbar.log \
+cargo run -q -p sourceweaver-cli -- model-decompile \
+  /home/elijah/.hermes/work/gmod_2924927318_dayflare/extracted/models/dayflare/ravenholm/female_01.mdl \
+  --tool /tmp/sourceweaver-crowbar-real-validation-issue136-normalized/crowbar-proton-normalized-wrapper.sh \
+  --tool-arg /home/elijah/.hermes/tools/crowbar_0_74/Crowbar.exe \
+  --tool-arg '{input}' \
+  --tool-arg '{output-dir}' \
+  --game /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/garrysmod \
+  --output-dir /tmp/sourceweaver-crowbar-real-validation-issue136-normalized/output \
+  --log /tmp/sourceweaver-crowbar-real-validation-issue136-normalized/sourceweaver-model-decompile.log \
+  --report /tmp/sourceweaver-crowbar-real-validation-issue136-normalized/sourceweaver-model-decompile-report.json \
+  --timeout-seconds 300 \
+  --real-tool-validation \
+  --json
+```
+
+Observed Source Weaver result:
+
+```text
+report_ok: true
+sourceweaver_exit: 0
+wrapper_exit: 0
+source_outputs_total_files: 46
+qc_or_qci_files: 2
+smd_files: 41
+dmx_files: 0
+vta_files: 1
+other_files: 2
+manifest_ok: true
+real_tool_validation: true
+```
+
+Manifest command:
+
+```bash
+cargo run -q -p sourceweaver-cli -- model-source-manifest \
+  /tmp/sourceweaver-crowbar-real-validation-issue136-normalized/output \
+  --json > /tmp/sourceweaver-crowbar-real-validation-issue136-normalized/sourceweaver-model-source-manifest.json
+```
+
+Artifact hashes:
+
+```text
+d12c19d9c80d273415493bed8c2ff6ca8f64ada60db1bbae9ff7dfe6b6061308  sourceweaver-model-decompile-report.json
+df869bb6b14a348a61cdb87ac8ebe80ce2671f9b49d679af5634c8a6ab03d3bc  sourceweaver-model-source-manifest.json
+fbca63ab5d70d83aff7dd629a689eb5bfb5c086dabda7b97607213b8717e5dd8  raw-proton-crowbar.log
+```
+
+Caveats and limitations:
+
+- Crowbar itself was used through a local Proton-backed reflection runner, so this row can honestly say Crowbar 0.74 was exercised. It does not claim full Crowbar parity or GUI workflow parity.
+- The raw Proton/Crowbar process returned exit code 1 after generating files because the headless reflection runner hit a console `System.IO.IOException` while printing its QC summary. The normalizing wrapper recorded that raw failure, verified generated QC/SMD outputs, and returned exit 0 to Source Weaver only after outputs existed.
+- Proton reported a missing FreeType font library warning. It did not prevent decompile output generation.
+- The decompiled outputs are user-provided external model-derived artifacts and remain outside the repository under `/tmp/sourceweaver-crowbar-real-validation-issue136-normalized/output`.
+- Source Weaver does not bundle Crowbar, the reflection runner, Proton, Steam, Garry's Mod content, the input MDL, companion files, QC/SMD/VTA outputs, or any decompiled model assets.
 
 ## Desktop model tooling panel
 
