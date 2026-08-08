@@ -16,6 +16,29 @@ Research performed for issue #100 checked upstream BSPSource metadata from `ata4
 
 This review supports user-initiated download/cache of upstream assets with checksum verification. It does not justify bundling BSPSource inside Source Weaver release artifacts, and it does not replace user-selected local tool paths.
 
+## Completed policy review
+
+```yaml
+third_party_policy_review:
+  name: BSPSource v1.4.8 ZIP managed download
+  category: managed-download-candidate
+  upstream_url: https://github.com/ata4/bspsrc
+  version_or_commit: v1.4.8
+  license: BSPSource Unlicense text recorded by upstream LICENSE.md
+  dependency_licenses: Apache Log4j 2, Apache Commons Compress, picocli, FlatLaf, and jSystemThemeDetector under Apache-2.0; MigLayout under BSD-3-Clause, as recorded by upstream LICENSE.md
+  redistribution_allowed: yes
+  attribution_required: Upstream license and dependency notices must remain visible in policy documentation and release notes if Source Weaver ever redistributes rather than cache-downloads upstream files.
+  provenance_source: GitHub release assets and upstream LICENSE.md for ata4/bspsrc v1.4.8, checked for issue #100
+  sha256: bspsrc-jar-only.zip=d5effc38b78c4f60f8eb4f9be1db717bb808227a9013f82d20f34860a128b0e7; bspsrc-linux.zip=646c3dcc7cdc58650a96ad985a0e093bf3ef1e53b43e01aae01168910d14a32d; bspsrc-windows.zip=6297f7fa567adbaf72738b0a707ff45916edc920c66543098408e4b9d41ec4a9
+  size_bytes: bspsrc-jar-only.zip=7414395; bspsrc-linux.zip=49422392; bspsrc-windows.zip=45781672
+  update_policy: Pinned version only; every bump requires renewed review, updated URLs, sizes, SHA-256 digests, license notes, and validation evidence.
+  removal_policy: Disable or remove the helper if upstream license/provenance changes, checksums mismatch, malware/vulnerability concerns appear, or the publisher requests removal.
+  user_consent_text: Downloading BSPSource is optional. Source Weaver will cache a pinned upstream ZIP only after explicit user acceptance, verify size and SHA-256, and continue to support user-provided local tool paths.
+  validation_evidence: docs/bspsource-managed-download.md records pinned manifest, cache path, checksum verification, explicit download command, and execution boundary. CI runs scripts/check-third-party-policy-reviews.sh.
+  reviewer: Source Weaver maintainer
+  decision: approved
+```
+
 ## Pinned manifest
 
 Source Weaver pins BSPSource `v1.4.8`.

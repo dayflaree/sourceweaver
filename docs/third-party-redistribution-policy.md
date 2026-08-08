@@ -148,6 +148,13 @@ Remove or disable a third-party integration when:
 
 ## Policy review gate
 
+Use the GitHub issue template `.github/ISSUE_TEMPLATE/third_party_policy_review.yml` for new managed-download or redistributable-candidate work. Completed reviews live in either:
+
+- the linked GitHub issue evidence comment when the decision is issue-only; or
+- a dedicated repository document under `docs/` when Source Weaver ships code, docs, or release behavior that depends on the decision.
+
+Repository review documents must include the exact `third_party_policy_review:` block below so `scripts/check-third-party-policy-reviews.sh` can enforce the required fields in CI. In the current repository state, BSPSource `v1.4.8` in `docs/bspsource-managed-download.md` is the only approved managed-download candidate. Any new managed download or redistributable candidate needs its own completed review before implementation or release.
+
 Before implementing a new managed third-party download or bundling any third-party binary/asset, the issue must include this decision record:
 
 ```text
@@ -171,7 +178,7 @@ third_party_policy_review:
   decision: approved/deferred/rejected
 ```
 
-If any field is unknown, the default decision is deferred. Deferred tools can still be documented as user-provided-only when that does not require Source Weaver to download or redistribute them.
+If any field is unknown, unknown license/provenance means `decision: deferred`. Deferred tools can still be documented as user-provided-only when that does not require Source Weaver to download or redistribute them.
 
 ## Evidence rules
 

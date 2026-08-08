@@ -17,6 +17,14 @@ jobs:
       - name: Audit Cargo.lock
         run: cargo audit
 
+  third-party-policy:
+    name: Third-party policy review gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check third-party policy review records
+        run: scripts/check-third-party-policy-reviews.sh
+
   rust:
     name: Rust checks (${{ matrix.os }})
     strategy:

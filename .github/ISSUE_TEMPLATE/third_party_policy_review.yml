@@ -1,0 +1,72 @@
+name: Third-party policy review
+description: Review a managed download or redistributable third-party asset before implementation.
+title: "Third-party policy review: <tool or asset>"
+labels:
+  - area:release
+  - type:quality
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template before adding a managed download, bundled binary, redistributable fixture, or redistributable third-party asset. Unknown license or provenance must default to `decision: deferred` and user-provided-only behavior.
+  - type: textarea
+    id: review
+    attributes:
+      label: third_party_policy_review
+      description: Complete every field. Keep secrets, private paths, proprietary content, and account data out of the issue.
+      value: |
+        third_party_policy_review:
+          name:
+          category: never-bundled | user-provided-only | managed-download-candidate | redistributable-candidate
+          upstream_url:
+          version_or_commit:
+          license:
+          dependency_licenses:
+          redistribution_allowed: yes/no/unknown
+          attribution_required:
+          provenance_source:
+          sha256:
+          size_bytes:
+          update_policy:
+          removal_policy:
+          user_consent_text:
+          validation_evidence:
+          reviewer:
+          decision: approved/deferred/rejected
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - never-bundled
+        - user-provided-only
+        - managed-download-candidate
+        - redistributable-candidate
+    validations:
+      required: true
+  - type: dropdown
+    id: decision
+    attributes:
+      label: Decision
+      description: Choose deferred when any required field is unknown.
+      options:
+        - deferred
+        - rejected
+        - approved
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Required boundaries
+      options:
+        - label: No proprietary game content, SDK tools, Steam data, private paths, or private user assets are attached or committed.
+          required: true
+        - label: The review states whether Source Weaver bundles, downloads, verifies, runs, or only accepts a user-provided path.
+          required: true
+        - label: The review records update and removal policy for the exact version or artifact.
+          required: true
+        - label: The review records checksum and size for every managed-download or redistributable binary artifact, or explains why the decision is deferred.
+          required: true

@@ -62,6 +62,7 @@
 - Third-party tool redistribution policy with never-bundled, user-provided-only, managed-download, and redistributable-candidate categories plus review gates for future managed downloads.
 - Real StudioMDL++ model-compile validation row using a Source Weaver-authored synthetic QC/SMD fixture and Wine wrapper evidence.
 - Rust dependency vulnerability audit gate with `cargo-audit`, CI enforcement, release checklist coverage, and documented accepted transitive warnings.
+- Third-party policy review issue template and CI check that enforce completed `third_party_policy_review` records for managed downloads and redistributable candidates.
 
 ### Changed
 
