@@ -26,10 +26,12 @@ The workflow:
 5. Packages Windows CLI/desktop artifacts into `sourceweaver-<tag>-windows-x86_64.zip`.
 6. Installs NSIS, packages the Windows setup executable into `sourceweaver-<tag>-windows-x86_64-setup.exe`, and validates silent install/uninstall.
 7. Uploads all packages as workflow artifacts.
-8. Creates `SHA256SUMS` for the release artifacts and signs it as `SHA256SUMS.asc` when an OpenPGP release key is configured.
-9. Creates signed update metadata only when `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` is configured; unsigned update metadata is refused.
-10. Creates or updates a GitHub Release for the tag.
-11. Uploads the tarball, AppImage, zip, Windows setup executable, `SHA256SUMS`, optional `SHA256SUMS.asc`, and optional signed `sourceweaver-update-manifest.json` to the GitHub Release.
+8. Runs a provenance job that generates `sourceweaver-sbom.cdx.json`, creates `SHA256SUMS`, uploads those files as provenance workflow artifacts, and generates GitHub artifact attestations for the package, checksum, and SBOM files.
+9. On tags, signs `SHA256SUMS` as `SHA256SUMS.asc` when an OpenPGP release key is configured.
+10. On tags, creates signed update metadata only when `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` is configured; unsigned update metadata is refused.
+11. On tags, generates final GitHub artifact attestations for all files in `target/release-artifacts/*`, including optional signatures and update metadata when present.
+12. Creates or updates a GitHub Release for the tag.
+13. Uploads the tarball, AppImage, zip, Windows setup executable, `SHA256SUMS`, `sourceweaver-sbom.cdx.json`, optional `SHA256SUMS.asc`, and optional signed `sourceweaver-update-manifest.json` to the GitHub Release.
 
 ## Changelog
 
@@ -37,7 +39,7 @@ Update `CHANGELOG.md` before tagging. The release workflow uses the repository c
 
 ## Manual dry run
 
-The packaging workflow also supports `workflow_dispatch`. Manual dispatch builds and uploads workflow artifacts without requiring a local Linux/Windows packaging environment.
+The packaging workflow also supports `workflow_dispatch`. Manual dispatch builds and uploads package plus provenance workflow artifacts without requiring a local Linux/Windows packaging environment. The tag-only publish job is skipped, so no GitHub Release is created during a manual dry run.
 
 Local Linux tarball dry run:
 
@@ -73,21 +75,23 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 4. Confirm `sourceweaver validate` can validate the fixture merged VMF with the sample VBSP log.
 5. Confirm `python3 scripts/check-validation-claims.py --self-test` and `python3 scripts/check-validation-claims.py` pass before release notes make compatibility or signing claims.
 6. Update `CHANGELOG.md` and include the preview limitation lines `Hammer/Hammer++ open/save: not certified.` and `Native Windows Source compiler execution: not certified.` unless completed evidence rows exist in `docs/compatibility-matrix.md`.
-7. Review `docs/code-signing.md`, complete its release-note signing/provenance template, and confirm whether signing secrets are configured for this release. Unsigned previews are allowed only when release notes explicitly say the artifacts from that run are unsigned and list absent OpenPGP/update-manifest/attestation/SBOM status.
-8. Confirm #143 remains open when production signing credentials are absent and #144 remains open when artifact attestations/SBOMs are absent.
-9. Push a `vMAJOR.MINOR.PATCH` tag.
-10. Wait for Linux and Windows release jobs to pass.
-11. Confirm the Windows job reports setup install/uninstall validation.
-12. Confirm `SHA256SUMS` was generated and, when configured, `SHA256SUMS.asc` verifies with the release public key.
-13. When `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` is configured, confirm `sourceweaver-update-manifest.json` exists and `sourceweaver update check --manifest sourceweaver-update-manifest.json --public-key <published-key>` verifies it. When the key is absent, confirm no unsigned update manifest was published.
-14. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
-15. Run `scripts/check-latest-release.sh <previous-version>` after publishing to verify the manual update-check path sees the new release.
+7. Review `docs/code-signing.md` and `docs/provenance-sbom.md`, complete the release-note signing/provenance template, and confirm whether signing secrets are configured for this release. Unsigned previews are allowed only when release notes explicitly say artifacts from that run are unsigned and list OpenPGP/update-manifest status.
+8. Confirm #143 remains open when production signing credentials are absent.
+9. Generate or verify `sourceweaver-sbom.cdx.json` and GitHub artifact attestations for the release artifacts.
+10. Push a `vMAJOR.MINOR.PATCH` tag.
+11. Wait for Linux, Windows, provenance, and release jobs to pass.
+12. Confirm the Windows job reports setup install/uninstall validation.
+13. Confirm `SHA256SUMS` and `sourceweaver-sbom.cdx.json` were generated, `scripts/generate-release-sbom.py --validate-only sourceweaver-sbom.cdx.json` passes, and, when configured, `SHA256SUMS.asc` verifies with the release public key.
+14. Confirm `gh attestation verify <artifact> --repo dayflaree/sourceweaver` passes for published artifacts when network access and repository permissions allow it.
+15. When `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` is configured, confirm `sourceweaver-update-manifest.json` exists and `sourceweaver update check --manifest sourceweaver-update-manifest.json --public-key <published-key>` verifies it. When the key is absent, confirm no unsigned update manifest was published.
+16. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
+17. Run `scripts/check-latest-release.sh <previous-version>` after publishing to verify the manual update-check path sees the new release.
 
 ## Current packaging and validation limitations
 
 - Linux AppImage packaging is wired into the release workflow, but clean Linux GUI smoke evidence must be recorded per release.
 - Windows NSIS installer packaging is wired into the release workflow, but interactive GUI smoke evidence outside silent CI install/uninstall must be recorded per release.
-- Production release signing is absent unless the specific release run records configured Windows Authenticode, OpenPGP, and/or update-signing credentials; see `docs/code-signing.md`. Unsigned preview releases are acceptable only with explicit unsigned/signing/provenance release-note status.
+- Production release signing is absent unless the specific release run records configured Windows Authenticode, OpenPGP, and/or update-signing credentials; see `docs/code-signing.md`. Unsigned preview releases are acceptable only with explicit unsigned/signing/provenance release-note status. GitHub artifact attestations and SBOMs are provenance aids, not production signing substitutes.
 - Signed update checks and verified download/install handoff are implemented. Automatic installer execution, executable replacement, silent install, and rollback are not enabled; use the manual update path and signed-metadata flow in `docs/update-strategy.md`.
 - Hammer/Hammer++ open/save compatibility is `not validated` in `docs/compatibility-matrix.md` and is not certified until a real Hammer/Hammer++ executable opens and saves generated VMFs and the saved output is diffed and recorded.
 - Native Windows Source compiler execution is `not validated` in `docs/source-compiler-smoke-test-matrix.md` Row B and is not certified until real native Windows VBSP/VVIS/VRAD execution evidence is recorded. CI Windows Rust build/test coverage, Windows release packaging, and Proton/Wine wrapper rows must stay labeled as separate evidence.

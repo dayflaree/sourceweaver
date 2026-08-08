@@ -20,7 +20,7 @@ Source Weaver release signing is signing-ready but unsigned by default until rel
 | OpenPGP checksum signing | real `SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64`; optional `SOURCEWEAVER_GPG_PASSPHRASE` | `scripts/sign-release-checksums.sh` imports the key into a temporary keyring, writes `SHA256SUMS.asc`, verifies it, then removes the keyring. If `SOURCEWEAVER_REQUIRE_RELEASE_SIGNATURES=1` is set, missing key material fails the run. | `SHA256SUMS.asc is present and verifies with the published OpenPGP release key fingerprint <fingerprint>.` | `sha256sum -c SHA256SUMS`; `gpg --verify SHA256SUMS.asc SHA256SUMS`. |
 | Windows Authenticode signing | real code-signing certificate/PFX, password when needed, SignTool, timestamp URL | `scripts/package-windows.ps1` signs staged Windows executables before zip creation and the NSIS setup executable after `makensis`. Missing credentials are a no-op unless `-RequireSigning` is used. | `Windows artifacts were Authenticode-signed during this run by <publisher/certificate summary>; verification output is recorded below.` | `Get-AuthenticodeSignature .\sourceweaver-vX.Y.Z-windows-x86_64-setup.exe | Format-List`; `signtool verify /pa /v .\sourceweaver-vX.Y.Z-windows-x86_64-setup.exe`. |
 | Signed update manifest | real Ed25519 private key in `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64`; published public key | The release workflow writes `sourceweaver-update-manifest.json` only when the key is configured. When the key is absent, it prints a refusal message and publishes no unsigned update metadata. | `sourceweaver-update-manifest.json is present and verifies with the published Ed25519 update public key <key/fingerprint>.` | `sourceweaver update check --manifest sourceweaver-update-manifest.json --public-key <published-key> --current-version vX.Y.Z --channel preview --target <target> --json`. |
-| GitHub artifact attestations and SBOM provenance | future workflow changes tracked by #144 | Not enabled by this policy ticket. Attestations/SBOMs improve provenance and dependency visibility, but they do not replace Authenticode, OpenPGP, update-manifest signatures, or platform trust prompts. | `Artifact attestations/SBOM: not included in this preview; tracked by #144.` until #144 records implementation evidence. | Future verification should include `gh attestation verify <artifact> --repo dayflaree/sourceweaver` and SBOM validation commands once implemented. |
+| GitHub artifact attestations and SBOM provenance | no private signing credentials; workflow `attestations: write` and `id-token: write` permissions | The provenance job generates `sourceweaver-sbom.cdx.json`, `SHA256SUMS`, and GitHub artifact attestations for package/checksum/SBOM artifacts. Tag releases generate final attestations again after optional signatures/update metadata are added. | `Artifact attestations and sourceweaver-sbom.cdx.json are published for this release; verify with gh attestation verify and scripts/generate-release-sbom.py --validate-only.` | `gh attestation verify <artifact> --repo dayflaree/sourceweaver`; `scripts/generate-release-sbom.py --validate-only sourceweaver-sbom.cdx.json`. |
 
 ## Exact GitHub Actions inputs
 
@@ -224,7 +224,7 @@ For every preview or signed release:
 3. If no Windows certificate was configured, state that Windows artifacts are unsigned. If a certificate was configured, confirm the Windows job shows SignTool signing output for each expected executable and verify with `Get-AuthenticodeSignature` or `signtool verify /pa /v`.
 4. If no OpenPGP key was configured, state that `SHA256SUMS.asc` is absent. If a key was configured or required, confirm `SHA256SUMS.asc` exists and verify `gpg --verify SHA256SUMS.asc SHA256SUMS`.
 5. If no Ed25519 update-signing key was configured, confirm no `sourceweaver-update-manifest.json` was published. If a key was configured, verify `sourceweaver update check --manifest sourceweaver-update-manifest.json --public-key <published-key>` succeeds.
-6. If no artifact attestations or SBOMs are implemented, state that provenance/SBOM support is tracked by #144. If #144 or a successor issue implements them, run the documented verification commands and record the results.
+6. Verify GitHub artifact attestations with `gh attestation verify <artifact> --repo dayflaree/sourceweaver` and validate `sourceweaver-sbom.cdx.json` with `scripts/generate-release-sbom.py --validate-only sourceweaver-sbom.cdx.json` when release artifacts are available.
 7. Record which signing/provenance credentials or systems were used in release evidence without exposing secrets.
 
 
@@ -240,11 +240,13 @@ Every preview release must include a completed version of this section.
 - Checksum manifest: SHA256SUMS published; verify with `sha256sum -c SHA256SUMS`.
 - OpenPGP checksum signature: absent; or SHA256SUMS.asc published and verified with key fingerprint <fingerprint>.
 - Signed update manifest: absent because SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64 was not configured; or sourceweaver-update-manifest.json published and verified with Ed25519 public key <key/fingerprint>.
-- Artifact attestations/SBOM: absent and tracked by #144; or published and verified with <command/output reference>.
+- Artifact attestations/SBOM: published as `sourceweaver-sbom.cdx.json` plus GitHub artifact attestations and verified with <command/output reference>; or absent only if the release workflow explicitly skipped provenance and records why.
 - Production signing boundary: #143 remains open unless this release records real production signing credentials and verification output.
 ```
 
 Do not delete lines for absent features. Mark them `absent`, `unsigned`, or `not included` so the limitation is visible in release notes and issue evidence.
+
+See `docs/provenance-sbom.md` for the release provenance/SBOM workflow, SBOM format, and attestation verification boundaries.
 
 ## Unsigned limitations
 

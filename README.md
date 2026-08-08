@@ -81,7 +81,7 @@ No Source SDK binaries, Hammer/Hammer++ tools, HLMV/Crowbar/StudioMDL binaries, 
 
 ## Build and run the desktop app
 
-Download packaged releases from the GitHub Releases page, or build locally from source. Linux releases are `.tar.gz` archives plus `.AppImage` files, and Windows releases are portable `.zip` archives plus NSIS `-setup.exe` installers. Tag releases include `SHA256SUMS`; optional Windows Authenticode, OpenPGP checksum signatures, and signed update metadata require configured signing credentials. Source Weaver supports explicit, opt-in signed update checks and verified artifact downloads through the CLI and desktop update panel. It does not perform background self-update checks, automatic installer execution, executable replacement, rollback, or silent install. Use `scripts/check-latest-release.sh`, `sourceweaver update check`, or the GitHub Releases page for discovery, then install manually. See `docs/packaging.md`, `docs/release.md`, `docs/code-signing.md`, and `docs/update-strategy.md` for package contents, runtime notes, signing status, update policy, and the tag-based release process.
+Download packaged releases from the GitHub Releases page, or build locally from source. Linux releases are `.tar.gz` archives plus `.AppImage` files, and Windows releases are portable `.zip` archives plus NSIS `-setup.exe` installers. Tag releases include `SHA256SUMS`; optional Windows Authenticode, OpenPGP checksum signatures, and signed update metadata require configured signing credentials. Source Weaver supports explicit, opt-in signed update checks and verified artifact downloads through the CLI and desktop update panel. It does not perform background self-update checks, automatic installer execution, executable replacement, rollback, or silent install. Use `scripts/check-latest-release.sh`, `sourceweaver update check`, or the GitHub Releases page for discovery, then install manually. See `docs/packaging.md`, `docs/release.md`, `docs/code-signing.md`, `docs/provenance-sbom.md`, and `docs/update-strategy.md` for package contents, runtime notes, signing/provenance status, update policy, and the tag-based release process.
 
 ### Linux
 
@@ -392,6 +392,7 @@ scripts/package-linux.sh       Linux release tarball builder
 scripts/package-windows.ps1    Windows release zip builder
 scripts/validate-public-vmfs.sh Public real-VMF validation smoke script
 scripts/check-validation-claims.py Validation claim guard for docs and release notes
+scripts/generate-release-sbom.py Release CycloneDX SBOM generator
 tests/fixtures/                Small VMF files used for local validation
 tests/golden/                  Golden VMF and JSON snapshots used by regression tests
 ```

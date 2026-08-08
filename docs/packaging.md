@@ -217,7 +217,7 @@ Windows PowerShell zip and NSIS setup:
 scripts\package-windows.ps1 -Version v0.1.0 -RequireInstaller
 ```
 
-All packaging scripts write artifacts under `target/package/`. Tag releases also generate `SHA256SUMS` for published artifacts and may publish `SHA256SUMS.asc` and `sourceweaver-update-manifest.json` when the relevant OpenPGP and update-signing keys are configured. Source Weaver supports opt-in signed update checks, verified artifact downloads, and manual install handoff; it does not auto-install or replace installed apps. See `docs/update-strategy.md` for the manual update path and future installer/rollback requirements.
+All packaging scripts write artifacts under `target/package/`. Release workflow runs also generate `SHA256SUMS`, `sourceweaver-sbom.cdx.json`, and GitHub artifact attestations for release artifacts. Tag releases may publish `SHA256SUMS.asc` and `sourceweaver-update-manifest.json` when the relevant OpenPGP and update-signing keys are configured. Source Weaver supports opt-in signed update checks, verified artifact downloads, and manual install handoff; it does not auto-install or replace installed apps. See `docs/update-strategy.md` for the manual update path and future installer/rollback requirements, and `docs/provenance-sbom.md` for provenance/SBOM verification.
 
 ## Why portable archives remain available
 

@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
 
 jobs:
   linux:
@@ -72,20 +74,48 @@ jobs:
             target/package/*-setup.exe
           if-no-files-found: error
 
-  release:
-    name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+  provenance:
+    name: Generate release provenance and SBOM
     needs: [linux, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download release packages
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Download package artifacts
         uses: actions/download-artifact@v4
         with:
           path: target/release-artifacts
           merge-multiple: true
+      - name: Generate CycloneDX SBOM
+        run: scripts/generate-release-sbom.py --output target/release-artifacts/sourceweaver-sbom.cdx.json
       - name: Create release checksums
         run: scripts/create-release-checksums.sh target/release-artifacts
+      - name: Upload release provenance artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sourceweaver-release-provenance
+          path: |
+            target/release-artifacts/SHA256SUMS
+            target/release-artifacts/sourceweaver-sbom.cdx.json
+          if-no-files-found: error
+      - name: Generate package, checksum, and SBOM attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: target/release-artifacts/*
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [provenance]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Download release packages and provenance
+        uses: actions/download-artifact@v4
+        with:
+          path: target/release-artifacts
+          merge-multiple: true
       - name: Sign release checksums when OpenPGP key is configured
         env:
           SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64: ${{ secrets.SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64 }}
@@ -106,6 +136,10 @@ jobs:
           else
             echo "SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64 is not configured; refusing to publish unsigned update metadata."
           fi
+      - name: Generate final release attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: target/release-artifacts/*
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
