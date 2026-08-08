@@ -4,6 +4,8 @@ Source Weaver portable validation proves only VMF text structure, Source Weaver 
 
 This repository does not bundle Hammer, Hammer++, Source SDK tools, Steam files, game content, generated BSPs, screenshots, or editor logs. Do not commit proprietary VMFs, generated BSPs, screenshots that expose private projects, or game assets unless redistribution rights are verified.
 
+`docs/compatibility-matrix.md` records Hammer/Hammer++ open/save as `not validated`. Future issue #141 preserves the real-editor certification work and should remain open until a runnable editor produces a completed evidence row.
+
 ## Status in this repository state
 
 Checked on 2026-08-07:

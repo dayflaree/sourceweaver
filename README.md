@@ -1,6 +1,6 @@
 # Source Weaver
 
-Source Weaver is a cross-platform desktop tool for combining Source Engine campaign VMFs into one Hammer-editable map. It is being built for workflows around games such as Half-Life 2, Black Mesa, and other Source 1 projects that use `.vmf` map sources.
+Source Weaver is a cross-platform desktop tool for combining Source Engine campaign VMFs into one merged VMF for downstream Source editor and compiler workflows. It is being built for workflows around games such as Half-Life 2, Black Mesa, and other Source 1 projects that use `.vmf` map sources.
 
 The project is now a Rust workspace with three pieces:
 
@@ -10,7 +10,7 @@ The project is now a Rust workspace with three pieces:
 
 ## What Source Weaver does
 
-Source Weaver takes selected VMF files and creates a single merged VMF. It is designed around campaign map stitching, where separate maps need to line up at transition landmarks and remain editable in Hammer afterward.
+Source Weaver takes selected VMF files and creates a single merged VMF. It is designed around campaign map stitching, where separate maps need to line up at transition landmarks and preserve VMF data for later editor/compiler workflows. Current validation does not certify Hammer/Hammer++ open/save behavior.
 
 Current capabilities:
 
@@ -57,7 +57,7 @@ Current capabilities:
 - Choose safe brush-entity deletion behavior and protect critical transition/player/logic entities by default.
 - Save a cleaned copy of a selected VMF.
 - Apply deletion rules during merge.
-- Export a merged `.vmf` for Hammer.
+- Export a merged `.vmf` for downstream Source editor/compiler workflows.
 - Guard parser, merge, prune, preview, and automation behavior with VMF fixture/golden regression tests.
 - Reproduce public real-VMF validation with a pinned two-map Source 1 workflow script.
 - Translate displacement side planes and `dispinfo` `startposition` values during landmark-aligned moves.
@@ -71,7 +71,7 @@ Current capabilities:
 
 Source Weaver's built-in validation is VMF-structural, fixture-based, public-VMF, and captured-log oriented unless a document names a real external tool run. The current public-release boundary is:
 
-- Hammer/Hammer++ open/save compatibility is not certified.
+- Hammer/Hammer++ open/save compatibility is not certified; generated VMFs must not be treated as Hammer-certified until future issue #141 records a completed real-editor row.
 - Native Windows Source compiler execution is not certified.
 - Real game-runtime execution has failure evidence only; successful map load is not certified.
 - HLMV/HLMV++ external launch plumbing has failure evidence only; rendered model preview is not certified.
@@ -210,7 +210,7 @@ cargo run -p sourceweaver-cli -- compile stitched.vmf \
 
 See `docs/linux-source-compiler-setup.md` for Wine/Proton wrappers, sample profiles, troubleshooting, the verified Proton-backed Garry's Mod Source++ compile row, and the boundary between VMF validation and real compiler validation. The desktop app also has an **Optional external compile** panel that can run the same profile after a successful merge/export without blocking the UI.
 
-See `docs/compile-pipeline.md` for profile format, report fields, desktop compile behavior, and Linux-friendly validation notes. See `docs/source-compiler-smoke-test-matrix.md` and `docs/hammer-validation-workflow.md` for real-tool smoke-test evidence requirements.
+See `docs/compile-pipeline.md` for profile format, report fields, desktop compile behavior, and Linux-friendly validation notes. See `docs/compatibility-matrix.md`, `docs/source-compiler-smoke-test-matrix.md`, and `docs/hammer-validation-workflow.md` for compatibility boundaries and real-tool evidence requirements.
 
 Run a user-selected BSPSource decompiler and validate the generated VMF:
 
@@ -407,7 +407,7 @@ Known limitations:
 - The current map preview includes 2D orthographic views and a lightweight 3D isometric viewport based on reconstructed convex brush face polygons with bounds fallback. It can preview single VMFs and the current in-memory merged output, but it is not yet a full textured Hammer clone. See `docs/preview-geometry.md` and `docs/3d-preview.md`.
 - No bundled/internal BSP decompilation. BSP import can run user-selected BSPSource launchers/jars or generic external wrappers and imports the generated VMF; Source Weaver remains VMF-first. See `docs/bsp-import.md`.
 - FGD support parses supported class declarations and representative property metadata syntax, including labels, descriptions, defaults, choices, and flags. It intentionally skips unsupported full-FGD language features safely.
-- Compile, BSP packing, BSP decompile, and model compile integrations require user-provided Source tool paths; Source tools, Hammer, Hammer++, Crowbar, StudioMDL, game content, model assets, and custom assets are not bundled. Real StudioMDL++ validation is tracked separately in `docs/source-compiler-smoke-test-matrix.md`. `docs/third-party-redistribution-policy.md` defines the review gate for any future managed download or redistribution work. Desktop compile launch uses the Source Weaver CLI compile pipeline and remains separate from VMF export success. Hammer/Hammer++ open/save validation is tracked separately from portable VMF validation and real compiler validation.
+- Compile, BSP packing, BSP decompile, and model compile integrations require user-provided Source tool paths; Source tools, Hammer, Hammer++, Crowbar, StudioMDL, game content, model assets, and custom assets are not bundled. Real StudioMDL++ validation is tracked separately in `docs/source-compiler-smoke-test-matrix.md`. `docs/third-party-redistribution-policy.md` defines the review gate for any future managed download or redistribution work. Desktop compile launch uses the Source Weaver CLI compile pipeline and remains separate from VMF export success. Hammer/Hammer++ open/save validation is tracked separately from portable VMF validation and real compiler validation, and currently remains `not validated` in `docs/compatibility-matrix.md`.
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 - Incoming IDs are renumbered during merge, known reference fields are remapped, and unsupported suspected ID-reference keys are surfaced as warnings; see `docs/id-renumbering.md`.
 - Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.

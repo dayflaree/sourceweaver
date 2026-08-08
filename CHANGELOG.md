@@ -70,6 +70,7 @@
 - Real Garry's Mod dedicated-server runtime map-load validation failure row, with console/log evidence proving the runtime launched and failed before a successful gameplay load because of local runtime content-mount dependencies.
 - Real HLMV++ launch-failure validation row through a user-provided Proton-backed wrapper, with Source Weaver model-preview report and logs proving the viewer failed before a rendered window opened.
 - Real Source SDK Base 2013 Singleplayer game-dir compiler validation row using Source++ VBSP++/VVIS++/VRAD++ through Proton/Wine wrappers, producing a BSP and documenting stock SDK compiler-binary absence.
+- Compatibility and validation matrix with Hammer/Hammer++ open/save marked `not validated` and preview release wording locked to `Hammer/Hammer++ open/save: not certified.`
 
 ### Changed
 
@@ -84,4 +85,5 @@
 - Automatic updates are intentionally disabled until signed update metadata and release signing enforcement exist.
 - Third-party tools and assets stay unbundled unless the redistribution policy review records rights, provenance, attribution, checksum, update, and removal decisions.
 - Real StudioMDL++ validation produced local evidence artifacts only; generated model outputs are not committed or redistributed.
-- Real Hammer/VBSP validation requires installed Source tooling or captured compile logs.
+- Hammer/Hammer++ open/save: not certified. Real editor certification remains future issue #141 and requires a runnable editor plus saved-VMF evidence.
+- Real VBSP/VVIS/VRAD validation requires installed Source tooling or captured compile logs.

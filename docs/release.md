@@ -71,7 +71,7 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 3. Confirm CLI job-runner dry-run JSON validation passes.
 4. Confirm `sourceweaver validate` can validate the fixture merged VMF with the sample VBSP log.
 5. Confirm `python3 scripts/check-validation-claims.py --self-test` and `python3 scripts/check-validation-claims.py` pass before release notes make compatibility or signing claims.
-6. Update `CHANGELOG.md`.
+6. Update `CHANGELOG.md` and include the preview limitation line `Hammer/Hammer++ open/save: not certified.` unless a completed real-editor evidence row exists in `docs/compatibility-matrix.md`.
 7. Review `docs/code-signing.md` and confirm whether signing secrets are configured for this release.
 8. Push a `vMAJOR.MINOR.PATCH` tag.
 9. Wait for Linux and Windows release jobs to pass.
@@ -87,7 +87,7 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 - Windows NSIS installer packaging is wired into the release workflow, but interactive GUI smoke evidence outside silent CI install/uninstall must be recorded per release.
 - Production release signing is absent unless the specific release run records configured Windows Authenticode, OpenPGP, and/or update-signing credentials; see `docs/code-signing.md`.
 - Signed update checks and verified download/install handoff are implemented. Automatic installer execution, executable replacement, silent install, and rollback are not enabled; use the manual update path and signed-metadata flow in `docs/update-strategy.md`.
-- Hammer/Hammer++ open/save compatibility is not certified until a real Hammer/Hammer++ executable opens and saves generated VMFs and the saved output is diffed and recorded.
+- Hammer/Hammer++ open/save compatibility is `not validated` in `docs/compatibility-matrix.md` and is not certified until a real Hammer/Hammer++ executable opens and saves generated VMFs and the saved output is diffed and recorded.
 - Native Windows Source compiler execution is not certified until real native Windows VBSP/VVIS/VRAD execution evidence is recorded. Proton/Wine wrapper rows must stay labeled as wrapper evidence.
 - Successful game-runtime map load is not certified. Existing runtime evidence records real launch failure, not a playable map-load pass.
 - Rendered HLMV/HLMV++ model preview is not certified. Existing HLMV evidence records external launch plumbing and failure before a rendered window opened.

@@ -174,4 +174,4 @@ Deletion must support repeated or comma-separated filters so CLI jobs and UI bul
 
 ## Validation requirements
 
-Every parser, merge, transform, classification, and prune change must have tests. Generated VMFs should be opened in Hammer or validated by compiler tooling in later milestones.
+Every parser, merge, transform, classification, and prune change must have tests. Generated VMFs are not Hammer/Hammer++ certified until a real editor opens and saves them and records the evidence required by `docs/hammer-validation-workflow.md` and `docs/compatibility-matrix.md`. Later compiler-tooling validation remains a separate evidence row.
