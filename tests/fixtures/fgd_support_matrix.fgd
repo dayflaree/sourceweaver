@@ -1,0 +1,36 @@
+// Source Weaver-authored synthetic FGD support matrix fixture.
+@include "base.fgd"
+
+@BaseClass = Targetname
+[
+    targetname(target_source) : "Inherited Name" : : "Unsupported inheritance source"
+]
+
+@PointClass base(Targetname, Angles) iconsprite("editor/sourceweaver_icon.vmt") size(-8 -8 -8, 8 8 8) = info_sourceweaver_supported : "Supported point metadata"
+[
+    targetname(target_source) : "Name" : : "Entity name used by Source I/O"
+    rendercolor(color255) : "Render Color" : "255 255 255" : "RGB color"
+    mode(choices) : "Mode" : 0 : "How this entity behaves"
+    [
+        0 : "Off" : "Disabled mode"
+        1 : "On" : "Enabled mode"
+    ]
+    spawnflags(flags) =
+    [
+        1 : "Starts enabled"
+        2 : "Clients only"
+    ]
+    input Fire(void) : "Unsupported input declaration"
+    output OnTriggered(void) : "Unsupported output declaration"
+    bad key(string) : "Unsupported invalid key"
+]
+
+@SolidClass base(Targetname) = func_sourceweaver_supported : "Supported brush metadata"
+[
+    material(material) : "Material" : "TOOLS/TOOLSNODRAW" : "Editor material"
+]
+
+@NPCClass base(BaseNPC) = npc_sourceweaver_supported : "Supported NPC metadata"
+[
+    squadname(string) : "Squad" : : "Squad name"
+]

@@ -115,6 +115,16 @@ pub fn parse_fgd_metadata(text: &str, source_label: &str) -> Vec<EntityMetadata>
             index += 1;
             continue;
         };
+        let annotation_name = annotation
+            .trim_start_matches('@')
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if annotation_name == "baseclass" {
+            index += 1;
+            continue;
+        }
         let rest = rest.trim();
         let classname = rest
             .split_whitespace()
@@ -547,5 +557,70 @@ mod tests {
         assert_eq!(flags.value_type.as_deref(), Some("flags"));
         assert_eq!(flags.choices[0].value, "1");
         assert_eq!(flags.choices[0].label, "Starts enabled");
+    }
+
+    #[test]
+    fn parses_supported_fgd_matrix_and_skips_unsupported_language() {
+        let entries = parse_fgd_metadata(
+            include_str!("../../../tests/fixtures/fgd_support_matrix.fgd"),
+            "fgd_support_matrix.fgd",
+        );
+
+        assert_eq!(entries.len(), 3);
+        assert!(entries.iter().all(|entry| entry.classname != "Targetname"));
+
+        let point = entries
+            .iter()
+            .find(|entry| entry.classname == "info_sourceweaver_supported")
+            .expect("point class metadata exists");
+        assert_eq!(point.category, EntityCategory::Point);
+        assert_eq!(
+            point.description.as_deref(),
+            Some("Supported point metadata")
+        );
+        assert!(point.properties.contains_key("targetname"));
+        assert!(point.properties.contains_key("rendercolor"));
+        assert!(!point.properties.contains_key("input Fire"));
+        assert!(!point.properties.contains_key("output OnTriggered"));
+        assert!(!point.properties.contains_key("bad key"));
+
+        let mode = point.properties.get("mode").expect("mode choices parsed");
+        assert_eq!(mode.value_type.as_deref(), Some("choices"));
+        assert_eq!(mode.choices.len(), 2);
+        assert_eq!(mode.choices[0].value, "0");
+        assert_eq!(mode.choices[0].label, "Off");
+        assert_eq!(
+            mode.choices[0].description.as_deref(),
+            Some("Disabled mode")
+        );
+
+        let flags = point
+            .properties
+            .get("spawnflags")
+            .expect("spawnflags parsed");
+        assert_eq!(flags.value_type.as_deref(), Some("flags"));
+        assert_eq!(flags.choices.len(), 2);
+        assert_eq!(flags.choices[1].value, "2");
+        assert_eq!(flags.choices[1].label, "Clients only");
+
+        let brush = entries
+            .iter()
+            .find(|entry| entry.classname == "func_sourceweaver_supported")
+            .expect("solid class metadata exists");
+        assert_eq!(brush.category, EntityCategory::Brush);
+        assert_eq!(
+            brush
+                .properties
+                .get("material")
+                .and_then(|property| property.default_value.as_deref()),
+            Some("TOOLS/TOOLSNODRAW")
+        );
+
+        let npc = entries
+            .iter()
+            .find(|entry| entry.classname == "npc_sourceweaver_supported")
+            .expect("npc class metadata exists");
+        assert_eq!(npc.category, EntityCategory::Npc);
+        assert!(npc.properties.contains_key("squadname"));
     }
 }

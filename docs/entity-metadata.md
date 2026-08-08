@@ -27,7 +27,7 @@ The parser extracts:
 - source FGD path
 - supported property keys, value types, labels, defaults, descriptions, choices, and flags
 
-The parser is intentionally lightweight; it does not attempt to evaluate the full FGD inheritance tree or execute FGD expressions. Unknown or complex FGD content is skipped safely. Supported class declarations can include property definitions with labels, value types, default values, descriptions, choices, and flags.
+The parser is intentionally lightweight; it does not attempt to evaluate the full FGD inheritance tree, resolve includes, evaluate editor helper metadata, or execute FGD expressions. Unknown or complex FGD content is skipped safely. Supported class declarations can include property definitions with labels, value types, default values, descriptions, choices, and flags. See `docs/fgd-support-matrix.md` for the exact supported/unsupported syntax matrix.
 
 ## Property metadata
 
@@ -66,4 +66,4 @@ Search covers classname, category, friendly name, description, targetname, role 
 
 ## Future expansion
 
-If richer FGD behavior is needed, add fixtures for the exact FGD syntax before expanding the parser. The current parser focuses on class declarations and representative keyvalue metadata; it does not claim complete Hammer FGD language coverage.
+If richer FGD behavior is needed, add fixtures for the exact FGD syntax before expanding the parser. The current parser focuses on class declarations and representative keyvalue metadata; it does not claim complete Hammer FGD language coverage. `@BaseClass` inheritance definitions are skipped rather than emitted as entity metadata.
