@@ -199,8 +199,9 @@ Real-map smoke validation is documented separately because it downloads public V
 
 ## Known technical risks
 
-- Real displacement-heavy maps may reveal game-specific edge cases; current behavior is documented in `docs/displacements.md`.
-- Real textured map captures may reveal material-specific edge cases; current texture-axis behavior is documented in `docs/texture-axes.md`.
-- Some maps contain nested/hidden groups that need more nuanced merge behavior.
-- VMF instance handling may require expanding or preserving `func_instance` workflows.
-- Hammer compile limits may be reached when many campaign maps are merged.
+- High-risk map cases have explicit evidence or unsupported-status rows in `docs/high-risk-map-cases.md`.
+- Real displacement-heavy maps may reveal game-specific edge cases; current behavior is documented in `docs/displacements.md`, with synthetic heavy-case evidence in `docs/high-risk-map-cases.md`.
+- Real textured map captures may reveal material-specific edge cases; current texture-axis and material-aware preview behavior is documented in `docs/texture-axes.md`, `docs/material-preview.md`, and `docs/high-risk-map-cases.md`.
+- Nested/hidden group behavior is not Hammer-equivalent; Source Weaver currently preserves base top-level visgroups, ignores incoming top-level visgroups, and preserves appended record `editor` metadata as documented in `docs/high-risk-map-cases.md`.
+- `func_instance` handling is preservation-only; Source Weaver does not expand or compile instance files without user-provided external tools.
+- Hammer compile limits may be reached when many campaign maps are merged; Source Weaver reports VMF-only complexity warnings and does not claim real compiler/runtime outcomes without external-tool evidence.
