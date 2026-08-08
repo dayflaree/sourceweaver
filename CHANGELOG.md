@@ -60,6 +60,7 @@
 - Release checksum manifest generation, optional OpenPGP checksum signing, Windows Authenticode signing hooks, and code-signing policy documentation.
 - Manual latest-release check helper and documented auto-update strategy covering signing, channels, rollback, consent, and offline behavior.
 - Third-party tool redistribution policy with never-bundled, user-provided-only, managed-download, and redistributable-candidate categories plus review gates for future managed downloads.
+- Real StudioMDL++ model-compile validation row using a Source Weaver-authored synthetic QC/SMD fixture and Wine wrapper evidence.
 
 ### Changed
 
@@ -73,4 +74,5 @@
 - Release artifacts are unsigned unless Windows code-signing and OpenPGP release-signing secrets are configured.
 - Automatic updates are intentionally disabled until signed update metadata and release signing enforcement exist.
 - Third-party tools and assets stay unbundled unless the redistribution policy review records rights, provenance, attribution, checksum, update, and removal decisions.
+- Real StudioMDL++ validation produced local evidence artifacts only; generated model outputs are not committed or redistributed.
 - Real Hammer/VBSP validation requires installed Source tooling or captured compile logs.
