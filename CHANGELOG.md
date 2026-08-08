@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-No changes yet.
+### Added
+
+- Textured preview and optional VTF decoding roadmap that keeps current support to material-aware colors, defers decoded texture rendering to sidecar-first and optional-decoder phases, and documents fidelity limits versus Hammer/runtime rendering.
+
+### Known limitations
+
+- VTF pixel decoding, decoded sidecar texture rendering, shader/proxy evaluation, cubemaps, lightmaps, animated textures, exact Hammer UV projection, and Hammer-equivalent textured viewport parity are not implemented.
 
 ## v0.1.0-preview.1 - 2026-08-08
 

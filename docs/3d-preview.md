@@ -37,7 +37,7 @@ Select **3D iso** in the preview toolbar. The 3D camera controls appear below th
 
 ## Design scope
 
-This is a geometry-first validation viewport. It is not a textured Hammer clone yet. Material texture rendering and game-specific model/entity icons remain future work. The current goal is to visually validate stitched geometry, landmark alignment, tool brushes, and entity origins without leaving Source Weaver.
+This is a geometry-first validation viewport. It is not a textured Hammer clone. Material-color rendering is available through `docs/material-preview.md`; decoded sidecar textures and optional VTF decoding are future work bounded by `docs/textured-preview-roadmap.md`. The current goal is to visually validate stitched geometry, landmark alignment, tool brushes, and entity origins without leaving Source Weaver.
 
 ## Fallbacks
 

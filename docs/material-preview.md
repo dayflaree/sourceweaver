@@ -27,7 +27,7 @@ Face colors follow this policy:
 - **Tool materials** such as trigger, clip, skybox, nodraw, hint, and skip receive fixed semantic colors, independent of scanned roots.
 - Deletion highlighting and selection strokes continue to override or decorate the material colors.
 
-This implementation is material-aware rather than a full Hammer textured viewport. It does not decode VTF pixels or project texture UVs. It intentionally avoids loading game content by default and avoids claiming exact in-game material appearance.
+This implementation is material-aware rather than a full Hammer textured viewport. It does not decode VTF pixels or project texture UVs. It intentionally avoids loading game content by default and avoids claiming exact in-game material appearance. `docs/textured-preview-roadmap.md` records the next-stage decision: sidecar texture previews should come before any optional VTF decoder, and VTF decoding remains out of current implementation scope.
 
 ## Performance tradeoffs
 
@@ -76,4 +76,4 @@ Key generated artifact hashes from that run:
 
 Material-aware preview is a Source Weaver desktop visualization feature. It does not run Hammer, Hammer++, VBSP, VVIS, VRAD, BSPZIP, a game runtime, a game SDK, or any external material tool. It does not prove compile or runtime material availability.
 
-Source Weaver does not currently provide game-specific model/entity icons, VTF pixel decoding, exact Hammer UV projection, lightmapped material rendering, shader previews, cubemap previews, animated material previews, or a Hammer-equivalent textured viewport. If a future release claims any of those behaviors, that claim needs new implementation, tests, and real or redistributable evidence.
+Source Weaver does not currently provide game-specific model/entity icons, VTF pixel decoding, decoded sidecar texture rendering, exact Hammer UV projection, lightmapped material rendering, shader previews, cubemap previews, animated material previews, or a Hammer-equivalent textured viewport. If a future release claims any of those behaviors, that claim needs new implementation, tests, and real or redistributable evidence. See `docs/textured-preview-roadmap.md` for the support matrix that must be satisfied before decoded-texture claims change.
