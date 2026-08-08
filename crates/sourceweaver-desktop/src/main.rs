@@ -7,15 +7,17 @@ use sourceweaver_core::{
     EntityMetadata, EntityRecord, EntitySemanticsReport, IntegrityReport, LandmarkDiscovery,
     LandmarkTargetStatus, MapComplexityReport, MergeInput, MergeOptions, MergeReport,
     NO_VALIDATION_RULE_SET_ID, PreviewBounds, PreviewDocument, PreviewEntityMarker, PreviewSolid,
-    RuleSetValidationReport, combine_preview_documents, discover_landmarks, discover_transitions,
-    format_entity_semantics_issue, format_integrity_issue, format_rule_set_issue, inspect_entities,
-    is_critical_entity_classname, merge_maps, metadata_for_classname_with_overrides,
-    parse_fgd_metadata, preview_document, preview_document_with_source, prune_document,
-    suggest_campaign_order, summarize_entity_types, translate_preview_document,
-    validate_document_integrity, validate_document_with_rule_set, validation_rule_set_by_id,
+    RuleSetValidationReport, UpdateAvailability, UpdateCheckOptions, combine_preview_documents,
+    discover_landmarks, discover_transitions, format_entity_semantics_issue,
+    format_integrity_issue, format_rule_set_issue, inspect_entities, is_critical_entity_classname,
+    merge_maps, metadata_for_classname_with_overrides, parse_fgd_metadata, preview_document,
+    preview_document_with_source, prune_document, suggest_campaign_order, summarize_entity_types,
+    translate_preview_document, validate_document_integrity, validate_document_with_rule_set,
+    validation_rule_set_by_id, verify_artifact_bytes, verify_signed_update_manifest,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
@@ -190,6 +192,13 @@ struct SourceWeaverApp {
     model_compile_timeout_seconds: String,
     model_compile_status: DesktopModelCompileStatus,
     model_compile_receiver: Option<Receiver<DesktopModelCompileMessage>>,
+    update_manifest_location: String,
+    update_public_key: String,
+    update_channel: String,
+    update_target: String,
+    update_download_dir: String,
+    update_confirm_install: bool,
+    update_status: DesktopUpdateStatus,
     last_error_dialog: Option<String>,
     use_dark_theme: bool,
     preview_panel_height: f32,
@@ -435,6 +444,29 @@ struct DesktopModelCompileStatus {
     report_json: Option<String>,
     stdout_tail: Vec<String>,
     stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopUpdateStatus {
+    summary: String,
+    candidate_version: Option<String>,
+    release_notes_url: Option<String>,
+    artifact: Option<String>,
+    downloaded_path: Option<String>,
+    verified_sha256: Option<String>,
+}
+
+impl Default for DesktopUpdateStatus {
+    fn default() -> Self {
+        Self {
+            summary: "Update checks are idle. No network request is made until you press Check signed manifest.".to_string(),
+            candidate_version: None,
+            release_notes_url: None,
+            artifact: None,
+            downloaded_path: None,
+            verified_sha256: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -859,6 +891,13 @@ impl SourceWeaverApp {
                 ..Default::default()
             },
             model_compile_receiver: None,
+            update_manifest_location: String::new(),
+            update_public_key: String::new(),
+            update_channel: "stable".to_string(),
+            update_target: desktop_default_update_target().to_string(),
+            update_download_dir: String::new(),
+            update_confirm_install: false,
+            update_status: DesktopUpdateStatus::default(),
             last_error_dialog: None,
             use_dark_theme: true,
             preview_panel_height: 560.0,
@@ -3209,6 +3248,8 @@ impl eframe::App for SourceWeaverApp {
                 ui.separator();
                 self.cleanup_panel(ui);
                 ui.separator();
+                self.update_panel(ui);
+                ui.separator();
                 self.inspection_panel(ui);
             });
         });
@@ -4062,6 +4103,207 @@ impl SourceWeaverApp {
                 self.save_cleaned_selected();
             }
         });
+    }
+
+    fn update_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Signed updates");
+        ui.weak("Update checks are opt-in. Source Weaver makes no network request at startup and refuses unsigned manifests.");
+        ui.horizontal(|ui| {
+            ui.label("Manifest path/HTTPS URL:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.update_manifest_location)
+                    .desired_width(f32::INFINITY),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Ed25519 public key:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.update_public_key)
+                    .desired_width(f32::INFINITY),
+            );
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Channel:");
+            egui::ComboBox::from_id_salt("update_channel_combo")
+                .selected_text(&self.update_channel)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.update_channel, "stable".to_string(), "stable");
+                    ui.selectable_value(&mut self.update_channel, "preview".to_string(), "preview");
+                });
+            ui.label("Target:");
+            egui::ComboBox::from_id_salt("update_target_combo")
+                .selected_text(&self.update_target)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.update_target,
+                        "linux-x86_64".to_string(),
+                        "linux-x86_64",
+                    );
+                    ui.selectable_value(
+                        &mut self.update_target,
+                        "windows-x86_64".to_string(),
+                        "windows-x86_64",
+                    );
+                });
+        });
+        ui.horizontal(|ui| {
+            ui.label("Download directory:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.update_download_dir)
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.button("Browse...").clicked() {
+                if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                    self.update_download_dir = display_path(&path);
+                }
+            }
+        });
+        ui.checkbox(
+            &mut self.update_confirm_install,
+            "I understand install handoff opens no installer automatically; I will manually run the verified artifact.",
+        );
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Check signed manifest").clicked() {
+                self.run_update_check(false, false);
+            }
+            if ui.button("Download verified artifact").clicked() {
+                self.run_update_check(true, false);
+            }
+            if ui
+                .add_enabled(
+                    self.update_confirm_install,
+                    egui::Button::new("Prepare install handoff"),
+                )
+                .clicked()
+            {
+                self.run_update_check(true, true);
+            }
+        });
+        ui.label(&self.update_status.summary);
+        if let Some(version) = &self.update_status.candidate_version {
+            ui.label(format!("Candidate version: {version}"));
+        }
+        if let Some(url) = &self.update_status.release_notes_url {
+            ui.hyperlink_to("Release notes", url);
+        }
+        if let Some(artifact) = &self.update_status.artifact {
+            ui.label(format!("Artifact: {artifact}"));
+        }
+        if let Some(path) = &self.update_status.downloaded_path {
+            ui.label(format!("Verified download: {path}"));
+        }
+        if let Some(sha256) = &self.update_status.verified_sha256 {
+            ui.label(format!("Verified SHA-256: {sha256}"));
+        }
+        ui.weak("Boundary: the desktop UI verifies signed metadata and checksums, then stops at download/install handoff. It does not replace a running executable or silently execute installers.");
+    }
+
+    fn run_update_check(&mut self, download: bool, install_handoff: bool) {
+        let manifest_location = self.update_manifest_location.trim().to_string();
+        let public_key = self.update_public_key.trim().to_string();
+        if manifest_location.is_empty() {
+            self.update_status.summary =
+                "Update check needs a manifest path or HTTPS URL.".to_string();
+            return;
+        }
+        if public_key.is_empty() {
+            self.update_status.summary =
+                "Update check needs an Ed25519 public key. Unsigned manifests are refused."
+                    .to_string();
+            return;
+        }
+        if install_handoff && !self.update_confirm_install {
+            self.update_status.summary =
+                "Install handoff requires explicit confirmation.".to_string();
+            return;
+        }
+        let outcome =
+            self.run_update_check_inner(&manifest_location, &public_key, download, install_handoff);
+        match outcome {
+            Ok(status) => {
+                self.update_status = status;
+                self.add_status("Signed update check completed.");
+            }
+            Err(error) => {
+                self.update_status.summary = error.clone();
+                self.last_error_dialog = Some(error);
+            }
+        }
+    }
+
+    fn run_update_check_inner(
+        &self,
+        manifest_location: &str,
+        public_key: &str,
+        download: bool,
+        install_handoff: bool,
+    ) -> Result<DesktopUpdateStatus, String> {
+        let manifest_text = desktop_read_update_text(manifest_location)?;
+        let manifest = verify_signed_update_manifest(&manifest_text, public_key)
+            .map_err(|error| format!("signed update manifest rejected: {error}"))?;
+        let result = sourceweaver_core::check_update_manifest(
+            manifest,
+            &UpdateCheckOptions {
+                current_version: format!("v{}", env!("CARGO_PKG_VERSION")),
+                channel: self.update_channel.trim().to_string(),
+                target: self.update_target.trim().to_string(),
+                allow_downgrade: false,
+            },
+        )
+        .map_err(|error| format!("update metadata rejected: {error}"))?;
+        let mut status = DesktopUpdateStatus {
+            summary: format!(
+                "Signed manifest verified; availability: {}.",
+                desktop_update_availability_label(&result.availability)
+            ),
+            candidate_version: Some(result.manifest.version.clone()),
+            release_notes_url: Some(result.manifest.release_notes_url.clone()),
+            artifact: result
+                .selected_artifact
+                .as_ref()
+                .map(|artifact| artifact.name.clone()),
+            downloaded_path: None,
+            verified_sha256: None,
+        };
+        if download {
+            if result.availability != UpdateAvailability::UpdateAvailable {
+                return Err(format!(
+                    "Refusing to download because availability is {}.",
+                    desktop_update_availability_label(&result.availability)
+                ));
+            }
+            let artifact = result
+                .selected_artifact
+                .as_ref()
+                .ok_or("signed manifest has no selected artifact")?;
+            let download_dir = self.update_download_dir.trim();
+            if download_dir.is_empty() {
+                return Err("Verified downloads need a download directory.".to_string());
+            }
+            let bytes = desktop_read_update_bytes(&artifact.url)?;
+            let sha256 = verify_artifact_bytes(artifact, &bytes).map_err(|error| {
+                format!("downloaded artifact rejected before install handoff: {error}")
+            })?;
+            fs::create_dir_all(download_dir).map_err(|error| {
+                format!("failed to create download directory {download_dir}: {error}")
+            })?;
+            let destination =
+                Path::new(download_dir).join(desktop_safe_artifact_name(&artifact.name));
+            fs::write(&destination, &bytes).map_err(|error| {
+                format!(
+                    "failed to write verified artifact {}: {error}",
+                    destination.display()
+                )
+            })?;
+            status.downloaded_path = Some(display_path(&destination));
+            status.verified_sha256 = Some(sha256);
+            status.summary = if install_handoff {
+                "Verified artifact downloaded. Install handoff confirmed; run the artifact manually when ready.".to_string()
+            } else {
+                "Verified artifact downloaded. Source Weaver did not run an installer.".to_string()
+            };
+        }
+        Ok(status)
     }
 
     fn inspection_panel(&mut self, ui: &mut egui::Ui) {
@@ -7353,6 +7595,81 @@ fn file_name_or_path(path: &Path) -> String {
         .and_then(|name| name.to_str())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| display_path(path))
+}
+
+fn desktop_read_update_text(location: &str) -> Result<String, String> {
+    if desktop_is_https_url(location) {
+        ureq::get(location)
+            .set("Accept", "application/json")
+            .call()
+            .map_err(|error| format!("failed to fetch update manifest {location}: {error}"))?
+            .into_string()
+            .map_err(|error| format!("failed to read update manifest {location}: {error}"))
+    } else if desktop_is_http_url(location) {
+        Err(
+            "refusing insecure HTTP update manifest URL; use HTTPS or a local file for tests"
+                .to_string(),
+        )
+    } else {
+        fs::read_to_string(location)
+            .map_err(|error| format!("failed to read update manifest {location}: {error}"))
+    }
+}
+
+fn desktop_read_update_bytes(location: &str) -> Result<Vec<u8>, String> {
+    if desktop_is_https_url(location) {
+        let response = ureq::get(location)
+            .call()
+            .map_err(|error| format!("failed to download update artifact {location}: {error}"))?;
+        let mut bytes = Vec::new();
+        response
+            .into_reader()
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("failed to read update artifact {location}: {error}"))?;
+        Ok(bytes)
+    } else if desktop_is_http_url(location) {
+        Err("refusing insecure HTTP update artifact URL; signed metadata still requires HTTPS downloads outside local tests".to_string())
+    } else {
+        fs::read(location)
+            .map_err(|error| format!("failed to read update artifact {location}: {error}"))
+    }
+}
+
+fn desktop_is_https_url(value: &str) -> bool {
+    value.starts_with("https://")
+}
+
+fn desktop_is_http_url(value: &str) -> bool {
+    value.starts_with("http://")
+}
+
+fn desktop_update_availability_label(availability: &UpdateAvailability) -> &'static str {
+    match availability {
+        UpdateAvailability::Current => "current",
+        UpdateAvailability::UpdateAvailable => "update_available",
+        UpdateAvailability::DowngradeBlocked => "downgrade_blocked",
+        UpdateAvailability::ChannelMismatch => "channel_mismatch",
+    }
+}
+
+fn desktop_safe_artifact_name(name: &str) -> String {
+    Path::new(name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("sourceweaver-update-artifact")
+        .to_string()
+}
+
+fn desktop_default_update_target() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows-x86_64"
+    } else if cfg!(target_os = "linux") {
+        "linux-x86_64"
+    } else if cfg!(target_os = "macos") {
+        "macos-x86_64"
+    } else {
+        "unknown"
+    }
 }
 
 #[cfg(test)]

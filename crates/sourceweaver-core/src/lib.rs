@@ -19,6 +19,7 @@ pub mod preview;
 pub mod prune;
 pub mod transform;
 pub mod transition;
+pub mod update;
 pub mod validation_rules;
 pub mod vmf;
 
@@ -77,6 +78,11 @@ pub use prune::{
 };
 pub use transform::{Vec3, find_landmark_origin, translate_block};
 pub use transition::{CampaignTransition, discover_transitions};
+pub use update::{
+    UpdateArtifact, UpdateAvailability, UpdateCheckOptions, UpdateCheckResult, UpdateManifest,
+    UpdateManifestPayload, UpdateVerificationError, check_update_manifest,
+    sign_update_manifest_payload, verify_artifact_bytes, verify_signed_update_manifest,
+};
 pub use validation_rules::{
     BUILTIN_VALIDATION_RULE_SETS, NO_VALIDATION_RULE_SET_ID, RuleSetIssue, RuleSetValidationReport,
     ValidationRuleSet, format_rule_set_issue, validate_document_with_rule_set,

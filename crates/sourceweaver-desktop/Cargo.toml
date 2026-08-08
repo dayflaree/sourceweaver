@@ -17,3 +17,4 @@ sourceweaver-core = { path = "../sourceweaver-core" }
 toml = "0.8"
 
 serde_json = "1"
+ureq = "2"

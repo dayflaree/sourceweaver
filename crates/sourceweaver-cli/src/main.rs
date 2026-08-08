@@ -16,16 +16,19 @@ use sourceweaver_core::{
     ChangelevelPolicyOptions, ChangelevelPolicyReport, ChangelevelPreserveRule,
     ChangelevelPreservedTransition, ChangelevelScope, DeletionCriteria, DeletionReport, Document,
     EntityMetadata, EntitySemanticsReport, IntegrityReport, MapComplexityReport, MergeInput,
-    MergeOptions, MergeReport, RuleSetValidationReport, ValidationRuleSet, VmfToolValidationReport,
-    discover_landmarks, discover_transitions, format_integrity_issue, inspect_entities, merge_maps,
-    metadata_for_classname_with_overrides, parse_compile_log, parse_fgd_metadata, prune_document,
-    suggest_campaign_order, summarize_entity_types, validate_document_integrity,
-    validate_for_source_tools, validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
-    validation_rule_set_choices,
+    MergeOptions, MergeReport, RuleSetValidationReport, UpdateArtifact, UpdateAvailability,
+    UpdateCheckOptions, UpdateManifest, UpdateManifestPayload, ValidationRuleSet,
+    VmfToolValidationReport, discover_landmarks, discover_transitions, format_integrity_issue,
+    inspect_entities, merge_maps, metadata_for_classname_with_overrides, parse_compile_log,
+    parse_fgd_metadata, prune_document, sign_update_manifest_payload, suggest_campaign_order,
+    summarize_entity_types, validate_document_integrity, validate_for_source_tools,
+    validate_for_source_tools_with_rule_set, validation_rule_set_by_id,
+    validation_rule_set_choices, verify_artifact_bytes, verify_signed_update_manifest,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Output, Stdio};
 use std::thread;
@@ -73,6 +76,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "bspzip-context-profiles" | "pack-context-profiles" => bspzip_context::command(&args[1..]),
         "pack" | "pack-bsp" => pack_command(&args[1..]),
         "run" | "batch" | "job" => run_job_command(&args[1..]),
+        "update" => update_command(&args[1..]),
         "campaign-run" | "campaign-batch" | "campaign-plan" => campaign_run_command(&args[1..]),
         "job-template" => {
             print_job_template();
@@ -7488,6 +7492,522 @@ fn format_roles(roles: &[BrushRole]) -> String {
         .join(",")
 }
 
+fn update_command(args: &[String]) -> Result<(), String> {
+    match args.first().map(String::as_str) {
+        Some("check") => update_check_command(&args[1..]),
+        Some("manifest") => update_manifest_command(&args[1..]),
+        Some("help") | Some("--help") | Some("-h") | None => {
+            print_update_help();
+            Ok(())
+        }
+        Some(other) => Err(format!(
+            "unknown update subcommand `{other}`. Run `sourceweaver update help`."
+        )),
+    }
+}
+
+fn update_check_command(args: &[String]) -> Result<(), String> {
+    let mut manifest_location: Option<String> = None;
+    let mut public_key: Option<String> = None;
+    let mut public_key_file: Option<PathBuf> = None;
+    let mut current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let mut channel = "stable".to_string();
+    let mut target = default_update_target().to_string();
+    let mut download_dir: Option<PathBuf> = None;
+    let mut allow_downgrade = false;
+    let mut install = false;
+    let mut confirm_install = false;
+    let mut json = false;
+
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--manifest" => {
+                cursor += 1;
+                manifest_location = Some(
+                    args.get(cursor)
+                        .ok_or("--manifest needs a path or HTTPS URL")?
+                        .clone(),
+                );
+            }
+            "--public-key" => {
+                cursor += 1;
+                public_key = Some(
+                    args.get(cursor)
+                        .ok_or("--public-key needs a base64 Ed25519 public key")?
+                        .clone(),
+                );
+            }
+            "--public-key-file" => {
+                cursor += 1;
+                public_key_file = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--public-key-file needs a path")?,
+                ));
+            }
+            "--current-version" => {
+                cursor += 1;
+                current_version = args
+                    .get(cursor)
+                    .ok_or("--current-version needs a value")?
+                    .clone();
+            }
+            "--channel" => {
+                cursor += 1;
+                channel = args
+                    .get(cursor)
+                    .ok_or("--channel needs stable or preview")?
+                    .clone();
+            }
+            "--target" => {
+                cursor += 1;
+                target = args
+                    .get(cursor)
+                    .ok_or("--target needs a value such as linux-x86_64")?
+                    .clone();
+            }
+            "--download-dir" => {
+                cursor += 1;
+                download_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--download-dir needs a path")?,
+                ));
+            }
+            "--allow-downgrade" => allow_downgrade = true,
+            "--install" => install = true,
+            "--confirm-install" => confirm_install = true,
+            "--json" => json = true,
+            "--help" | "-h" => {
+                print_update_help();
+                return Ok(());
+            }
+            value if value.starts_with('-') => {
+                return Err(format!("unknown update check flag `{value}`"));
+            }
+            value => {
+                if manifest_location.is_some() {
+                    return Err("update check accepts one manifest path/URL".to_string());
+                }
+                manifest_location = Some(value.to_string());
+            }
+        }
+        cursor += 1;
+    }
+
+    if install && !confirm_install {
+        return Err("--install requires --confirm-install after checksum/signature verification; Source Weaver never installs updates silently".to_string());
+    }
+    let manifest_location = manifest_location.ok_or("usage: sourceweaver update check --manifest <path-or-https-url> (--public-key key | --public-key-file key.txt) [--download-dir dir] [--install --confirm-install]")?;
+    let public_key = match (public_key, public_key_file) {
+        (Some(value), None) => value,
+        (None, Some(path)) => fs::read_to_string(&path)
+            .map_err(|error| format!("failed to read update public key {}: {error}", path.display()))?,
+        (Some(_), Some(_)) => return Err("use either --public-key or --public-key-file, not both".to_string()),
+        (None, None) => return Err("update check requires --public-key or --public-key-file; unsigned manifests are refused".to_string()),
+    };
+
+    let manifest_text = read_update_text(&manifest_location)?;
+    let manifest = verify_signed_update_manifest(&manifest_text, &public_key)
+        .map_err(|error| format!("signed update manifest rejected: {error}"))?;
+    let result = sourceweaver_core::check_update_manifest(
+        manifest,
+        &UpdateCheckOptions {
+            current_version: current_version.clone(),
+            channel: channel.clone(),
+            target: target.clone(),
+            allow_downgrade,
+        },
+    )
+    .map_err(|error| format!("update metadata rejected: {error}"))?;
+
+    let mut downloaded_path: Option<PathBuf> = None;
+    let mut downloaded_sha256: Option<String> = None;
+    if let Some(directory) = download_dir {
+        if result.availability != UpdateAvailability::UpdateAvailable {
+            return Err(format!(
+                "refusing to download because availability is {}; use signed metadata with a newer version or --allow-downgrade for explicit rollback tests",
+                update_availability_label(&result.availability)
+            ));
+        }
+        let artifact = result
+            .selected_artifact
+            .as_ref()
+            .ok_or("update metadata has no selected artifact after verification")?;
+        let bytes = read_update_bytes(&artifact.url)?;
+        let sha256 = verify_artifact_bytes(artifact, &bytes).map_err(|error| {
+            format!("downloaded artifact rejected before install handoff: {error}")
+        })?;
+        fs::create_dir_all(&directory).map_err(|error| {
+            format!(
+                "failed to create download dir {}: {error}",
+                directory.display()
+            )
+        })?;
+        let destination = directory.join(safe_update_artifact_name(artifact));
+        fs::write(&destination, &bytes).map_err(|error| {
+            format!(
+                "failed to write verified artifact {}: {error}",
+                destination.display()
+            )
+        })?;
+        downloaded_path = Some(destination);
+        downloaded_sha256 = Some(sha256);
+    }
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "current_version": current_version,
+                "candidate_version": result.manifest.version,
+                "channel": result.manifest.channel,
+                "target": target,
+                "availability": update_availability_label(&result.availability),
+                "release_notes_url": result.manifest.release_notes_url,
+                "artifact": result.selected_artifact.as_ref().map(update_artifact_json),
+                "downloaded_path": downloaded_path.as_ref().map(|path| path.display().to_string()),
+                "downloaded_sha256": downloaded_sha256,
+                "install_handoff": install && confirm_install,
+                "install_boundary": "Source Weaver verified the signed manifest and artifact checksum only; it does not execute installers automatically.",
+            }))
+            .map_err(|error| format!("failed to encode update JSON: {error}"))?
+        );
+        return Ok(());
+    }
+
+    println!("update manifest: signature verified");
+    println!("current_version: {current_version}");
+    println!("candidate_version: {}", result.manifest.version);
+    println!("channel: {}", result.manifest.channel);
+    println!(
+        "availability: {}",
+        update_availability_label(&result.availability)
+    );
+    println!("release_notes_url: {}", result.manifest.release_notes_url);
+    if let Some(artifact) = &result.selected_artifact {
+        println!("artifact: {}", artifact.name);
+        println!("artifact_kind: {}", artifact.kind);
+        println!("artifact_target: {}", artifact.target);
+        println!("artifact_sha256: {}", artifact.sha256);
+    }
+    if let Some(path) = &downloaded_path {
+        println!("downloaded_path: {}", path.display());
+        println!(
+            "downloaded_sha256: {}",
+            downloaded_sha256.as_deref().unwrap_or("unknown")
+        );
+    }
+    if install && confirm_install {
+        let path = downloaded_path.as_ref().ok_or(
+            "--install --confirm-install requires --download-dir so a verified artifact exists",
+        )?;
+        println!(
+            "install_handoff: verified artifact ready at {}",
+            path.display()
+        );
+        println!(
+            "install_boundary: Source Weaver does not execute installers automatically; run or open the verified artifact manually."
+        );
+    }
+    Ok(())
+}
+
+fn update_manifest_command(args: &[String]) -> Result<(), String> {
+    let mut artifact_dir: Option<PathBuf> = None;
+    let mut output: Option<PathBuf> = None;
+    let mut version: Option<String> = None;
+    let mut release_url: Option<String> = None;
+    let mut base_download_url: Option<String> = None;
+    let mut published_at: Option<String> = None;
+    let mut channel = "stable".to_string();
+    let mut signing_key_env = "SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64".to_string();
+
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--artifact-dir" => {
+                cursor += 1;
+                artifact_dir = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--artifact-dir needs a path")?,
+                ));
+            }
+            "--output" => {
+                cursor += 1;
+                output = Some(PathBuf::from(
+                    args.get(cursor).ok_or("--output needs a path")?,
+                ));
+            }
+            "--version" => {
+                cursor += 1;
+                version = Some(args.get(cursor).ok_or("--version needs a v* tag")?.clone());
+            }
+            "--release-url" => {
+                cursor += 1;
+                release_url = Some(
+                    args.get(cursor)
+                        .ok_or("--release-url needs an HTTPS URL")?
+                        .clone(),
+                );
+            }
+            "--base-download-url" => {
+                cursor += 1;
+                base_download_url = Some(
+                    args.get(cursor)
+                        .ok_or("--base-download-url needs an HTTPS URL")?
+                        .clone(),
+                );
+            }
+            "--published-at" => {
+                cursor += 1;
+                published_at = Some(
+                    args.get(cursor)
+                        .ok_or("--published-at needs an RFC3339 timestamp")?
+                        .clone(),
+                );
+            }
+            "--channel" => {
+                cursor += 1;
+                channel = args
+                    .get(cursor)
+                    .ok_or("--channel needs stable or preview")?
+                    .clone();
+            }
+            "--signing-key-env" => {
+                cursor += 1;
+                signing_key_env = args
+                    .get(cursor)
+                    .ok_or("--signing-key-env needs an environment variable name")?
+                    .clone();
+            }
+            "--help" | "-h" => {
+                print_update_help();
+                return Ok(());
+            }
+            value if value.starts_with('-') => {
+                return Err(format!("unknown update manifest flag `{value}`"));
+            }
+            value => return Err(format!("unexpected update manifest argument `{value}`")),
+        }
+        cursor += 1;
+    }
+
+    let artifact_dir = artifact_dir.ok_or("update manifest needs --artifact-dir")?;
+    let output = output.ok_or("update manifest needs --output")?;
+    let version = version.ok_or("update manifest needs --version")?;
+    let release_url = release_url.ok_or("update manifest needs --release-url")?;
+    let base_download_url =
+        base_download_url.unwrap_or_else(|| release_url.trim_end_matches('/').to_string());
+    let published_at = published_at.unwrap_or_else(|| "unknown".to_string());
+    let signing_key = env::var(&signing_key_env).map_err(|_| {
+        format!(
+            "refusing to write unsigned update manifest: environment variable {signing_key_env} is not set"
+        )
+    })?;
+
+    let artifacts = update_artifacts_from_dir(&artifact_dir, &base_download_url)?;
+    if artifacts.is_empty() {
+        return Err(format!(
+            "no release artifacts found in {}",
+            artifact_dir.display()
+        ));
+    }
+    let payload = UpdateManifestPayload {
+        schema_version: 1,
+        app_id: "sourceweaver".to_string(),
+        channel,
+        version,
+        published_at,
+        release_notes_url: release_url,
+        minimum_required_version: None,
+        artifacts,
+    };
+    let signature = sign_update_manifest_payload(&payload, &signing_key)
+        .map_err(|error| format!("failed to sign update manifest: {error}"))?;
+    let manifest = UpdateManifest { payload, signature };
+    let manifest_json = serde_json::to_string_pretty(&manifest)
+        .map_err(|error| format!("failed to encode update manifest: {error}"))?;
+    fs::write(&output, format!("{manifest_json}\n")).map_err(|error| {
+        format!(
+            "failed to write update manifest {}: {error}",
+            output.display()
+        )
+    })?;
+    println!("wrote signed update manifest {}", output.display());
+    Ok(())
+}
+
+fn update_artifacts_from_dir(
+    artifact_dir: &Path,
+    base_download_url: &str,
+) -> Result<Vec<UpdateArtifact>, String> {
+    let mut artifacts = Vec::new();
+    let entries = fs::read_dir(artifact_dir).map_err(|error| {
+        format!(
+            "failed to read artifact dir {}: {error}",
+            artifact_dir.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("failed to read artifact entry: {error}"))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        if name == "SHA256SUMS"
+            || name == "SHA256SUMS.asc"
+            || name == "sourceweaver-update-manifest.json"
+            || name.ends_with(".sig")
+        {
+            continue;
+        }
+        let Some((target, kind)) = classify_release_artifact(&name) else {
+            continue;
+        };
+        let bytes = fs::read(&path)
+            .map_err(|error| format!("failed to read artifact {}: {error}", path.display()))?;
+        let signature_url = if artifact_dir.join(format!("{name}.sig")).is_file() {
+            Some(format!(
+                "{}/{}.sig",
+                base_download_url.trim_end_matches('/'),
+                name
+            ))
+        } else {
+            None
+        };
+        artifacts.push(UpdateArtifact {
+            target: target.to_string(),
+            kind: kind.to_string(),
+            name: name.clone(),
+            url: format!("{}/{}", base_download_url.trim_end_matches('/'), name),
+            sha256: sourceweaver_core::update::sha256_hex(&bytes),
+            size_bytes: bytes.len() as u64,
+            signature_url,
+        });
+    }
+    artifacts.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(artifacts)
+}
+
+fn classify_release_artifact(name: &str) -> Option<(&'static str, &'static str)> {
+    if name.contains("linux-x86_64") && name.ends_with(".AppImage") {
+        Some(("linux-x86_64", "appimage"))
+    } else if name.contains("linux-x86_64") && name.ends_with(".tar.gz") {
+        Some(("linux-x86_64", "tarball"))
+    } else if name.contains("windows-x86_64") && name.ends_with("-setup.exe") {
+        Some(("windows-x86_64", "nsis-setup"))
+    } else if name.contains("windows-x86_64") && name.ends_with(".zip") {
+        Some(("windows-x86_64", "portable-zip"))
+    } else {
+        None
+    }
+}
+
+fn read_update_text(location: &str) -> Result<String, String> {
+    if is_https_url(location) {
+        ureq::get(location)
+            .set("Accept", "application/json")
+            .call()
+            .map_err(|error| format!("failed to fetch update manifest {location}: {error}"))?
+            .into_string()
+            .map_err(|error| format!("failed to read update manifest {location}: {error}"))
+    } else if is_http_url(location) {
+        Err(
+            "refusing insecure HTTP update manifest URL; use HTTPS or a local file for tests"
+                .to_string(),
+        )
+    } else {
+        fs::read_to_string(location)
+            .map_err(|error| format!("failed to read update manifest {location}: {error}"))
+    }
+}
+
+fn read_update_bytes(location: &str) -> Result<Vec<u8>, String> {
+    if is_https_url(location) {
+        let response = ureq::get(location)
+            .call()
+            .map_err(|error| format!("failed to download update artifact {location}: {error}"))?;
+        let mut bytes = Vec::new();
+        response
+            .into_reader()
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("failed to read update artifact {location}: {error}"))?;
+        Ok(bytes)
+    } else if is_http_url(location) {
+        Err("refusing insecure HTTP update artifact URL; signed metadata still requires HTTPS downloads outside local tests".to_string())
+    } else {
+        fs::read(location)
+            .map_err(|error| format!("failed to read update artifact {location}: {error}"))
+    }
+}
+
+fn is_https_url(value: &str) -> bool {
+    value.starts_with("https://")
+}
+
+fn is_http_url(value: &str) -> bool {
+    value.starts_with("http://")
+}
+
+fn safe_update_artifact_name(artifact: &UpdateArtifact) -> String {
+    Path::new(&artifact.name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("sourceweaver-update-artifact")
+        .to_string()
+}
+
+fn update_availability_label(availability: &UpdateAvailability) -> &'static str {
+    match availability {
+        UpdateAvailability::Current => "current",
+        UpdateAvailability::UpdateAvailable => "update_available",
+        UpdateAvailability::DowngradeBlocked => "downgrade_blocked",
+        UpdateAvailability::ChannelMismatch => "channel_mismatch",
+    }
+}
+
+fn update_artifact_json(artifact: &UpdateArtifact) -> serde_json::Value {
+    serde_json::json!({
+        "target": artifact.target,
+        "kind": artifact.kind,
+        "name": artifact.name,
+        "url": artifact.url,
+        "sha256": artifact.sha256,
+        "size_bytes": artifact.size_bytes,
+        "signature_url": artifact.signature_url,
+    })
+}
+
+fn default_update_target() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows-x86_64"
+    } else if cfg!(target_os = "linux") {
+        "linux-x86_64"
+    } else if cfg!(target_os = "macos") {
+        "macos-x86_64"
+    } else {
+        "unknown"
+    }
+}
+
+fn print_update_help() {
+    println!(
+        r#"Usage:
+  sourceweaver update check --manifest <path-or-https-url> (--public-key key | --public-key-file key.txt) [--current-version vX.Y.Z] [--channel stable|preview] [--target linux-x86_64|windows-x86_64] [--download-dir dir] [--install --confirm-install] [--json]
+  sourceweaver update manifest --artifact-dir target/release-artifacts --output sourceweaver-update-manifest.json --version vX.Y.Z --release-url https://github.com/dayflaree/sourceweaver/releases/tag/vX.Y.Z [--base-download-url https://github.com/dayflaree/sourceweaver/releases/download/vX.Y.Z] [--signing-key-env SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64]
+
+Update checks require a signed manifest and an Ed25519 public key. Unsigned metadata is refused.
+The default check is read-only. Downloads require --download-dir and are written only after manifest signature and artifact SHA-256 verification.
+Install handoff requires --install --confirm-install and never executes installers automatically.
+Offline failures are command failures only; desktop startup is not blocked by this CLI path.
+"#
+    );
+}
+
 fn print_help() {
     println!(
         r#"Source Weaver
@@ -7513,6 +8033,7 @@ Usage:
   sourceweaver pack <map.bsp> --tool <bspzip> --output <out.bsp> (--filelist list.txt | --asset-root dir (--include path | --discover-from-vmf map.vmf)) [--context-profile id] [--tool-cwd dir] [--library-path dir] [--game-dir dir] [--pass-game-dir] [--log log.txt] [--timeout-seconds seconds] [--report report.json] [--json]
   sourceweaver bspzip-context-profiles [--json]
   sourceweaver run --job <job.toml> [--dry-run] [--report report.json]
+  sourceweaver update check --manifest <path-or-https-url> (--public-key key | --public-key-file key.txt) [--download-dir dir] [--json]
   sourceweaver job-template
 
 Deletion roles:

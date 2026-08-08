@@ -76,13 +76,14 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 8. Wait for Linux and Windows release jobs to pass.
 9. Confirm the Windows job reports setup install/uninstall validation.
 10. Confirm `SHA256SUMS` was generated and, when configured, `SHA256SUMS.asc` verifies with the release public key.
-11. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
-12. Run `scripts/check-latest-release.sh <previous-version>` after publishing to verify the manual update-check path sees the new release.
+11. When `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` is configured, confirm `sourceweaver-update-manifest.json` exists and `sourceweaver update check --manifest sourceweaver-update-manifest.json --public-key <published-key>` verifies it. When the key is absent, confirm no unsigned update manifest was published.
+12. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
+13. Run `scripts/check-latest-release.sh <previous-version>` after publishing to verify the manual update-check path sees the new release.
 
 ## Current packaging limitations
 
 - Linux AppImage packaging is wired into the release workflow, but clean Linux GUI smoke evidence must be recorded per release.
 - Windows NSIS installer packaging is wired into the release workflow, but interactive GUI smoke evidence outside silent CI install/uninstall must be recorded per release.
 - Release artifacts are unsigned unless Windows code-signing and OpenPGP release-signing secrets are configured; see `docs/code-signing.md`.
-- Automatic updates are not enabled; use the manual update path in `docs/update-strategy.md` until signed update metadata is required.
+- Signed update checks and verified download/install handoff are implemented. Automatic installer execution is not enabled; use the manual update path and signed-metadata flow in `docs/update-strategy.md`.
 - Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims. Any managed third-party download or bundled third-party asset must pass `docs/third-party-redistribution-policy.md` before release.

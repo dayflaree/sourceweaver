@@ -12,13 +12,14 @@ GitHub REST API release documentation checked on 2026-08-07 documents a `Get the
 
 ## Decision
 
-Source Weaver will use a staged update approach:
+Source Weaver uses a staged update approach:
 
-1. **Current stage: manual update checks only.** Users or maintainers check GitHub Releases, verify `SHA256SUMS`, verify `SHA256SUMS.asc` when present, and run the installer or replace the portable archive manually.
-2. **Next stage: signed update manifest.** A tag release publishes a machine-readable update manifest that includes version, channel, artifact URLs, SHA-256 digests, release notes URL, required minimum version if needed, and detached signatures.
-3. **Final stage: opt-in automatic download/install.** The desktop app checks the update manifest after user consent, verifies signatures and hashes, prompts before install, and launches the platform installer or opens the downloaded artifact location. CLI support remains check-only unless an explicit `--download` or `--install` flag is added later.
+1. **Manual release discovery remains supported.** Users or maintainers can still check GitHub Releases, verify `SHA256SUMS`, verify `SHA256SUMS.asc` when present, and run the installer or replace the portable archive manually.
+2. **Current signed-metadata stage.** Source Weaver has a signed update-manifest verifier, a CLI `sourceweaver update check` command, and a desktop opt-in update panel. The manifest signature is Ed25519 over the canonical JSON payload. Unsigned manifests are refused.
+3. **Current download-only stage.** CLI and desktop download paths verify the signed manifest and artifact SHA-256 before writing an artifact. The `--install --confirm-install` CLI path and the desktop install-handoff button stop after verified download and tell the user to run the artifact manually.
+4. **Future installer execution stage.** Any automatic installer launch or executable replacement remains out of scope until real release signing credentials, platform installer validation, rollback recovery, and desktop smoke evidence are recorded.
 
-No automatic installer execution should be added before signed update metadata is enforced.
+No automatic installer execution is present in the current implementation.
 
 ## Channels
 
@@ -60,7 +61,9 @@ Update checks may be passive, but installs must be user-initiated until Source W
 - signature/checksum status;
 - clear **Download**, **Install**, **Skip**, and **Remind me later** choices.
 
-The CLI should default to read-only checks. Future CLI download/install commands must require explicit flags such as `--download` or `--install`.
+The CLI defaults to read-only checks through `sourceweaver update check`. Downloads require `--download-dir`. Install handoff requires both `--install` and `--confirm-install`; even then Source Weaver does not execute an installer automatically.
+
+The desktop update panel is opt-in. It requires a manifest path or HTTPS URL and an Ed25519 public key. The user must press **Check signed manifest**, **Download verified artifact**, or **Prepare install handoff**. Startup never performs an update network request.
 
 ## Rollback and downgrade rules
 
@@ -142,32 +145,37 @@ tar -xzf sourceweaver-vX.Y.Z-linux-x86_64.tar.gz
 ./sourceweaver-vX.Y.Z-linux-x86_64/sourceweaver --help
 ```
 
-## Future implementation design
+## Implemented signed-update design
 
-A future auto-update implementation should add these pieces in order:
+The current implementation includes:
 
-1. Required release signing for stable releases.
-2. A generated update manifest in the release workflow.
-3. Manifest signature verification tests with fixed test keys.
-4. A CLI `update check` command that reads signed metadata and reports update status.
-5. Desktop UI for opt-in update checks and release notes.
-6. Download-only support with checksum/signature verification.
-7. Platform install handoff after explicit confirmation.
-8. Rollback documentation and tests.
+1. Ed25519-signed update manifests in `sourceweaver_core::update`.
+2. Release-workflow manifest generation through `sourceweaver update manifest` when `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` is configured.
+3. No unsigned update manifest publication. When the update signing key is absent, the workflow prints a refusal message and publishes no update metadata.
+4. Manifest signature verification tests with fixed non-release test keys.
+5. Corrupt-artifact and wrong-signature rejection tests.
+6. A CLI `sourceweaver update check` command that reads signed metadata and reports update status.
+7. Desktop opt-in update UI with release notes link and no startup network request.
+8. Download-only support with checksum verification before writing the artifact.
+9. Explicit install handoff confirmation. Source Weaver does not execute installers automatically.
+10. Downgrade and channel-switch blocking rules.
 
-The first implementation should avoid background installation. It should open the installer or downloaded artifact location after verification and let the platform installer perform changes.
+Run the dedicated validation script with:
 
-## Validation checklist for future auto-update code
+```bash
+scripts/validate-signed-update-support.sh /tmp/sourceweaver-signed-update-validation
+```
 
-- Unit tests for version comparison, channel filtering, manifest parsing, and downgrade blocking.
-- Integration tests using a local HTTP fixture server for metadata and artifacts.
-- Signature verification tests with generated test keys that are not release keys.
-- Corrupt artifact tests that must fail checksum verification.
-- Wrong-signature tests that must fail before download/install.
-- Offline tests that prove startup is not blocked.
-- Windows installer handoff tests on `windows-latest` without silent uncontrolled install.
-- Manual desktop UI smoke evidence before claiming interactive update support.
+The script generates a synthetic release artifact, signs an update manifest with a fixed test key, verifies check-only behavior, verifies a download/install-handoff path, rejects a wrong manifest signature, rejects a corrupt artifact, and confirms rejected downloads are not written.
+
+## Remaining future work
+
+- Configure real release signing credentials and publish the update public key before enabling stable public update checks by default.
+- Add platform installer launch only after Windows/Linux release signing, rollback recovery, and desktop smoke evidence are complete.
+- Add optional local HTTP fixture tests if future network client behavior becomes more complex.
+- Add Windows installer handoff tests on `windows-latest` without silent uncontrolled install.
+- Record manual desktop UI smoke evidence before claiming end-to-end interactive update support for a public release.
 
 ## Current limitation
 
-Source Weaver currently has a manual update check helper and documented update policy. It does not have in-app automatic update checks, automatic downloads, background installation, or automatic rollback.
+Source Weaver has signed update metadata verification, explicit check/download commands, and a desktop opt-in update panel. It does not have background update checks, silent installation, automatic installer execution, executable replacement, or automatic rollback.

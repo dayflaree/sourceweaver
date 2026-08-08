@@ -91,6 +91,21 @@ jobs:
           SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64: ${{ secrets.SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64 }}
           SOURCEWEAVER_GPG_PASSPHRASE: ${{ secrets.SOURCEWEAVER_GPG_PASSPHRASE }}
         run: scripts/sign-release-checksums.sh target/release-artifacts
+      - name: Create signed update manifest when update key is configured
+        env:
+          SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64: ${{ secrets.SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64 }}
+        run: |
+          if [ -n "${SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64:-}" ]; then
+            cargo run -p sourceweaver-cli -- update manifest \
+              --artifact-dir target/release-artifacts \
+              --output target/release-artifacts/sourceweaver-update-manifest.json \
+              --version "${GITHUB_REF_NAME}" \
+              --release-url "https://github.com/dayflaree/sourceweaver/releases/tag/${GITHUB_REF_NAME}" \
+              --base-download-url "https://github.com/dayflaree/sourceweaver/releases/download/${GITHUB_REF_NAME}" \
+              --published-at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          else
+            echo "SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64 is not configured; refusing to publish unsigned update metadata."
+          fi
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
