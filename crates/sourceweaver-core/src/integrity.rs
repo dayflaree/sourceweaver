@@ -98,6 +98,7 @@ pub fn validate_document_integrity(document: &Document, label: &str) -> Integrit
     validate_top_level_sections(document, label, &mut report);
     validate_ids(document, label, &mut report);
     validate_suspected_id_reference_fields(document, label, &mut report);
+    validate_func_instance_preservation(document, label, &mut report);
     report
 }
 
@@ -291,6 +292,103 @@ fn validate_suspected_id_reference_fields_in_nodes(
     }
 }
 
+fn validate_func_instance_preservation(
+    document: &Document,
+    label: &str,
+    report: &mut IntegrityReport,
+) {
+    validate_func_instance_preservation_in_nodes(&document.nodes, label, report, &mut Vec::new());
+}
+
+fn validate_func_instance_preservation_in_nodes(
+    nodes: &[Node],
+    label: &str,
+    report: &mut IntegrityReport,
+    context: &mut Vec<String>,
+) {
+    let mut block_counts: BTreeMap<&str, usize> = BTreeMap::new();
+
+    for node in nodes {
+        let Node::Block { name, body } = node else {
+            continue;
+        };
+        let index = block_counts.entry(name.as_str()).or_insert(0);
+        context.push(format!("{name}[{index}]"));
+        if name == "entity" && Node::get_property(body, "classname") == Some("func_instance") {
+            validate_func_instance_entity(body, label, report, &context.join("/"));
+        }
+        validate_func_instance_preservation_in_nodes(body, label, report, context);
+        context.pop();
+        *index += 1;
+    }
+}
+
+fn validate_func_instance_entity(
+    body: &[Node],
+    label: &str,
+    report: &mut IntegrityReport,
+    path: &str,
+) {
+    let targetname = Node::get_property(body, "targetname")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("<unnamed>");
+    let file = Node::get_property(body, "file")
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match file {
+        Some(file) => {
+            report.push(IntegrityIssue::warning(
+                label,
+                format!(
+                    "{path} func_instance `{targetname}` references instance file `{file}`; Source Weaver preserves the entity but does not resolve, inline, transform, apply fixups to, or expand nested instance VMFs",
+                ),
+            ));
+            if instance_path_has_parent_or_absolute_segment(file) {
+                report.push(IntegrityIssue::warning(
+                    label,
+                    format!(
+                        "{path} func_instance `{targetname}` uses non-local instance path `{file}`; Source Weaver does not resolve instance search roots or normalize instance file paths",
+                    ),
+                ));
+            }
+        }
+        None => report.push(IntegrityIssue::warning(
+            label,
+            format!(
+                "{path} func_instance `{targetname}` has no non-empty `file` key; Source Weaver preserves the entity but cannot resolve or expand an instance VMF",
+            ),
+        )),
+    }
+
+    let replace_keys = body
+        .iter()
+        .filter_map(|node| match node {
+            Node::Property { key, .. } if key.starts_with("replace") => Some(key.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !replace_keys.is_empty() {
+        report.push(IntegrityIssue::warning(
+            label,
+            format!(
+                "{path} func_instance `{targetname}` has replacement parameter keys {}; Source Weaver preserves those keyvalues but does not apply parameter replacement",
+                replace_keys.join(", ")
+            ),
+        ));
+    }
+}
+
+fn instance_path_has_parent_or_absolute_segment(value: &str) -> bool {
+    let lower = value.replace('\\', "/");
+    lower.starts_with('/')
+        || lower.starts_with("../")
+        || lower.contains("/../")
+        || lower.ends_with("/..")
+        || lower.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+}
+
 fn id_is_relevant(block_name: &str) -> bool {
     matches!(
         block_name,
@@ -326,6 +424,32 @@ mod tests {
                 .iter()
                 .any(|message| message.contains("`hammerid`"))
         );
+    }
+
+    #[test]
+    fn warns_about_func_instance_preservation_boundary() {
+        let document = parse_document(include_str!(
+            "../../../tests/fixtures/func_instance_preservation.vmf"
+        ))
+        .unwrap();
+        let report = validate_document_integrity(&document, "func_instance_preservation.vmf");
+        let messages = report
+            .warnings()
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(messages.iter().any(|message| {
+            message.contains("references instance file `instances/synthetic_room.vmf`")
+                && message.contains("does not resolve, inline, transform")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("replacement parameter keys replace01")
+                && message.contains("does not apply parameter replacement")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("missing_file_instance")
+                && message.contains("has no non-empty `file` key")
+        }));
     }
 
     #[test]

@@ -412,6 +412,7 @@ Known limitations:
 - Texture-axis translation adjusts `uaxis`/`vaxis` offsets with fixture coverage; see `docs/texture-axes.md`. Displacement translation currently moves side planes and `dispinfo` `startposition`; see `docs/displacements.md`.
 - Incoming IDs are renumbered during merge, known reference fields are remapped, and unsupported suspected ID-reference keys are surfaced as warnings; see `docs/id-renumbering.md`.
 - Top-level editor metadata is preserved from the base VMF and intentionally not merged from incoming VMFs; see `docs/editor-metadata.md`.
+- `func_instance` entities are preservation-only with explicit validation warnings; Source Weaver does not resolve or expand referenced instance VMFs. See `docs/func-instance-handling.md`.
 - Entity metadata uses built-in semantics, inferred categories, optional FGD class descriptions, and selected FGD property metadata; see `docs/entity-metadata.md`.
 - Very large merged maps can still hit Hammer or Source compiler limits.
 

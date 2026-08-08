@@ -1,0 +1,21 @@
+versioninfo { "editorversion" "400" }
+viewsettings { "bSnapToGrid" "1" }
+world { "id" "1" }
+entity
+{
+    "id" "2"
+    "classname" "func_instance"
+    "targetname" "synthetic_instance"
+    "file" "instances/synthetic_room.vmf"
+    "origin" "64 16 0"
+    "angles" "0 90 0"
+    "fixup_style" "0"
+    "replace01" "$color 255 0 0"
+}
+entity
+{
+    "id" "3"
+    "classname" "func_instance"
+    "targetname" "missing_file_instance"
+    "origin" "0 0 0"
+}

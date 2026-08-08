@@ -159,6 +159,13 @@ assert 'base_hidden_child' in merged_group
 assert 'incoming_root_should_not_be_top_level' not in merged_group
 assert '"visgroupshown" "0"' in merged_group
 assert '"origin" "0 16 0"' in merged_group
+instance_warnings = [
+    issue['message']
+    for issue in grouped['integrity']['issues']
+    if 'func_instance' in issue['message']
+]
+assert instance_warnings, grouped['integrity']
+assert any('preserves the entity but does not resolve' in message for message in instance_warnings), instance_warnings
 
 large = load('large-campaign.validate.json')
 assert large['ok'] is True, large
