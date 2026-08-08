@@ -43,6 +43,37 @@ Material scanning is manual so large game/content trees are not scanned repeated
 - Core preview tests verify VMF side material extraction and face-material alignment.
 - Desktop unit tests verify user-root scanning for VMT/VTF/portable preview files and fixed/available/missing material colors.
 
+## Validation command
+
+Use the dedicated scope check before claiming material-preview behavior in release evidence:
+
+```bash
+scripts/validate-material-preview-scope.sh /tmp/sourceweaver-material-preview-scope
+```
+
+The script generates a Source Weaver-authored synthetic textured VMF and a synthetic material root outside the repository. It validates the VMF, inspects it, runs the core face-material alignment test, runs the desktop material-preview scanning/color tests, writes `scope-summary.json`, and records `SHA256SUMS` for the generated inputs.
+
+Last local evidence run for issue #138 used `/tmp/sourceweaver-material-preview-scope-issue138` and produced:
+
+```text
+validation_ok=true
+brush_solids=1
+sides=4
+scope=material-aware face colors from VMF material names and user-provided material roots; no VTF pixel decoding or Hammer-equivalent viewport claim
+```
+
+Key generated artifact hashes from that run:
+
+```text
+130d8793540c6772897a8693e65741edd4632642759703d1d282505dca46bd4a  textured-preview-scope.vmf
+47d3dd46340bec3003345d639b5c44e9742def21f5420add80b899c56d72baef  material-root/materials/brick/wall001.vmt
+60315c3b22fbc9a5ef8e5396d2d7beebf41601f96e21de0ab3eaaa29d893ecf7  material-root/materials/brick/wall001.vtf
+5a56eecea38f7358a507de07e379578fd33df40cd124cd3072c809ea125bc7d7  material-root/materials/brick/wall001.png
+8ca951380a9b2f8fcfa6a0b98b7b649670e55f1569e5add528ce8f5390891a33  material-root/materials/custom/MixedCase_Detail.vmt
+```
+
 ## Validation boundary
 
 Material-aware preview is a Source Weaver desktop visualization feature. It does not run Hammer, Hammer++, VBSP, VVIS, VRAD, BSPZIP, a game runtime, a game SDK, or any external material tool. It does not prove compile or runtime material availability.
+
+Source Weaver does not currently provide game-specific model/entity icons, VTF pixel decoding, exact Hammer UV projection, lightmapped material rendering, shader previews, cubemap previews, animated material previews, or a Hammer-equivalent textured viewport. If a future release claims any of those behaviors, that claim needs new implementation, tests, and real or redistributable evidence.

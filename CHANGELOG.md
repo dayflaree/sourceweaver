@@ -64,6 +64,7 @@
 - Rust dependency vulnerability audit gate with `cargo-audit`, CI enforcement, release checklist coverage, and documented accepted transitive warnings.
 - Third-party policy review issue template and CI check that enforce completed `third_party_policy_review` records for managed downloads and redistributable candidates.
 - High-risk map-case validation script and evidence matrix covering displacement-heavy, textured-material, nested/hidden group, `func_instance`, and large campaign complexity boundaries.
+- Material-preview scope validation script and documentation that lock the feature to material-aware face colors without Hammer-equivalent textured viewport claims.
 
 ### Changed
 
