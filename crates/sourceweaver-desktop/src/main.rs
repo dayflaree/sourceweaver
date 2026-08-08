@@ -4152,10 +4152,14 @@ impl SourceWeaverApp {
                 egui::TextEdit::singleline(&mut self.update_download_dir)
                     .desired_width(f32::INFINITY),
             );
-            if ui.button("Browse...").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.update_download_dir = display_path(&path);
-                }
+            let browse_clicked = ui.button("Browse...").clicked();
+            let chosen_download_dir = if browse_clicked {
+                rfd::FileDialog::new().pick_folder()
+            } else {
+                None
+            };
+            if let Some(path) = chosen_download_dir {
+                self.update_download_dir = display_path(&path);
             }
         });
         ui.checkbox(
