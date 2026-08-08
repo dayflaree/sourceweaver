@@ -179,7 +179,7 @@ sourceweaver model-preview models/props/example.mdl \
   --json
 ```
 
-Native preview is currently metadata-only. The report is suitable for preview cards and validation dashboards because it summarizes MDL name/version, mesh counts, local animation/sequence counts, material candidates, companion-file counts, and warnings. Source Weaver does not yet render textured models, play animations, visualize PHY collision, or read VVD/VTX vertex buffers for native preview.
+Native preview is currently metadata-only. The report is suitable for preview cards and validation dashboards because it summarizes MDL name/version, mesh counts, local animation/sequence counts, material candidates, companion-file counts, and warnings. Source Weaver does not yet render textured models, play animations, visualize PHY collision, or read VVD/VTX vertex buffers for native preview. `docs/model-rendering-roadmap.md` records the phased path for any future native renderer and keeps it separate from HLMV/HLMV++ rendered preview certification.
 
 HLMV integration is optional and external. Source Weaver launches only a user-provided `--hlmv` path when `--launch` is supplied, passes the MDL path as an argument, captures process exit/log output, and records that it did not inspect the rendered viewer window. This keeps HLMV/game SDK validation separate from Source Weaver native metadata parsing.
 
@@ -190,6 +190,8 @@ Use precise wording:
 - Allowed: `Source Weaver can inspect basic MDL header metadata and run user-provided StudioMDL-compatible model compile or headless model-decompile wrappers.`
 - Allowed: `Crowbar research is documented; Source Weaver does not bundle or port Crowbar.`
 - Not allowed without evidence: `Source Weaver decompiles models like Crowbar.`
+- Not allowed without implementation and fixture evidence: `Source Weaver renders native model previews.`
+- Not allowed without #146 evidence: `Source Weaver validates rendered HLMV/HLMV++ model previews.`
 - Not allowed without actual tool runs: `Model compile was validated with real StudioMDL.`
 
 ## Current validation evidence
