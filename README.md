@@ -38,7 +38,7 @@ Current capabilities:
 - Drag and drop `.vmf`, `.toml`, and `.fgd` files into the desktop app, with in-session recent files/projects.
 - Show parse progress, error dialogs, dark/light theme controls, and adjustable preview height.
 - Search, role-filter, and sort large entity/classname tables.
-- Select multiple entity-table rows with checkboxes for future cleanup actions.
+- Select multiple entity-table rows with checkboxes for preview selection, cleanup review, and deletion-rule workflows.
 - Click preview entity markers or solid bounds to select matching entity/world table rows.
 - Preview scanned VMFs in Hammer-style 2D orthographic views.
 - Preview the in-memory merged output before writing a VMF.
@@ -64,11 +64,24 @@ Current capabilities:
 - Adjust VMF `uaxis`/`vaxis` texture shifts during brush translation to preserve texture-lock behavior.
 - Renumber incoming VMF IDs, remap known ID reference fields during merge, and warn on unsupported suspected ID-reference keys.
 - Preserve base editor metadata while intentionally ignoring conflicting incoming top-level editor sections.
-- Package Linux tarball/AppImage and Windows zip/NSIS setup releases from version tags, with release checksums, signing-ready workflow hooks, and a manual update-check helper.
+- Package Linux tarball/AppImage and Windows zip/NSIS setup releases from version tags, with release checksums, signing-ready workflow hooks, signed opt-in update checks/downloads, and manual install handoff.
+
+
+## Current validation boundaries
+
+Source Weaver's built-in validation is VMF-structural, fixture-based, public-VMF, and captured-log oriented unless a document names a real external tool run. The current public-release boundary is:
+
+- Hammer/Hammer++ open/save compatibility is not certified.
+- Native Windows Source compiler execution is not certified.
+- Real game-runtime execution has failure evidence only; successful map load is not certified.
+- HLMV/HLMV++ external launch plumbing has failure evidence only; rendered model preview is not certified.
+- Production release signing is absent unless the specific release run records real configured signing credentials.
+
+No Source SDK binaries, Hammer/Hammer++ tools, HLMV/Crowbar/StudioMDL binaries, BSPs, MDLs, VTFs, VMTs, proprietary game content, Steam data, or private user assets are bundled or redistributed by Source Weaver.
 
 ## Build and run the desktop app
 
-Download packaged releases from the GitHub Releases page, or build locally from source. Linux releases are `.tar.gz` archives plus `.AppImage` files, and Windows releases are portable `.zip` archives plus NSIS `-setup.exe` installers. Tag releases include `SHA256SUMS`; optional Windows Authenticode and OpenPGP signatures require configured signing credentials. Source Weaver does not enable automatic self-updates yet; use `scripts/check-latest-release.sh` or the GitHub Releases page for manual update checks. See `docs/packaging.md`, `docs/release.md`, `docs/code-signing.md`, and `docs/update-strategy.md` for package contents, runtime notes, signing status, update policy, and the tag-based release process.
+Download packaged releases from the GitHub Releases page, or build locally from source. Linux releases are `.tar.gz` archives plus `.AppImage` files, and Windows releases are portable `.zip` archives plus NSIS `-setup.exe` installers. Tag releases include `SHA256SUMS`; optional Windows Authenticode, OpenPGP checksum signatures, and signed update metadata require configured signing credentials. Source Weaver supports explicit, opt-in signed update checks and verified artifact downloads through the CLI and desktop update panel. It does not perform background self-update checks, automatic installer execution, executable replacement, rollback, or silent install. Use `scripts/check-latest-release.sh`, `sourceweaver update check`, or the GitHub Releases page for discovery, then install manually. See `docs/packaging.md`, `docs/release.md`, `docs/code-signing.md`, and `docs/update-strategy.md` for package contents, runtime notes, signing status, update policy, and the tag-based release process.
 
 ### Linux
 

@@ -146,7 +146,7 @@ The JSON report includes:
 
 BSP packing should normally happen after a real compile and after cubemaps are built when that applies to the target game. Repacking a BSP is a distribution step, not a replacement for VMF validation or compile/runtime testing.
 
-The current implementation covers CLI automation and machine-readable reports. Desktop post-compile packing UI remains future work once the compile workflow is stable.
+The current implementation covers CLI automation, machine-readable reports, and an optional desktop packing panel. Desktop packing remains an integration surface for user-provided tools and does not change VMF export or compile results retroactively.
 
 ## Sources checked
 

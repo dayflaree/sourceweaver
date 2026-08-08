@@ -80,10 +80,14 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 12. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
 13. Run `scripts/check-latest-release.sh <previous-version>` after publishing to verify the manual update-check path sees the new release.
 
-## Current packaging limitations
+## Current packaging and validation limitations
 
 - Linux AppImage packaging is wired into the release workflow, but clean Linux GUI smoke evidence must be recorded per release.
 - Windows NSIS installer packaging is wired into the release workflow, but interactive GUI smoke evidence outside silent CI install/uninstall must be recorded per release.
-- Release artifacts are unsigned unless Windows code-signing and OpenPGP release-signing secrets are configured; see `docs/code-signing.md`.
-- Signed update checks and verified download/install handoff are implemented. Automatic installer execution is not enabled; use the manual update path and signed-metadata flow in `docs/update-strategy.md`.
-- Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires a user-provided Source tool installation or captured compile logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md` before making release claims. Any managed third-party download or bundled third-party asset must pass `docs/third-party-redistribution-policy.md` before release.
+- Production release signing is absent unless the specific release run records configured Windows Authenticode, OpenPGP, and/or update-signing credentials; see `docs/code-signing.md`.
+- Signed update checks and verified download/install handoff are implemented. Automatic installer execution, executable replacement, silent install, and rollback are not enabled; use the manual update path and signed-metadata flow in `docs/update-strategy.md`.
+- Hammer/Hammer++ open/save compatibility is not certified until a real Hammer/Hammer++ executable opens and saves generated VMFs and the saved output is diffed and recorded.
+- Native Windows Source compiler execution is not certified until real native Windows VBSP/VVIS/VRAD execution evidence is recorded. Proton/Wine wrapper rows must stay labeled as wrapper evidence.
+- Successful game-runtime map load is not certified. Existing runtime evidence records real launch failure, not a playable map-load pass.
+- Rendered HLMV/HLMV++ model preview is not certified. Existing HLMV evidence records external launch plumbing and failure before a rendered window opened.
+- Real Hammer/VBSP/VVIS/VRAD/game-runtime validation still requires user-provided Source tool installations or captured logs. Record completed real-tool evidence in `docs/source-compiler-smoke-test-matrix.md`, `docs/runtime-map-load-validation.md`, or `docs/model-tooling.md` before making release claims. Any managed third-party download or bundled third-party asset must pass `docs/third-party-redistribution-policy.md` before release.

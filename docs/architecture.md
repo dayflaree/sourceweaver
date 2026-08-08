@@ -46,7 +46,7 @@ The desktop app is a native egui/eframe application for Linux and Windows. It ca
 - built-in, inferred, and FGD-loaded entity metadata in inspection tables
 - drag-and-drop VMF/project/FGD import and in-session recent paths
 - parse progress, error dialog, theme toggle, and adjustable preview height controls
-- entity table row-selection state for future cleanup actions
+- entity table row-selection state used by preview selection and cleanup review workflows
 - deletion-rule controls
 - transparent deletion presets that generate ordinary criteria
 - deletion-safety controls for brush-entity modes and protected entities
@@ -169,7 +169,7 @@ Model tooling is optional and separate from VMF merge/edit. The CLI can inspect 
 
 ## BSP packing stance
 
-BSP content packing is optional post-compile distribution tooling. The CLI `pack` command runs a user-provided `bspzip`-compatible packer with `-addlist <input.bsp> <filelist.txt> <output.bsp>`, can generate BSPZIP path-pair file lists from asset roots and include rules, captures logs, and emits JSON with missing assets and command provenance. Source Weaver does not bundle packers, BSPs, or custom assets. The third-party redistribution policy covers any future packer or fixture redistribution. Desktop packing UI remains future work. See `docs/bsp-packing.md`.
+BSP content packing is optional post-compile distribution tooling. The CLI `pack` command runs a user-provided `bspzip`-compatible packer with `-addlist <input.bsp> <filelist.txt> <output.bsp>`, can generate BSPZIP path-pair file lists from asset roots and include rules, captures logs, and emits JSON with missing assets and command provenance. The desktop app exposes the same optional workflow in the **Optional external compile** panel under **Optional BSP packing**, including manual pack runs and pack-after-compile handoff. Source Weaver does not bundle packers, BSPs, or custom assets. The third-party redistribution policy covers any future packer or fixture redistribution. See `docs/bsp-packing.md`.
 
 ## Deletion model
 
@@ -189,7 +189,7 @@ Cleanup exports are gated by a pending-review state. Running deletion preview st
 
 Rust and egui/eframe provide a shared Linux/Windows desktop UI. Native file dialogs are handled through `rfd`. CI builds the Rust workspace on Linux and Windows so platform-specific compile issues surface quickly. The main CI workflow runs formatting, Clippy, tests, builds, job-runner validation, and fixture VMF validation.
 
-Desktop release builds run from `.github/workflows/desktop-builds.yml`. Manual dispatch creates workflow artifacts. Pushing a `v*` tag builds the Linux tarball and Windows zip, then publishes both to a GitHub Release using `CHANGELOG.md` as release notes.
+Desktop release builds run from `.github/workflows/desktop-builds.yml`. Manual dispatch creates workflow artifacts. Pushing a `v*` tag builds the Linux tarball, Linux AppImage, Windows zip, and Windows NSIS setup executable; writes `SHA256SUMS`; optionally signs checksums and update metadata when real secrets are configured; then publishes the artifacts to a GitHub Release using `CHANGELOG.md` as release notes.
 
 ## Regression fixtures
 

@@ -1,8 +1,14 @@
-# Linux/Wine Source compiler setup
+# Linux Wine/Proton Source compiler setup
 
 Source Weaver is Linux-first for VMF merge/edit/preview/validation. VMF-to-BSP compilation is optional and uses external tools selected by the user. Source Weaver does not ship VBSP, VVIS, VRAD, Hammer, game SDKs, game content, or proprietary Valve binaries.
 
 Use this document only when you already have legal access to the target game's compiler tools and content. Structural validation from `sourceweaver validate` is portable. A real compile is a separate external-tool test and should be reported as such.
+
+Current evidence split:
+
+- The Garry's Mod Source++ row below is real Proton-backed VBSP++/VVIS++/VRAD++ wrapper evidence. It is not native Linux compiler evidence, native Windows compiler evidence, stock Source SDK Base 2013 compiler-binary evidence, Hammer/Hammer++ evidence, or game-runtime map-load evidence.
+- The pure system-Wine row remains blocked in this environment because `wine`, `wine64`, `wineserver`, `wineboot`, and `winetricks` were unavailable when checked. Do not describe the Proton-backed row as Wine validation.
+- Native Windows Source compiler execution remains unvalidated until a Windows host runs the compiler tools natively and records paths, versions, command lines, logs, output BSP hashes, and redistribution boundaries.
 
 ## Compile command model
 

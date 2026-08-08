@@ -139,7 +139,7 @@ Model tooling must remain optional and must not complicate VMF workflows. Source
 
 ## BSP packing stance
 
-BSP content packing must remain optional and must use user-provided external packer paths. Source Weaver must not bundle packers, BSPs, or custom assets. The CLI may generate BSPZIP-compatible file lists from asset roots and relative include rules or use an existing file list. Reports must include command provenance, tool path, best-effort tool version, input/output BSPs, file-list path, requested files, missing files, warnings, packer exit status, log path, and packed file counts when detectable. Desktop packing UI can be added after compile workflow stabilization.
+BSP content packing must remain optional and must use user-provided external packer paths. Source Weaver must not bundle packers, BSPs, or custom assets. The CLI may generate BSPZIP-compatible file lists from asset roots and relative include rules or use an existing file list. Reports must include command provenance, tool path, best-effort tool version, input/output BSPs, file-list path, requested files, missing files, warnings, packer exit status, log path, and packed file counts when detectable. The desktop packing UI must preserve the same boundary, keep packing optional, and report pack success/failure separately from VMF export and compile success.
 
 ### Landmark discovery
 
@@ -170,7 +170,7 @@ Users must be able to delete map content by:
 - targetname
 - brush role
 
-Deletion must support repeated or comma-separated filters so future UI bulk selections can map directly to the same core rules.
+Deletion must support repeated or comma-separated filters so CLI jobs and UI bulk-selection workflows map directly to the same core rules.
 
 ## Validation requirements
 

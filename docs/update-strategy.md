@@ -1,8 +1,8 @@
 # Application update strategy
 
-Source Weaver does not enable automatic self-updates yet. The safe current path is manual update discovery, artifact verification, and user-initiated install or replacement.
+Source Weaver supports opt-in signed update checks and verified artifact downloads, but it does not enable automatic self-updates. The safe current path is explicit update discovery, signed manifest verification, artifact checksum verification, and user-initiated install or replacement.
 
-Automatic updates should be implemented only after signed release artifacts are enforced for the update channel. `docs/code-signing.md` defines the signing hooks and required secrets, but the current repository state has no real Windows code-signing certificate or OpenPGP release key configured.
+Automatic installer execution, executable replacement, and rollback should be implemented only after signed release artifacts are enforced for the update channel. `docs/code-signing.md` defines the signing hooks and required secrets, but the current repository state has no confirmed production Windows code-signing certificate, OpenPGP release key, or update-signing key configured for a public release.
 
 ## Research notes
 
