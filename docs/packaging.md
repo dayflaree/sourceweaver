@@ -105,7 +105,7 @@ Build only the AppDir locally without appimagetool:
 scripts/package-appimage.sh v0.1.0-local --appdir-only
 ```
 
-The GitHub release workflow downloads `appimagetool-x86_64.AppImage` from the AppImage project continuous release and sets `ARCH=x86_64`. AppImage documentation checked on 2026-08-08 describes `AppRun` as the AppDir entry point and appimagetool as the tool that creates AppImages from AppDirs. It also documents appimagetool downloads from `https://github.com/AppImage/appimagetool/releases/continuous`.
+The GitHub release workflow downloads `appimagetool-x86_64.AppImage` from the AppImage project continuous release into `target/tools/`, outside the uploaded release-artifact directory, and sets `ARCH=x86_64`. AppImage documentation checked on 2026-08-08 describes `AppRun` as the AppDir entry point and appimagetool as the tool that creates AppImages from AppDirs. It also documents appimagetool downloads from `https://github.com/AppImage/appimagetool/releases/continuous`. The Linux artifact upload pattern is limited to `sourceweaver-*-linux-x86_64.tar.gz` and `sourceweaver-*-linux-x86_64.AppImage` so the downloaded helper tool is not published or attested as a Source Weaver release artifact.
 
 ### AppImage limitations
 

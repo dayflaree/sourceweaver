@@ -26,14 +26,14 @@ jobs:
         run: scripts/package-linux.sh "${GITHUB_REF_NAME:-manual}"
       - name: Download appimagetool
         run: |
-          mkdir -p target/package
+          mkdir -p target/tools
           curl -L --fail --retry 3 \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
-            -o target/package/appimagetool-x86_64.AppImage
-          chmod +x target/package/appimagetool-x86_64.AppImage
+            -o target/tools/appimagetool-x86_64.AppImage
+          chmod +x target/tools/appimagetool-x86_64.AppImage
       - name: Build Linux AppImage
         env:
-          APPIMAGETOOL: ${{ github.workspace }}/target/package/appimagetool-x86_64.AppImage
+          APPIMAGETOOL: ${{ github.workspace }}/target/tools/appimagetool-x86_64.AppImage
           ARCH: x86_64
         run: scripts/package-appimage.sh "${GITHUB_REF_NAME:-manual}"
       - name: Upload Linux package artifact
@@ -41,8 +41,8 @@ jobs:
         with:
           name: sourceweaver-linux-x86_64
           path: |
-            target/package/*.tar.gz
-            target/package/*.AppImage
+            target/package/sourceweaver-*-linux-x86_64.tar.gz
+            target/package/sourceweaver-*-linux-x86_64.AppImage
           if-no-files-found: error
 
   windows:
