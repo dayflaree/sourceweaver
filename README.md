@@ -72,7 +72,7 @@ Current capabilities:
 Source Weaver's built-in validation is VMF-structural, fixture-based, public-VMF, and captured-log oriented unless a document names a real external tool run. The current public-release boundary is:
 
 - Hammer/Hammer++ open/save compatibility is not certified; generated VMFs must not be treated as Hammer-certified until future issue #141 records a completed real-editor row.
-- Native Windows Source compiler execution is not certified.
+- Native Windows Source compiler execution is not certified; CI Windows Rust checks, Windows release packaging, and Proton/Wine wrapper compiler rows are separate evidence and must not be described as native Windows VBSP/VVIS/VRAD validation.
 - Real game-runtime execution has failure evidence only; successful map load is not certified.
 - HLMV/HLMV++ external launch plumbing has failure evidence only; rendered model preview is not certified.
 - Production release signing is absent unless the specific release run records real configured signing credentials.
@@ -208,7 +208,7 @@ cargo run -p sourceweaver-cli -- compile stitched.vmf \
   --json
 ```
 
-See `docs/linux-source-compiler-setup.md` for Wine/Proton wrappers, sample profiles, troubleshooting, the verified Proton-backed Garry's Mod Source++ compile row, and the boundary between VMF validation and real compiler validation. The desktop app also has an **Optional external compile** panel that can run the same profile after a successful merge/export without blocking the UI.
+See `docs/linux-source-compiler-setup.md` for Wine/Proton wrappers, sample profiles, troubleshooting, the verified Proton-backed Garry's Mod Source++ compile row, and the boundary between VMF validation, wrapper evidence, and native Windows compiler validation. The desktop app also has an **Optional external compile** panel that can run the same profile after a successful merge/export without blocking the UI.
 
 See `docs/compile-pipeline.md` for profile format, report fields, desktop compile behavior, and Linux-friendly validation notes. See `docs/compatibility-matrix.md`, `docs/source-compiler-smoke-test-matrix.md`, and `docs/hammer-validation-workflow.md` for compatibility boundaries and real-tool evidence requirements.
 

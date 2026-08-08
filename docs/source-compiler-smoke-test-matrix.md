@@ -187,13 +187,37 @@ Boundary:
 - No Hammer, Hammer++, HLMV, Crowbar, BSPSource, BSPZIP, game runtime, SDK installer, proprietary model, proprietary BSP, or committed game content was run or bundled for this row.
 
 
-### Row B: Windows native game/tool install
+### Row B: Native Windows Source compiler execution
 
-Status: `planned`
+Status: `not validated`
 
-Purpose: ensure Source Weaver-generated VMFs and reports match native Windows compiler behavior when a user has legal Windows Source tooling.
+Purpose: ensure Source Weaver-generated VMFs and reports match native Windows VBSP/VVIS/VRAD behavior when a user has legal Windows Source tooling.
 
-Required row fields are the same as Row A, replacing `wine_version` with the Windows build and native tool source.
+Current blocker evidence, 2026-08-08:
+
+```text
+issue: #133
+future_certification_issue: #142
+host_checked: Linux OldBeast 7.0.0-29-generic x86_64, Ubuntu 26.04 LTS
+native_windows_host_or_session: not available
+native_windows_vbsp_path: not available
+native_windows_vvis_path: not available
+native_windows_vrad_path: not available
+native_windows_compile_run: not performed
+proton_or_wine_rows_reusable_as_native_windows_evidence: no
+ci_windows_rust_build_reusable_as_source_compiler_evidence: no
+windows_release_packaging_reusable_as_source_compiler_evidence: no
+status_summary: native Windows Source compiler execution is not certified
+```
+
+Boundary:
+
+- CI `windows-latest` Rust build/test coverage proves only that Source Weaver builds, tests, and runs fixture validation on a Windows runner.
+- Windows release artifact packaging proves only that Source Weaver packages the app and validates installer install/uninstall behavior on a Windows runner.
+- Proton/Wine rows prove only the exact wrapper/toolchain rows that were run and must stay labeled as wrapper evidence.
+- Native Windows compiler validation requires a Windows host or runner with real native VBSP, VVIS, and VRAD execution through `sourceweaver compile`, per-step logs, exit codes, generated BSP hashes, game/tool context, and redistribution boundaries.
+
+Required completed-row fields are the same as Row A, replacing `wine_version` with Windows build/session details and native tool source. Future issue #142 preserves that certification work and should remain open until a real native Windows run exists.
 
 ### Row C: Proton wrapper path
 
@@ -361,4 +385,4 @@ Do not commit proprietary tools, game content, generated BSPs that embed protect
 
 As of 2026-08-08, Source Weaver CI and local validation cover structural VMF validation, fake external compiler control flow, compile-profile create/validate/discover, JSON report parsing, desktop compile launch code compilation, fixture merge automation, one completed Source SDK Base 2013 Singleplayer game-dir compile row through Proton/Wine wrappers, one completed Garry's Mod Source++ Proton compiler smoke row, and one completed real StudioMDL++ model-compile row.
 
-Real external-tool compiler validation currently covers Row A, Row C, and Row D above. Hammer/Hammer++ open/save, native Windows Source compiler validation, release signing, and public release evidence remain separate required-work tickets.
+Real external-tool compiler validation currently covers Row A, Row C, and Row D above. Row B records native Windows Source compiler execution as `not validated` until future issue #142 produces a completed native Windows evidence row. Hammer/Hammer++ open/save, release signing, and public release evidence remain separate required-work tickets.

@@ -71,6 +71,7 @@
 - Real HLMV++ launch-failure validation row through a user-provided Proton-backed wrapper, with Source Weaver model-preview report and logs proving the viewer failed before a rendered window opened.
 - Real Source SDK Base 2013 Singleplayer game-dir compiler validation row using Source++ VBSP++/VVIS++/VRAD++ through Proton/Wine wrappers, producing a BSP and documenting stock SDK compiler-binary absence.
 - Compatibility and validation matrix with Hammer/Hammer++ open/save marked `not validated` and preview release wording locked to `Hammer/Hammer++ open/save: not certified.`
+- Compiler smoke-test matrix Row B with native Windows Source compiler execution marked `not validated`, preserving future certification in #142 and separating CI Windows Rust checks, Windows packaging, and Proton/Wine compiler rows from native Windows VBSP/VVIS/VRAD evidence.
 
 ### Changed
 
@@ -86,4 +87,5 @@
 - Third-party tools and assets stay unbundled unless the redistribution policy review records rights, provenance, attribution, checksum, update, and removal decisions.
 - Real StudioMDL++ validation produced local evidence artifacts only; generated model outputs are not committed or redistributed.
 - Hammer/Hammer++ open/save: not certified. Real editor certification remains future issue #141 and requires a runnable editor plus saved-VMF evidence.
-- Real VBSP/VVIS/VRAD validation requires installed Source tooling or captured compile logs.
+- Native Windows Source compiler execution: not certified. Future issue #142 requires real native Windows VBSP/VVIS/VRAD execution evidence.
+- Real VBSP/VVIS/VRAD validation requires installed Source tooling or captured compile logs, and wrapper rows must stay labeled as wrapper evidence.

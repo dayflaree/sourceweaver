@@ -187,7 +187,7 @@ Cleanup exports are gated by a pending-review state. Running deletion preview st
 
 ## Cross-platform strategy
 
-Rust and egui/eframe provide a shared Linux/Windows desktop UI. Native file dialogs are handled through `rfd`. CI builds the Rust workspace on Linux and Windows so platform-specific compile issues surface quickly. The main CI workflow runs formatting, Clippy, tests, builds, job-runner validation, and fixture VMF validation.
+Rust and egui/eframe provide a shared Linux/Windows desktop UI. Native file dialogs are handled through `rfd`. CI builds the Rust workspace on Linux and Windows so platform-specific Source Weaver compile issues surface quickly. That CI Windows coverage is not native Windows Source compiler validation; no hosted CI row currently runs real native VBSP/VVIS/VRAD tools. The main CI workflow runs formatting, Clippy, tests, builds, job-runner validation, fixture VMF validation, and validation-claim guarding.
 
 Desktop release builds run from `.github/workflows/desktop-builds.yml`. Manual dispatch creates workflow artifacts. Pushing a `v*` tag builds the Linux tarball, Linux AppImage, Windows zip, and Windows NSIS setup executable; writes `SHA256SUMS`; optionally signs checksums and update metadata when real secrets are configured; then publishes the artifacts to a GitHub Release using `CHANGELOG.md` as release notes.
 
