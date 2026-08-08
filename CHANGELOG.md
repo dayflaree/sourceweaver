@@ -67,6 +67,7 @@
 - Material-preview scope validation script and documentation that lock the feature to material-aware face colors without Hammer-equivalent textured viewport claims.
 - Signed update manifest support with Ed25519 verification, CLI check/download/install-handoff commands, desktop opt-in update panel, release workflow manifest generation when an update signing key is configured, and rejection tests for wrong signatures and corrupt artifacts.
 - Real Crowbar 0.74 model-decompile validation evidence through a user-provided Proton-backed wrapper, with Source Weaver report and generated model-source manifest recorded outside the repository.
+- Real Garry's Mod dedicated-server runtime map-load validation failure row, with console/log evidence proving the runtime launched and failed before a successful gameplay load because of local runtime content-mount dependencies.
 
 ### Changed
 
