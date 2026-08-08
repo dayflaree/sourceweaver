@@ -6,6 +6,17 @@ on:
   pull_request:
 
 jobs:
+  dependency-audit:
+    name: Rust dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit Cargo.lock
+        run: cargo audit
+
   rust:
     name: Rust checks (${{ matrix.os }})
     strategy:

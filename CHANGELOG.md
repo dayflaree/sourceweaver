@@ -61,6 +61,7 @@
 - Manual latest-release check helper and documented auto-update strategy covering signing, channels, rollback, consent, and offline behavior.
 - Third-party tool redistribution policy with never-bundled, user-provided-only, managed-download, and redistributable-candidate categories plus review gates for future managed downloads.
 - Real StudioMDL++ model-compile validation row using a Source Weaver-authored synthetic QC/SMD fixture and Wine wrapper evidence.
+- Rust dependency vulnerability audit gate with `cargo-audit`, CI enforcement, release checklist coverage, and documented accepted transitive warnings.
 
 ### Changed
 

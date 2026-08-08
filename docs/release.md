@@ -67,16 +67,17 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 ## Release checklist
 
 1. Confirm `cargo fmt --check`, `cargo test --workspace`, and `cargo build --workspace` pass.
-2. Confirm CLI job-runner dry-run JSON validation passes.
-3. Confirm `sourceweaver validate` can validate the fixture merged VMF with the sample VBSP log.
-4. Update `CHANGELOG.md`.
-5. Review `docs/code-signing.md` and confirm whether signing secrets are configured for this release.
-6. Push a `vMAJOR.MINOR.PATCH` tag.
-7. Wait for Linux and Windows release jobs to pass.
-8. Confirm the Windows job reports setup install/uninstall validation.
-9. Confirm `SHA256SUMS` was generated and, when configured, `SHA256SUMS.asc` verifies with the release public key.
-10. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
-11. Run `scripts/check-latest-release.sh <previous-version>` after publishing to verify the manual update-check path sees the new release.
+2. Confirm `cargo audit` passes and record any accepted warnings from `docs/dependency-audit.md`.
+3. Confirm CLI job-runner dry-run JSON validation passes.
+4. Confirm `sourceweaver validate` can validate the fixture merged VMF with the sample VBSP log.
+5. Update `CHANGELOG.md`.
+6. Review `docs/code-signing.md` and confirm whether signing secrets are configured for this release.
+7. Push a `vMAJOR.MINOR.PATCH` tag.
+8. Wait for Linux and Windows release jobs to pass.
+9. Confirm the Windows job reports setup install/uninstall validation.
+10. Confirm `SHA256SUMS` was generated and, when configured, `SHA256SUMS.asc` verifies with the release public key.
+11. Download and smoke-test the published release archives and installer when access to the relevant OS is available.
+12. Run `scripts/check-latest-release.sh <previous-version>` after publishing to verify the manual update-check path sees the new release.
 
 ## Current packaging limitations
 

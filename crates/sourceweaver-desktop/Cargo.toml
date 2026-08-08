@@ -10,8 +10,8 @@ name = "sourceweaver-desktop"
 path = "src/main.rs"
 
 [dependencies]
-eframe = "0.31"
-rfd = "0.15"
+eframe = "0.32"
+rfd = "0.16"
 serde = { version = "1", features = ["derive"] }
 sourceweaver-core = { path = "../sourceweaver-core" }
 toml = "0.8"
