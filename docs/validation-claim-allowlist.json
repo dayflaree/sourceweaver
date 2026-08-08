@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "description": "Allowlist for Source Weaver high-risk validation claims. Entries must point to evidence rows, issues, or scripts. They do not permit broader claims than their line_patterns describe.",
+  "entries": [
+    {
+      "id": "signed-update-check-download-handoff-issue130",
+      "category": "automatic-updates",
+      "evidence_refs": [
+        "issue #130",
+        "scripts/validate-signed-update-support.sh",
+        "docs/update-strategy.md#implemented-signed-update-design"
+      ],
+      "files": [
+        "README.md",
+        "CHANGELOG.md",
+        "docs/release.md",
+        "docs/packaging.md",
+        "docs/update-strategy.md"
+      ],
+      "line_patterns": [
+        "signed update checks?",
+        "verified artifact downloads?",
+        "download/install handoff",
+        "manual install handoff"
+      ]
+    },
+    {
+      "id": "material-aware-preview-scope-issue138",
+      "category": "textured-hammer-equivalent-preview",
+      "evidence_refs": [
+        "issue #138",
+        "scripts/validate-material-preview-scope.sh",
+        "docs/material-preview.md"
+      ],
+      "files": [
+        "CHANGELOG.md",
+        "README.md",
+        "docs/material-preview.md"
+      ],
+      "line_patterns": [
+        "material-aware face colors",
+        "no VTF pixel decoding",
+        "no Hammer-equivalent viewport claim"
+      ]
+    },
+    {
+      "id": "runtime-launch-failure-issue132",
+      "category": "game-runtime-load",
+      "evidence_refs": [
+        "issue #132",
+        "docs/runtime-map-load-validation.md#real-runtime-execution-failure-row"
+      ],
+      "files": [
+        "CHANGELOG.md",
+        "docs/runtime-map-load-validation.md",
+        "docs/release.md",
+        "README.md"
+      ],
+      "line_patterns": [
+        "real launch failure",
+        "failed before a successful.*map load",
+        "not a playable map-load pass"
+      ]
+    },
+    {
+      "id": "hlmv-launch-failure-issue135",
+      "category": "rendered-hlmv-preview",
+      "evidence_refs": [
+        "issue #135",
+        "docs/model-tooling.md#real-hlmv-launch-failure-validation-row"
+      ],
+      "files": [
+        "CHANGELOG.md",
+        "docs/model-tooling.md",
+        "docs/release.md",
+        "README.md"
+      ],
+      "line_patterns": [
+        "HLMV\\+\\+ launch-failure",
+        "failed before a rendered window opened",
+        "does not prove a rendered HLMV window"
+      ]
+    },
+    {
+      "id": "proton-sourcepp-wrapper-compiler-issue134",
+      "category": "native-windows-compiler",
+      "evidence_refs": [
+        "issue #134",
+        "docs/source-compiler-smoke-test-matrix.md#row-c",
+        "docs/linux-source-compiler-setup.md#verified-proton-compile-row-garrys-mod-source-tools"
+      ],
+      "files": [
+        "CHANGELOG.md",
+        "docs/source-compiler-smoke-test-matrix.md",
+        "docs/linux-source-compiler-setup.md",
+        "docs/release.md",
+        "README.md"
+      ],
+      "line_patterns": [
+        "Proton-backed VBSP\\+\\+/VVIS\\+\\+/VRAD\\+\\+",
+        "not native Windows",
+        "native Windows Source compiler execution is not certified"
+      ]
+    }
+  ]
+}

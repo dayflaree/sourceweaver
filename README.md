@@ -391,6 +391,7 @@ packaging/                     Linux desktop entry/icon and Windows icon assets
 scripts/package-linux.sh       Linux release tarball builder
 scripts/package-windows.ps1    Windows release zip builder
 scripts/validate-public-vmfs.sh Public real-VMF validation smoke script
+scripts/check-validation-claims.py Validation claim guard for docs and release notes
 tests/fixtures/                Small VMF files used for local validation
 tests/golden/                  Golden VMF and JSON snapshots used by regression tests
 ```
