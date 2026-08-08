@@ -69,6 +69,7 @@
 - Real Crowbar 0.74 model-decompile validation evidence through a user-provided Proton-backed wrapper, with Source Weaver report and generated model-source manifest recorded outside the repository.
 - Real Garry's Mod dedicated-server runtime map-load validation failure row, with console/log evidence proving the runtime launched and failed before a successful gameplay load because of local runtime content-mount dependencies.
 - Real HLMV++ launch-failure validation row through a user-provided Proton-backed wrapper, with Source Weaver model-preview report and logs proving the viewer failed before a rendered window opened.
+- Real Source SDK Base 2013 Singleplayer game-dir compiler validation row using Source++ VBSP++/VVIS++/VRAD++ through Proton/Wine wrappers, producing a BSP and documenting stock SDK compiler-binary absence.
 
 ### Changed
 

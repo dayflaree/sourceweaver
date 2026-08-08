@@ -100,46 +100,92 @@ For every completed row, record:
 
 ### Row A: Source SDK Base 2013 Singleplayer-compatible tools through Wine
 
-Status: `planned`
+Status: `completed`
 
-Purpose: baseline Linux/Wine path for a legal Steam tool install.
+Purpose: baseline Linux/Wine path for a legal Steam Source SDK Base 2013 Singleplayer game install.
 
-Public references checked on 2026-08-06:
-
-- Valve Developer Community has a Source SDK Base 2013 getting-started page.
-- Steam Community guidance describes installing Source SDK Base 2013 Singleplayer from Steam Library Tools.
-- Public compile examples and Source command-sequence references show the standard order `vbsp` on VMF, then `vvis` and `vrad` on BSP.
-
-Required row fields when executed:
+Completed evidence, 2026-08-08 for issue #134:
 
 ```text
-commit:
-date:
-tester:
-os:
-wine_version:
-steam_install:
-tool_source:
-vbsp_path:
-vvis_path:
-vrad_path:
-game_dir:
-profile_path:
-input_vmf:
-input_vmf_redistributable: yes/no
-command:
-vbsp_exit:
-vvis_exit:
-vrad_exit:
-output_bsp:
-output_bsp_size:
-warnings:
-errors:
-leak_detected:
-runtime_smoke: not-run/pass/fail
-runtime_notes:
-follow_ups:
+commit: pending issue #134 evidence commit
+date: 2026-08-08T11:10:44-06:00
+tester: Elijah local environment via D0G/Hermes
+os: Linux OldBeast 7.0.0-29-generic x86_64
+wine_version: Steam Proton 10.0 wrapper; Proton reported compat version 10.1000-105 in prior same-host real-tool validations
+steam_install: /home/elijah/snap/steam/common/.local/share/Steam
+tool_source: local Garry's Mod win64 Source++ tools under steamapps/common/GarrysMod/bin/win64; stock Source SDK Base 2013 compiler binaries were not present in the local SDK Base install
+vbsp_path: /home/elijah/.local/bin/vbspplusplus-gmod -> /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vbspplusplus.exe
+vvis_path: /home/elijah/.local/bin/vvisplusplus-gmod -> /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vvisplusplus.exe
+vrad_path: /home/elijah/.local/bin/vradplusplus-gmod -> /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/GarrysMod/bin/win64/vradplusplus.exe
+vbsp_binary: PE32+ x86-64, sha256 4a1e69e5d3fa562fc669c82f47db122714ef28f30ad7a0f7a03a65053ef6fc2e
+vvis_binary: PE32+ x86-64, sha256 17a9c834e82b1e6e2efcd29e1569da52859c5d396159609855eb4bc4d4a9c9f1
+vrad_binary: PE32+ x86-64, sha256 76d9918e1f72436719f6afd7903ef41e7819cb07a3bf74dcdd05d817611af4c4
+game_dir: /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/Source SDK Base 2013 Singleplayer/hl2
+profile_path: /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013-compile-profile.toml
+input_vmf: /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.vmf
+input_vmf_sha256: f598142926d9a4c93cc54568e6cf46fd6e62559ec591253f6f2927d6cfcb83f8
+input_vmf_redistributable: not committed; tester-generated throwaway VMF in /tmp
+validation_only_material: temporary Source Weaver-authored sourceweaver_smoke/white.vmt and placeholder white.vtf under the local SDK Base 2013 hl2 materials tree; both were removed after evidence capture
+material_hashes: white.vmt sha256 890b97ad21d2f06aaad902816661942ea285877c839adc04ed49da67ea33947b; white.vtf sha256 b2a3b5bbf26ea17db2001b9ba1f05b00ef223f67a6f714fb44df7410ca13d623
+command: cargo run -q -p sourceweaver-cli -- compile /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.vmf --profile /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013-compile-profile.toml --steps vbsp,vvis,vrad --log-dir /tmp/sourceweaver-sdk2013-compiler-validation-issue134/logs --timeout-seconds 1800 --report /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013-compile-report.json --json
+vbsp_exit: 0
+vvis_exit: 0
+vrad_exit: 0
+sourceweaver_report_ok: true
+sourceweaver_integrity_errors: 0
+sourceweaver_integrity_warnings: 0
+sourceweaver_parsed_log_errors: 0
+sourceweaver_parsed_log_warnings: 0
+leak_detected: false
+output_bsp: /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.bsp
+output_bsp_size: 71,712 bytes
+output_bsp_sha256: 9af8e518ae24144b9bfb9e94e06d3ea8299ec6df624807a2b784c971da338090
+runtime_smoke: not-run for this compiler row; runtime validation is recorded separately in docs/runtime-map-load-validation.md
+runtime_notes: no Hammer/Hammer++/HLMV/game-runtime validation was performed for this compiler row
+follow_ups: no compiler failure follow-up; runtime map-load behavior remains separately qualified
 ```
+
+Evidence retained outside the repo:
+
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/environment.txt`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013-compile-profile.toml`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/profile-validation.json`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013-compile-report.json`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013-compile-stdout.json`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.log`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/logs/vbsp.log`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/logs/vvis.log`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/logs/vrad.log`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.bsp`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/SHA256SUMS`
+- `/tmp/sourceweaver-sdk2013-compiler-validation-issue134/temp-material-cleanup.log`
+
+Key transcript lines:
+
+```text
+vbspplusplus.exe -game /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/Source SDK Base 2013 Singleplayer/hl2 /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.vmf
+gamedir: \home\elijah\snap\steam\common\.local\share\Steam\steamapps\common\Source SDK Base 2013 Singleplayer\hl2\
+Invalid VTF header for materials/sourceweaver_smoke/white.vtf
+Could not locate 'GameData' key in gameinfo.txt.
+Instances will not collapse correctly
+Writing /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.bsp
+vvisplusplus.exe -game /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/Source SDK Base 2013 Singleplayer/hl2 /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.bsp
+Wrote ZIP buffer, estimated size 58138, actual size 57924
+vradplusplus.exe -game /home/elijah/snap/steam/common/.local/share/Steam/steamapps/common/Source SDK Base 2013 Singleplayer/hl2 /tmp/sourceweaver-sdk2013-compiler-validation-issue134/sdk2013_smoke_box.bsp
+Warning: Couldn't open texlight file Z:\home\elijah\snap\steam\common\.local\share\Steam\steamapps\common\GarrysMod\bin\win64\lights.rad.
+Ready to Finish
+Total triangle count: 12
+Writing \tmp\sourceweaver-sdk2013-compiler-validation-issue134\sdk2013_smoke_box.bsp
+```
+
+Boundary:
+
+- Real VBSP++/VVIS++/VRAD++ tools were run through Proton/Wine wrappers with the Source SDK Base 2013 Singleplayer `hl2` game directory and produced a BSP.
+- The local Source SDK Base 2013 install did not contain stock Valve VBSP/VVIS/VRAD binaries, so this row records Source++ compiler-tool compatibility with the SDK Base 2013 game directory rather than stock SDK compiler binaries.
+- The temporary material files were Source Weaver-authored validation files created under the local game directory for the smoke compile and removed after evidence capture.
+- The smoke VMF, temporary material, generated BSP, and logs stay outside the repository because they are evidence artifacts, not redistributable fixtures.
+- No Hammer, Hammer++, HLMV, Crowbar, BSPSource, BSPZIP, game runtime, SDK installer, proprietary model, proprietary BSP, or committed game content was run or bundled for this row.
+
 
 ### Row B: Windows native game/tool install
 
@@ -313,6 +359,6 @@ Do not commit proprietary tools, game content, generated BSPs that embed protect
 
 ## Current release evidence
 
-As of 2026-08-07, Source Weaver CI and local validation cover structural VMF validation, fake external compiler control flow, compile-profile create/validate/discover, JSON report parsing, desktop compile launch code compilation, fixture merge automation, one completed real VBSP++/VVIS++/VRAD++ Proton smoke row, and one completed real StudioMDL++ model-compile row.
+As of 2026-08-08, Source Weaver CI and local validation cover structural VMF validation, fake external compiler control flow, compile-profile create/validate/discover, JSON report parsing, desktop compile launch code compilation, fixture merge automation, one completed Source SDK Base 2013 Singleplayer game-dir compile row through Proton/Wine wrappers, one completed Garry's Mod Source++ Proton compiler smoke row, and one completed real StudioMDL++ model-compile row.
 
-Real external-tool validation currently covers Row C and Row D above. No Hammer, Hammer++, HLMV, game runtime map-load, or BSPZIP packing validation was run in this repository state.
+Real external-tool compiler validation currently covers Row A, Row C, and Row D above. Hammer/Hammer++ open/save, native Windows Source compiler validation, release signing, and public release evidence remain separate required-work tickets.
