@@ -44,6 +44,7 @@ struct CubemapWorkflowReport {
     game_dir: Option<String>,
     writes_bsp: bool,
     log_capture: String,
+    runtime_launch_mode: String,
     real_game_runtime_validation: bool,
     external_tool_boundary: Vec<String>,
     warnings: Vec<String>,
@@ -409,6 +410,7 @@ fn build_report(
         game_dir: config.game_dir.as_ref().map(|path| path.display().to_string()),
         writes_bsp: true,
         log_capture: "Use -condebug to capture game console output to the engine console.log/qconsole.log location for the target game; attach that log to validation evidence after a real run.".to_string(),
+        runtime_launch_mode: "plan-only".to_string(),
         real_game_runtime_validation: false,
         external_tool_boundary: vec![
             "Source Weaver generated this workflow report and optional cfg helper only.".to_string(),
@@ -461,6 +463,7 @@ fn print_report(report: &CubemapWorkflowReport) {
     println!("map: {}", report.map_bsp);
     println!("map name: {}", report.map_name);
     println!("profile: {}", report.profile.id);
+    println!("runtime launch mode: {}", report.runtime_launch_mode);
     println!("writes BSP: {}", report.writes_bsp);
     println!(
         "real game runtime validation: {}",

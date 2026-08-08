@@ -8,6 +8,7 @@
 - Native model rendering roadmap that keeps current model preview metadata-only and separates future static mesh, material lookup, skeleton, collision, animation, and HLMV/HLMV++ rendered-preview evidence.
 - FGD support matrix and synthetic parser fixture covering supported class/property metadata and graceful skipping of includes, BaseClass inheritance definitions, inputs/outputs, invalid keys, helpers, and full Hammer FGD parity features.
 - `func_instance` preservation-only warnings, synthetic validation fixture, and expansion requirements documenting that Source Weaver preserves instance entities but does not resolve, inline, fix up, transform, or compile referenced instance VMFs.
+- Cubemap runtime launch scope locked to plan-only reports with explicit `runtime_launch_mode = "plan-only"` and direct-command construction tests that do not launch Steam or game runtimes.
 
 ### Known limitations
 

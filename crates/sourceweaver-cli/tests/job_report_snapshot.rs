@@ -1769,6 +1769,7 @@ fn cubemap_workflow_writes_cfg_and_reports_runtime_boundary() {
     assert_eq!(report["map_name"], "sw_cubemap_test");
     assert_eq!(report["profile"]["id"], "hl2-hdr");
     assert_eq!(report["writes_bsp"], true);
+    assert_eq!(report["runtime_launch_mode"], "plan-only");
     assert_eq!(report["real_game_runtime_validation"], false);
     assert_eq!(report["cfg_written"], true);
     assert_eq!(report["steam_app_id"], "220");
@@ -1802,6 +1803,76 @@ fn cubemap_workflow_writes_cfg_and_reports_runtime_boundary() {
     assert!(cfg.contains("mat_hdr_level 0"));
     assert!(cfg.contains("buildcubemaps"));
     assert!(cfg.contains("sw_cubemap_test"));
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn cubemap_workflow_direct_command_is_plan_only() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "sourceweaver-cubemap-direct-command-test-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let bsp_path = temp_dir.join("sw_cubemap_direct.bsp");
+    let game_exe = temp_dir.join("source-game-placeholder");
+    std::fs::write(&bsp_path, b"synthetic bsp placeholder").unwrap();
+    std::fs::write(&game_exe, b"not executed").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sourceweaver"))
+        .args([
+            "cubemap-workflow",
+            bsp_path.to_str().unwrap(),
+            "--profile",
+            "generic",
+            "--game-executable",
+            game_exe.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["runtime_launch_mode"], "plan-only");
+    assert_eq!(report["real_game_runtime_validation"], false);
+    assert_eq!(
+        report["suggested_direct_command"].as_array().unwrap()[0]
+            .as_str()
+            .unwrap(),
+        game_exe.to_string_lossy().as_ref()
+    );
+    assert!(
+        report["suggested_direct_command"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "+map")
+    );
+    assert!(report["suggested_steam_command"].is_null());
+    assert!(
+        report["external_tool_boundary"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value
+                .as_str()
+                .unwrap()
+                .contains("No Steam client, Source game executable, game runtime"))
+    );
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }

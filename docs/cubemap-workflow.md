@@ -1,6 +1,6 @@
 # Cubemap/buildcubemaps workflow
 
-Source Weaver can prepare a cubemap workflow report for a compiled BSP, but cubemap generation itself is a Source game-runtime action. The `buildcubemaps` console command renders cubemap textures from `env_cubemap` entities and writes those textures into the loaded `.bsp`. This must stay separate from VMF merge validation, VBSP/VVIS/VRAD compile validation, BSP packing, and release packaging.
+Source Weaver can prepare a cubemap workflow report for a compiled BSP, but cubemap generation itself is a Source game-runtime action. `docs/cubemap-runtime-launch-scope.md` records the current decision that this workflow is plan-only and does not launch runtimes. The `buildcubemaps` console command renders cubemap textures from `env_cubemap` entities and writes those textures into the loaded `.bsp`. This must stay separate from VMF merge validation, VBSP/VVIS/VRAD compile validation, BSP packing, and release packaging.
 
 ## CLI planner
 
@@ -23,7 +23,7 @@ The command validates that the BSP path exists, infers the map name from the fil
 - console commands to run inside the game runtime;
 - optional cfg path when `--write-cfg` is used;
 - warnings about BSP mutation, reload/restart caveats, and map naming;
-- `real_game_runtime_validation = false` because Source Weaver did not launch or observe a real game runtime.
+- `runtime_launch_mode = "plan-only"` and `real_game_runtime_validation = false` because Source Weaver did not launch or observe a real game runtime.
 
 Aliases are available for scripting convenience:
 

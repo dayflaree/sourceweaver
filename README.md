@@ -24,7 +24,7 @@ Current capabilities:
 - Validate generated VMFs for Source-tool readiness and parse captured VBSP logs.
 - Run optional user-configured VBSP/VVIS/VRAD compile pipelines, create/validate compile profiles, and capture parsed JSON reports.
 - Run optional BSP content packing with user-provided `bspzip`-compatible tools, explicit or VMF-discovered asset lists, context profiles, wrappers, and JSON reports.
-- Generate cubemap/buildcubemaps runtime workflow reports and cfg helpers without launching game runtimes.
+- Generate cubemap/buildcubemaps plan-only runtime workflow reports and cfg helpers without launching Steam or game runtimes.
 - Inspect basic MDL model headers plus Source-style mesh, animation, sequence, material dependency, and VVD/VTX/PHY companion metadata, and run user-provided StudioMDL-compatible model compile tools or headless model-decompile wrappers. Native model preview remains metadata-only; rendered native model preview is planned in `docs/model-rendering-roadmap.md`.
 - Run optional user-selected BSPSource decompile commands or generic wrappers and validate generated VMFs before import.
 - Preserve incoming world brushes, including skybox brushes.
@@ -274,7 +274,7 @@ cargo run -p sourceweaver-cli -- cubemap-workflow map.bsp \
   --json
 ```
 
-The cubemap workflow command writes a report and optional cfg helper only. It does not launch Steam, a Source game runtime, Hammer, Hammer++, VBSP, VVIS, VRAD, BSPZIP, or BSPSource. See `docs/cubemap-workflow.md` for profile caveats, log capture expectations, and real-runtime evidence requirements.
+The cubemap workflow command writes a report and optional cfg helper only. It reports `runtime_launch_mode = "plan-only"` and does not launch Steam, a Source game runtime, Hammer, Hammer++, VBSP, VVIS, VRAD, BSPZIP, or BSPSource. See `docs/cubemap-workflow.md` and `docs/cubemap-runtime-launch-scope.md` for profile caveats, log capture expectations, and real-runtime evidence requirements.
 
 Inspect a model header, run a user-provided StudioMDL-compatible wrapper, or launch a user-provided headless model-decompile wrapper:
 
