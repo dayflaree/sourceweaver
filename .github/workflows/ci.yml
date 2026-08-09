@@ -14,8 +14,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      - name: Audit Cargo.lock
-        run: cargo audit
+      - name: Audit Cargo.lock with final-release allowlist
+        run: scripts/cargo-audit-final-release.sh
 
   third-party-policy:
     name: Third-party policy review gate

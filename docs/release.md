@@ -15,7 +15,23 @@ Until the project reaches `v1.0.0`, breaking workflow or output changes may happ
 
 ## Automated release workflow
 
-Pushing a `v*` tag runs `.github/workflows/desktop-builds.yml`.
+Pushing a `v*` tag runs `.github/workflows/desktop-builds.yml`. The workflow resolves a release mode before packaging or publishing:
+
+- Preview mode is selected for manual `workflow_dispatch` runs by default and for tags containing `-preview`, `-alpha`, `-beta`, or `-rc`.
+- Final mode is selected for plain `vMAJOR.MINOR.PATCH` tags and can also be selected during `workflow_dispatch` as a dry-run policy check.
+- Preview mode publishes GitHub Releases with `prerelease: true` and `make_latest: false`.
+- Final mode publishes GitHub Releases with `prerelease: false` and `make_latest: true`.
+- Final mode fails before packaging when required production signing secret or variable names are absent: `SOURCEWEAVER_WINDOWS_SIGNING_PFX_BASE64`, `SOURCEWEAVER_WINDOWS_SIGNING_PFX_PASSWORD`, `SOURCEWEAVER_WINDOWS_TIMESTAMP_URL`, `SOURCEWEAVER_WINDOWS_SIGNTOOL`, `SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64`, and `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64`.
+- Final mode passes `-RequireSigning` to the Windows packaging script, sets `SOURCEWEAVER_REQUIRE_RELEASE_SIGNATURES=1` for checksum signing, and runs signed update metadata generation as a required step.
+
+Validate the final-mode fail-closed policy locally without secret values:
+
+```bash
+scripts/validate-final-release-policy.sh
+```
+
+The validation proves preview mode permits absent credentials, final mode refuses absent credential names, the OpenPGP checksum-signing script fails when required key material is absent, and the workflow keeps final release `prerelease` / `make_latest` settings wired to the resolved mode.
+
 
 The workflow:
 
@@ -39,7 +55,7 @@ Update `CHANGELOG.md` before tagging. The release workflow uses the repository c
 
 ## Manual dry run
 
-The packaging workflow also supports `workflow_dispatch`. Manual dispatch builds and uploads package plus provenance workflow artifacts without requiring a local Linux/Windows packaging environment. The tag-only publish job is skipped, so no GitHub Release is created during a manual dry run.
+The packaging workflow also supports `workflow_dispatch`. Manual dispatch builds and uploads package plus provenance workflow artifacts without requiring a local Linux/Windows packaging environment. The tag-only publish job is skipped, so no GitHub Release is created during a manual dry run. Use the `release_mode` input to run preview packaging or to dry-run final-mode signing policy checks before creating a plain final tag.
 
 Local Linux tarball dry run:
 
@@ -70,7 +86,7 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 ## Release checklist
 
 1. Confirm `cargo fmt --check`, `cargo test --workspace`, and `cargo build --workspace` pass.
-2. Confirm `cargo audit` passes and record any accepted warnings from `docs/dependency-audit.md`.
+2. Confirm `cargo audit` output is reviewed, then run `scripts/cargo-audit-final-release.sh` so unapproved warnings fail while the two documented unmaintained advisory IDs stay narrowly allowed.
 3. Confirm CLI job-runner dry-run JSON validation passes.
 4. Confirm `sourceweaver validate` can validate the fixture merged VMF with the sample VBSP log.
 5. Confirm `python3 scripts/check-validation-claims.py --self-test` and `python3 scripts/check-validation-claims.py` pass before release notes make compatibility or signing claims.
@@ -78,7 +94,7 @@ scripts\package-windows.ps1 -Version v0.1.0-local -SkipInstaller
 7. Review `docs/code-signing.md` and `docs/provenance-sbom.md`, complete the release-note signing/provenance template, and confirm whether signing secrets are configured for this release. Unsigned previews are allowed only when release notes explicitly say artifacts from that run are unsigned and list OpenPGP/update-manifest status.
 8. Confirm #143 remains open when production signing credentials are absent.
 9. Generate or verify `sourceweaver-sbom.cdx.json` and GitHub artifact attestations for the release artifacts.
-10. Push a `vMAJOR.MINOR.PATCH` tag.
+10. Push a `vMAJOR.MINOR.PATCH-preview.N` tag for an unsigned preview posture, or a plain `vMAJOR.MINOR.PATCH` tag only after final-mode signing credentials and variables are configured.
 11. Wait for Linux, Windows, provenance, and release jobs to pass.
 12. Confirm the Windows job reports setup install/uninstall validation.
 13. Confirm `SHA256SUMS` and `sourceweaver-sbom.cdx.json` were generated, `scripts/generate-release-sbom.py --validate-only sourceweaver-sbom.cdx.json` passes, and, when configured, `SHA256SUMS.asc` verifies with the release public key.

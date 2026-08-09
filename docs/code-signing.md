@@ -12,6 +12,23 @@ Source Weaver release signing is signing-ready but unsigned by default until rel
 - Linux AppImages, Linux tarballs, Windows zip archives, and Windows setup executables remain downloadable without signatures so portable releases continue to work.
 
 
+## Final release fail-closed policy
+
+`.github/workflows/desktop-builds.yml` now resolves a release mode before packaging:
+
+- `preview` is the default for manual runs and prerelease-style tags. Missing signing material is allowed, and the GitHub Release is marked prerelease/latest false when a preview tag is published.
+- `final` is used for plain `vMAJOR.MINOR.PATCH` tags and can be selected manually for policy dry runs. Missing production signing secret or variable names fail the workflow before packaging.
+- Final mode requires these configured names without printing values: `SOURCEWEAVER_WINDOWS_SIGNING_PFX_BASE64`, `SOURCEWEAVER_WINDOWS_SIGNING_PFX_PASSWORD`, `SOURCEWEAVER_WINDOWS_TIMESTAMP_URL`, `SOURCEWEAVER_WINDOWS_SIGNTOOL`, `SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64`, and `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64`.
+- Final mode passes `-RequireSigning` to `scripts/package-windows.ps1`, sets `SOURCEWEAVER_REQUIRE_RELEASE_SIGNATURES=1` for `scripts/sign-release-checksums.sh`, and treats signed update metadata generation as required.
+
+Local validation:
+
+```bash
+scripts/validate-final-release-policy.sh
+```
+
+That validation uses dummy placeholder values and missing-variable dry runs only. It does not require, print, or store production secret values.
+
 ## Decision table
 
 | Release posture | Required credentials | Workflow behavior | Release-note wording | Verification commands |
@@ -35,7 +52,7 @@ The current release workflow and packaging scripts recognize these inputs. Put p
 | `SOURCEWEAVER_WINDOWS_SIGNING_PFX_PATH` | not used by current GitHub workflow | env var or `-SigningCertificatePfxPath` | Local/staging path to a PFX already present on the Windows host. | no |
 | `SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64` | secret | env var | OpenPGP private key export for `SHA256SUMS.asc`. | no |
 | `SOURCEWEAVER_GPG_PASSPHRASE` | secret | env var | OpenPGP private key passphrase when needed. | no |
-| `SOURCEWEAVER_REQUIRE_RELEASE_SIGNATURES` | not set by current GitHub workflow | env var | Makes `scripts/sign-release-checksums.sh` fail when no OpenPGP key is configured. | no |
+| `SOURCEWEAVER_REQUIRE_RELEASE_SIGNATURES` | set to `1` by final release mode and `0` by preview mode | env var | Makes `scripts/sign-release-checksums.sh` fail when no OpenPGP key is configured. | no |
 | `SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64` | secret | env var or `sourceweaver update manifest --signing-key-env <name>` | Ed25519 private key for signed update metadata. | no |
 
 Unsigned preview releases must leave every private-key/certificate input empty and must not use test keys as production signing evidence.
@@ -84,7 +101,7 @@ The GitHub release workflow passes these secrets/variables to the Windows packag
 - `SOURCEWEAVER_WINDOWS_TIMESTAMP_URL`
 - `SOURCEWEAVER_WINDOWS_SIGNTOOL`
 
-`-RequireSigning` should be enabled only after the project has a real certificate and a tested recovery path. Until then, missing signing secrets make signing a no-op.
+`-RequireSigning` is enabled automatically by final release mode. Preview mode keeps the no-op signing behavior so unsigned preview artifacts can still be built when release notes say so.
 
 ### Windows verification
 
