@@ -38,6 +38,34 @@ input/...
 
 The generator validates each issue bundle with `scripts/validate-external-certification-evidence.sh` and validates the synthetic VMF through Source Weaver with the HL2 rule-set. The seed bundles document what is prepared and what is still unresolved. Replace placeholder external tool-version and command notes with exact sanitized evidence before closing the dependent issues.
 
+
+## Prerequisite probe workspace
+
+Before collecting the manual external evidence, refresh the prerequisite blocker state with:
+
+```bash
+SOURCEWEAVER_COMPLETION_PREREQS_OVERWRITE=1 \
+  scripts/probe-completion-prerequisites.sh /tmp/sourceweaver-completion-prerequisites
+```
+
+The prerequisite probe is for #156, #157, and #158. It writes sanitized, non-repository evidence under `/tmp`:
+
+```text
+/tmp/sourceweaver-completion-prerequisites/
+  issue156-gui-runtime-workstation/probe.txt
+  issue157-native-windows-host/probe.txt
+  issue158-signing-provisioning/probe.txt
+  issue158-signing-provisioning/repository-secret-names.json
+  issue158-signing-provisioning/repository-variable-names.json
+  prerequisite-summary.json
+  README.md
+  SHA256SUMS
+```
+
+The probe records tool presence, display/session shape, native Windows/compiler presence, repository secret and variable names visible to `gh`, and local signing-tool availability. It redacts the home directory to `${HOME}`, requests repository secret names only, and never prints secret values, key material, external binaries, game content, screenshots, BSPs, MDLs, or private assets. It does not certify Hammer/Hammer++, HLMV/HLMV++, runtime map loads, native Source compiler execution, or production signing; it only proves whether the prerequisites for those manual runs are available.
+
+Set `SOURCEWEAVER_COMPLETION_PREREQS_REQUIRE_READY=1` when a human expects all prerequisites to exist and wants the probe to exit nonzero if #156, #157, or #158 remains blocked.
+
 ## Repository fixture sources
 
 ```text
