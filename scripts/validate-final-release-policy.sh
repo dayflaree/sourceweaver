@@ -85,6 +85,8 @@ grep -Fq 'SOURCEWEAVER_GPG_PRIVATE_KEY_BASE64' "$tmp_dir/openpgp-required-withou
 grep -Fq 'release_mode:' .github/workflows/desktop-builds.yml
 grep -Fq 'SOURCEWEAVER_REQUIRE_WINDOWS_SIGNING: ${{ needs.release_policy.outputs.require_release_signatures }}' .github/workflows/desktop-builds.yml
 grep -Fq -- '-RequireSigning' .github/workflows/desktop-builds.yml
+grep -Fq -- '& .\scripts\package-windows.ps1 -Version "$env:GITHUB_REF_NAME" -RequireInstaller -RequireSigning' .github/workflows/desktop-builds.yml
+grep -Fq -- '& .\scripts\package-windows.ps1 -Version "$env:GITHUB_REF_NAME" -RequireInstaller' .github/workflows/desktop-builds.yml
 grep -Fq 'SOURCEWEAVER_REQUIRE_RELEASE_SIGNATURES: ${{ needs.release_policy.outputs.require_release_signatures }}' .github/workflows/desktop-builds.yml
 grep -Fq 'SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64: ${{ secrets.SOURCEWEAVER_UPDATE_SIGNING_KEY_BASE64 }}' .github/workflows/desktop-builds.yml
 grep -Fq 'prerelease: ${{ needs.release_policy.outputs.prerelease }}' .github/workflows/desktop-builds.yml

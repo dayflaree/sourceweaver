@@ -146,11 +146,11 @@ jobs:
           SOURCEWEAVER_WINDOWS_SIGNTOOL: ${{ vars.SOURCEWEAVER_WINDOWS_SIGNTOOL }}
           SOURCEWEAVER_REQUIRE_WINDOWS_SIGNING: ${{ needs.release_policy.outputs.require_release_signatures }}
         run: |
-          $packageArgs = @("-Version", "$env:GITHUB_REF_NAME", "-RequireInstaller")
           if ($env:SOURCEWEAVER_REQUIRE_WINDOWS_SIGNING -eq "1") {
-              $packageArgs += "-RequireSigning"
+              & .\scripts\package-windows.ps1 -Version "$env:GITHUB_REF_NAME" -RequireInstaller -RequireSigning
+          } else {
+              & .\scripts\package-windows.ps1 -Version "$env:GITHUB_REF_NAME" -RequireInstaller
           }
-          & .\scripts\package-windows.ps1 @packageArgs
       - name: Validate Windows installer install/uninstall
         shell: pwsh
         run: scripts/validate-windows-installer.ps1
