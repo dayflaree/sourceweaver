@@ -1,6 +1,6 @@
 # Application update strategy
 
-Source Weaver supports opt-in signed update checks and verified artifact downloads, but it does not enable automatic self-updates. The safe current path is explicit update discovery, signed manifest verification, artifact checksum verification, and user-initiated install or replacement.
+Source Weaver supports opt-in signed update checks and verified artifact downloads, but it does not enable automatic self-updates. The safe current path is explicit update discovery, signed manifest verification, artifact checksum verification, and user-initiated install or replacement. `docs/update-install-roadmap.md` records the automatic install, rollback, and preference-persistence scope decision.
 
 Automatic installer execution, executable replacement, and rollback should be implemented only after signed release artifacts are enforced for the update channel. `docs/code-signing.md` defines the signing hooks and required secrets, but the current repository state has no confirmed production Windows code-signing certificate, OpenPGP release key, or update-signing key configured for a public release.
 
@@ -17,7 +17,7 @@ Source Weaver uses a staged update approach:
 1. **Manual release discovery remains supported.** Users or maintainers can still check GitHub Releases, verify `SHA256SUMS`, verify `SHA256SUMS.asc` when present, and run the installer or replace the portable archive manually.
 2. **Current signed-metadata stage.** Source Weaver has a signed update-manifest verifier, a CLI `sourceweaver update check` command, and a desktop opt-in update panel. The manifest signature is Ed25519 over the canonical JSON payload. Unsigned manifests are refused.
 3. **Current download-only stage.** CLI and desktop download paths verify the signed manifest and artifact SHA-256 before writing an artifact. The `--install --confirm-install` CLI path and the desktop install-handoff button stop after verified download and tell the user to run the artifact manually.
-4. **Future installer execution stage.** Any automatic installer launch or executable replacement remains out of scope until real release signing credentials, platform installer validation, rollback recovery, and desktop smoke evidence are recorded.
+4. **Future installer execution stage.** Any automatic installer launch or executable replacement remains out of scope until real release signing credentials, platform installer validation, rollback recovery, persisted update preferences, and desktop smoke evidence are recorded. The pure policy helper `evaluate_automatic_install_readiness` documents those gates in code and tests.
 
 No automatic installer execution is present in the current implementation.
 
@@ -171,7 +171,7 @@ The script generates a synthetic release artifact, signs an update manifest with
 ## Remaining future work
 
 - Configure real release signing credentials and publish the update public key before enabling stable public update checks by default.
-- Add platform installer launch only after Windows/Linux release signing, rollback recovery, and desktop smoke evidence are complete.
+- Add platform installer launch only after Windows/Linux release signing, rollback recovery, persisted preferences, platform installer validation, and desktop smoke evidence are complete. Keep `evaluate_automatic_install_readiness` gates in sync with implementation.
 - Add optional local HTTP fixture tests if future network client behavior becomes more complex.
 - Add Windows installer handoff tests on `windows-latest` without silent uncontrolled install.
 - Record manual desktop UI smoke evidence before claiming end-to-end interactive update support for a public release.

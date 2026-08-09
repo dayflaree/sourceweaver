@@ -129,6 +129,92 @@ impl std::fmt::Display for UpdateVerificationError {
 
 impl std::error::Error for UpdateVerificationError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateInstallSurface {
+    Cli,
+    Desktop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateInstallChannelSelection {
+    Stable,
+    Preview,
+    Manual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AutomaticInstallReadiness {
+    pub surface: UpdateInstallSurface,
+    pub signed_manifest_verified: bool,
+    pub artifact_hash_verified: bool,
+    pub explicit_user_confirmation: bool,
+    pub platform_installer_validated: bool,
+    pub production_signing_verified: bool,
+    pub rollback_plan_available: bool,
+    pub preferences_persisted: bool,
+    pub requested_channel: UpdateInstallChannelSelection,
+    pub selected_channel: UpdateInstallChannelSelection,
+    pub downgrade_requested: bool,
+    pub explicit_rollback_consent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutomaticInstallBlocker {
+    SignedManifestRequired,
+    ArtifactHashRequired,
+    ExplicitUserConfirmationRequired,
+    PlatformInstallerValidationRequired,
+    ProductionSigningRequired,
+    RollbackPlanRequired,
+    PreferencePersistenceRequired,
+    ChannelOptInRequired,
+    DowngradeConsentRequired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutomaticInstallDecision {
+    Ready,
+    Blocked(Vec<AutomaticInstallBlocker>),
+}
+
+pub fn evaluate_automatic_install_readiness(
+    readiness: &AutomaticInstallReadiness,
+) -> AutomaticInstallDecision {
+    let mut blockers = Vec::new();
+    if !readiness.signed_manifest_verified {
+        blockers.push(AutomaticInstallBlocker::SignedManifestRequired);
+    }
+    if !readiness.artifact_hash_verified {
+        blockers.push(AutomaticInstallBlocker::ArtifactHashRequired);
+    }
+    if !readiness.explicit_user_confirmation {
+        blockers.push(AutomaticInstallBlocker::ExplicitUserConfirmationRequired);
+    }
+    if !readiness.platform_installer_validated {
+        blockers.push(AutomaticInstallBlocker::PlatformInstallerValidationRequired);
+    }
+    if !readiness.production_signing_verified {
+        blockers.push(AutomaticInstallBlocker::ProductionSigningRequired);
+    }
+    if !readiness.rollback_plan_available {
+        blockers.push(AutomaticInstallBlocker::RollbackPlanRequired);
+    }
+    if !readiness.preferences_persisted {
+        blockers.push(AutomaticInstallBlocker::PreferencePersistenceRequired);
+    }
+    if readiness.requested_channel != readiness.selected_channel {
+        blockers.push(AutomaticInstallBlocker::ChannelOptInRequired);
+    }
+    if readiness.downgrade_requested && !readiness.explicit_rollback_consent {
+        blockers.push(AutomaticInstallBlocker::DowngradeConsentRequired);
+    }
+    if blockers.is_empty() {
+        AutomaticInstallDecision::Ready
+    } else {
+        AutomaticInstallDecision::Blocked(blockers)
+    }
+}
+
 pub fn canonical_update_payload_bytes(
     payload: &UpdateManifestPayload,
 ) -> Result<Vec<u8>, UpdateVerificationError> {
@@ -352,6 +438,97 @@ mod tests {
         let signature = sign_update_manifest_payload(&payload, &private_key).unwrap();
         let manifest = UpdateManifest { payload, signature };
         (serde_json::to_string_pretty(&manifest).unwrap(), public_key)
+    }
+
+    fn ready_policy() -> AutomaticInstallReadiness {
+        AutomaticInstallReadiness {
+            surface: UpdateInstallSurface::Desktop,
+            signed_manifest_verified: true,
+            artifact_hash_verified: true,
+            explicit_user_confirmation: true,
+            platform_installer_validated: true,
+            production_signing_verified: true,
+            rollback_plan_available: true,
+            preferences_persisted: true,
+            requested_channel: UpdateInstallChannelSelection::Stable,
+            selected_channel: UpdateInstallChannelSelection::Stable,
+            downgrade_requested: false,
+            explicit_rollback_consent: false,
+        }
+    }
+
+    #[test]
+    fn automatic_install_policy_blocks_current_unimplemented_gates() {
+        let decision = evaluate_automatic_install_readiness(&AutomaticInstallReadiness {
+            surface: UpdateInstallSurface::Desktop,
+            signed_manifest_verified: true,
+            artifact_hash_verified: true,
+            explicit_user_confirmation: true,
+            platform_installer_validated: false,
+            production_signing_verified: false,
+            rollback_plan_available: false,
+            preferences_persisted: false,
+            requested_channel: UpdateInstallChannelSelection::Stable,
+            selected_channel: UpdateInstallChannelSelection::Stable,
+            downgrade_requested: false,
+            explicit_rollback_consent: false,
+        });
+        assert_eq!(
+            decision,
+            AutomaticInstallDecision::Blocked(vec![
+                AutomaticInstallBlocker::PlatformInstallerValidationRequired,
+                AutomaticInstallBlocker::ProductionSigningRequired,
+                AutomaticInstallBlocker::RollbackPlanRequired,
+                AutomaticInstallBlocker::PreferencePersistenceRequired,
+            ])
+        );
+    }
+
+    #[test]
+    fn automatic_install_policy_requires_explicit_user_confirmation() {
+        let mut readiness = ready_policy();
+        readiness.explicit_user_confirmation = false;
+        let decision = evaluate_automatic_install_readiness(&readiness);
+        assert_eq!(
+            decision,
+            AutomaticInstallDecision::Blocked(vec![
+                AutomaticInstallBlocker::ExplicitUserConfirmationRequired
+            ])
+        );
+    }
+
+    #[test]
+    fn automatic_install_policy_blocks_channel_switch_without_opt_in() {
+        let mut readiness = ready_policy();
+        readiness.requested_channel = UpdateInstallChannelSelection::Preview;
+        readiness.selected_channel = UpdateInstallChannelSelection::Stable;
+        let decision = evaluate_automatic_install_readiness(&readiness);
+        assert_eq!(
+            decision,
+            AutomaticInstallDecision::Blocked(vec![AutomaticInstallBlocker::ChannelOptInRequired])
+        );
+    }
+
+    #[test]
+    fn automatic_install_policy_blocks_downgrade_without_rollback_consent() {
+        let mut readiness = ready_policy();
+        readiness.downgrade_requested = true;
+        readiness.explicit_rollback_consent = false;
+        let decision = evaluate_automatic_install_readiness(&readiness);
+        assert_eq!(
+            decision,
+            AutomaticInstallDecision::Blocked(vec![
+                AutomaticInstallBlocker::DowngradeConsentRequired
+            ])
+        );
+    }
+
+    #[test]
+    fn automatic_install_policy_can_be_ready_after_all_gates_are_true() {
+        assert_eq!(
+            evaluate_automatic_install_readiness(&ready_policy()),
+            AutomaticInstallDecision::Ready
+        );
     }
 
     #[test]

@@ -9,6 +9,7 @@
 - FGD support matrix and synthetic parser fixture covering supported class/property metadata and graceful skipping of includes, BaseClass inheritance definitions, inputs/outputs, invalid keys, helpers, and full Hammer FGD parity features.
 - `func_instance` preservation-only warnings, synthetic validation fixture, and expansion requirements documenting that Source Weaver preserves instance entities but does not resolve, inline, fix up, transform, or compile referenced instance VMFs.
 - Cubemap runtime launch scope locked to plan-only reports with explicit `runtime_launch_mode = "plan-only"` and direct-command construction tests that do not launch Steam or game runtimes.
+- Automatic update install roadmap and pure readiness-policy tests documenting that Source Weaver remains signed-check/download/manual-handoff only until installer execution, rollback, production signing, platform validation, and preference persistence are implemented.
 
 ### Known limitations
 
