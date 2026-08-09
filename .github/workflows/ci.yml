@@ -17,6 +17,15 @@ jobs:
       - name: Audit Cargo.lock with final-release allowlist
         run: scripts/cargo-audit-final-release.sh
 
+
+  release-policy-check:
+    name: Release policy fail-closed check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate final-release policy dry runs
+        run: scripts/validate-final-release-policy.sh
+
   third-party-policy:
     name: Third-party policy review gate
     runs-on: ubuntu-latest
