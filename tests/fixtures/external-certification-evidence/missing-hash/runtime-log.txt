@@ -1,0 +1,1 @@
+synthetic runtime log: command completed for fixture validation only

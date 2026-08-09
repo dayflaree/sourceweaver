@@ -79,6 +79,8 @@ Source Weaver's built-in validation is VMF-structural, fixture-based, public-VMF
 
 No Source SDK binaries, Hammer/Hammer++ tools, HLMV/Crowbar/StudioMDL binaries, BSPs, MDLs, VTFs, VMTs, proprietary game content, Steam data, or private user assets are bundled or redistributed by Source Weaver.
 
+Manual external evidence bundles should be checked with `scripts/validate-external-certification-evidence.sh` before issue closure. See `docs/external-certification-evidence.md` for the bundle layout, checksum rules, redaction checks, and fixture self-test.
+
 ## Build and run the desktop app
 
 Download packaged releases from the GitHub Releases page, or build locally from source. Linux releases are `.tar.gz` archives plus `.AppImage` files, and Windows releases are portable `.zip` archives plus NSIS `-setup.exe` installers. Tag releases include `SHA256SUMS`; optional Windows Authenticode, OpenPGP checksum signatures, and signed update metadata require configured signing credentials. Source Weaver supports explicit, opt-in signed update checks and verified artifact downloads through the CLI and desktop update panel. It does not perform background self-update checks, automatic installer execution, executable replacement, rollback, or silent install. Use `scripts/check-latest-release.sh`, `sourceweaver update check`, or the GitHub Releases page for discovery, then install manually. See `docs/packaging.md`, `docs/release.md`, `docs/code-signing.md`, `docs/provenance-sbom.md`, `docs/update-strategy.md`, and `docs/update-install-roadmap.md` for package contents, runtime notes, signing/provenance status, update policy, automatic-install boundaries, and the tag-based release process.

@@ -1,0 +1,22 @@
+{
+  "issue": 145,
+  "sourceweaver_commit": "0123456789abcdef0123456789abcdef01234567",
+  "tool_kind": "runtime",
+  "host_os": "Synthetic Linux evidence host",
+  "external_tool_versions": [
+    "Synthetic Source runtime fixture 1.0"
+  ],
+  "commands": [
+    "sourceweaver synthetic-runtime-check --fixture valid-runtime"
+  ],
+  "artifacts": [
+    "runtime-log.txt"
+  ],
+  "validated_claims": [
+    "The synthetic bundle contains the files needed to exercise evidence validation."
+  ],
+  "unvalidated_claims": [
+    "This fixture does not prove any real Source engine runtime map load."
+  ],
+  "redistribution_boundary": "Synthetic text fixtures only; no proprietary game content, Steam files, private assets, secrets, certificates, or signing keys are included."
+}
