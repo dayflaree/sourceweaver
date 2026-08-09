@@ -79,7 +79,7 @@ Source Weaver's built-in validation is VMF-structural, fixture-based, public-VMF
 
 No Source SDK binaries, Hammer/Hammer++ tools, HLMV/Crowbar/StudioMDL binaries, BSPs, MDLs, VTFs, VMTs, proprietary game content, Steam data, or private user assets are bundled or redistributed by Source Weaver.
 
-Manual external evidence bundles should be checked with `scripts/validate-external-certification-evidence.sh` before issue closure. See `docs/external-certification-evidence.md` for the bundle layout, checksum rules, redaction checks, and fixture self-test.
+Manual external evidence bundles should be checked with `scripts/validate-external-certification-evidence.sh` before issue closure. See `docs/external-certification-evidence.md` for the bundle layout, checksum rules, redaction checks, and fixture self-test. Completion certification fixture sources and `/tmp` workspace generation are documented in `docs/completion-certification-fixtures.md`.
 
 ## Build and run the desktop app
 
