@@ -11,10 +11,12 @@
 - Cubemap runtime launch scope locked to plan-only reports with explicit `runtime_launch_mode = "plan-only"` and direct-command construction tests that do not launch Steam or game runtimes.
 - Automatic update install roadmap and pure readiness-policy tests documenting that Source Weaver remains signed-check/download/manual-handoff only until installer execution, rollback, production signing, platform validation, and preference persistence are implemented.
 - Linux tarball install smoke validator for release packages, covering portable launch files, desktop-entry validity, user app-menu installation, quoted install paths with spaces, and installed CLI symlinks.
+- Linux desktop startup diagnostics via `sourceweaver-desktop --check-display`, plus tarball/AppDir/AppImage validation that distinguishes headless shells from working graphical sessions and proves window creation under Xvfb.
 
 ### Changed
 
 - Compile-profile discovery now preserves explicit `--search-dir` priority over PATH and Steam-discovered tools, making fixture tests and user-selected tool directories deterministic on hosts with real Source tools installed.
+- AppImage packaging now checks the workflow's `target/tools/appimagetool-x86_64.AppImage` helper path when `APPIMAGETOOL` is unset and validates desktop help/display diagnostics before creating the AppImage.
 
 ### Known limitations
 

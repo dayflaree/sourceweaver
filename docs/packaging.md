@@ -55,12 +55,14 @@ For local builds on CI-like Ubuntu systems, development packages are installed b
 sudo apt-get install libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev
 ```
 
-The Linux package is validated in GitHub Actions on `ubuntu-latest` by building the release binaries, creating the tarball, validating both `.desktop` files, extracting the archive, running CLI help from the portable package, installing into a simulated user profile whose paths contain spaces, validating the installed app-menu entry, and running CLI help through the installed symlink. Run the same tarball smoke test locally after packaging:
+The Linux package is validated in GitHub Actions on `ubuntu-latest` by building the release binaries, creating the tarball, validating both `.desktop` files, extracting the archive, running CLI and desktop help from the portable package, checking the no-display diagnostic, creating a `Source Weaver` window under Xvfb when Xvfb is available, installing into a simulated user profile whose paths contain spaces, validating the installed app-menu entry, and running CLI/desktop help through the installed symlinks. Run the same tarball smoke test locally after packaging:
 
 ```bash
 scripts/package-linux.sh v0.1.0
 scripts/validate-linux-package.sh v0.1.0
 ```
+
+The desktop app performs a startup display check before initializing the GUI backend. `sourceweaver-desktop --check-display` exits `0` when a graphical session is visible to the process and exits `2` with troubleshooting steps when `DISPLAY`, `WAYLAND_DISPLAY`, and `WAYLAND_SOCKET` are all absent.
 
 ## Linux AppImage format
 
@@ -110,7 +112,7 @@ Build only the AppDir locally without appimagetool:
 scripts/package-appimage.sh v0.1.0-local --appdir-only
 ```
 
-The GitHub release workflow downloads `appimagetool-x86_64.AppImage` from the AppImage project continuous release into `target/tools/`, outside the uploaded release-artifact directory, and sets `ARCH=x86_64`. AppImage documentation checked on 2026-08-08 describes `AppRun` as the AppDir entry point and appimagetool as the tool that creates AppImages from AppDirs. It also documents appimagetool downloads from `https://github.com/AppImage/appimagetool/releases/continuous`. The Linux artifact upload pattern is limited to `sourceweaver-*-linux-x86_64.tar.gz` and `sourceweaver-*-linux-x86_64.AppImage` so the downloaded helper tool is not published or attested as a Source Weaver release artifact.
+The GitHub release workflow downloads `appimagetool-x86_64.AppImage` from the AppImage project continuous release into `target/tools/`, outside the uploaded release-artifact directory, and sets `ARCH=x86_64`. When `APPIMAGETOOL` is unset, `scripts/package-appimage.sh` checks `target/tools/appimagetool-x86_64.AppImage` before falling back to `target/package/appimagetool-x86_64.AppImage`. AppImage documentation checked on 2026-08-08 describes `AppRun` as the AppDir entry point and appimagetool as the tool that creates AppImages from AppDirs. It also documents appimagetool downloads from `https://github.com/AppImage/appimagetool/releases/continuous`. The Linux artifact upload pattern is limited to `sourceweaver-*-linux-x86_64.tar.gz` and `sourceweaver-*-linux-x86_64.AppImage` so the downloaded helper tool is not published or attested as a Source Weaver release artifact.
 
 ### AppImage limitations
 

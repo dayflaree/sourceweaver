@@ -8,7 +8,13 @@ ARCH="${ARCH:-x86_64}"
 PACKAGE_ROOT="$ROOT/target/package"
 APPDIR="$PACKAGE_ROOT/SourceWeaver.AppDir"
 APPIMAGE="$PACKAGE_ROOT/sourceweaver-${VERSION}-linux-${ARCH}.AppImage"
-APPIMAGETOOL="${APPIMAGETOOL:-${PACKAGE_ROOT}/appimagetool-${ARCH}.AppImage}"
+if [[ -n "${APPIMAGETOOL:-}" ]]; then
+  APPIMAGETOOL_PATH="$APPIMAGETOOL"
+elif [[ -x "$ROOT/target/tools/appimagetool-${ARCH}.AppImage" ]]; then
+  APPIMAGETOOL_PATH="$ROOT/target/tools/appimagetool-${ARCH}.AppImage"
+else
+  APPIMAGETOOL_PATH="$PACKAGE_ROOT/appimagetool-${ARCH}.AppImage"
+fi
 
 case "$MODE" in
   ""|--appdir-only) ;;
@@ -65,7 +71,20 @@ if command -v desktop-file-validate >/dev/null 2>&1; then
 fi
 
 "$APPDIR/usr/bin/sourceweaver" --help >/dev/null
-"$APPDIR/usr/bin/sourceweaver-desktop" --help >/dev/null 2>&1 || true
+"$APPDIR/usr/bin/sourceweaver-desktop" --help >/dev/null
+
+set +e
+env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
+  "$APPDIR/usr/bin/sourceweaver-desktop" --check-display > "$PACKAGE_ROOT/appdir-check-display.stdout" 2> "$PACKAGE_ROOT/appdir-check-display.stderr"
+display_check_status=$?
+set -e
+if [[ "$display_check_status" != "2" ]]; then
+  printf 'expected AppDir no-display diagnostic exit 2, got %s\n' "$display_check_status" >&2
+  cat "$PACKAGE_ROOT/appdir-check-display.stdout" >&2 || true
+  cat "$PACKAGE_ROOT/appdir-check-display.stderr" >&2 || true
+  exit 1
+fi
+grep -Fq 'Source Weaver Desktop needs a graphical Linux session.' "$PACKAGE_ROOT/appdir-check-display.stderr"
 
 echo "AppDir: $APPDIR"
 
@@ -73,15 +92,17 @@ if [[ "$MODE" == "--appdir-only" ]]; then
   exit 0
 fi
 
-if [[ ! -x "$APPIMAGETOOL" ]]; then
-  printf 'appimagetool not found or not executable at %s\n' "$APPIMAGETOOL" >&2
+if [[ ! -x "$APPIMAGETOOL_PATH" ]]; then
+  printf 'appimagetool not found or not executable at %s\n' "$APPIMAGETOOL_PATH" >&2
+  printf 'The script also checks %s when APPIMAGETOOL is unset.\n' "$ROOT/target/tools/appimagetool-${ARCH}.AppImage" >&2
   printf 'Set APPIMAGETOOL=/path/to/appimagetool-x86_64.AppImage or run with --appdir-only.\n' >&2
   exit 1
 fi
 
 # appimagetool expects ARCH for reproducible architecture naming.
-ARCH="$ARCH" "$APPIMAGETOOL" "$APPDIR" "$APPIMAGE"
+ARCH="$ARCH" "$APPIMAGETOOL_PATH" "$APPDIR" "$APPIMAGE"
 chmod +x "$APPIMAGE"
 "$APPIMAGE" --appimage-help >/dev/null
+"$APPIMAGE" --help >/dev/null
 
 echo "$APPIMAGE"

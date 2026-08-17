@@ -131,10 +131,13 @@ Run directly from the extracted package:
 ```bash
 ./SourceWeaver
 ./bin/sourceweaver-desktop
+./bin/sourceweaver-desktop --check-display
 ./bin/sourceweaver --help
 ```
 
 After running `install-linux.sh`, launch **Source Weaver** from your desktop environment's app menu or run `sourceweaver-desktop` / `sourceweaver` from a terminal.
+
+If `--check-display` says no graphical session is available, run the app from a terminal inside your Linux desktop session, start a remote desktop session, or use X forwarding. The desktop app cannot draw a visible window from a plain headless SSH shell.
 
 See `docs/packaging.md` for required system libraries and troubleshooting.
 DOC
@@ -144,6 +147,7 @@ if command -v desktop-file-validate >/dev/null 2>&1; then
   desktop-file-validate "$PACKAGE_DIR/share/applications/io.github.dayflaree.SourceWeaver.desktop"
 fi
 "$PACKAGE_DIR/bin/sourceweaver" --help >/dev/null
+"$PACKAGE_DIR/bin/sourceweaver-desktop" --help >/dev/null
 
 (
   cd "$ROOT/target/package"

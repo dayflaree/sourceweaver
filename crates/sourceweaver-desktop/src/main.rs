@@ -16,6 +16,7 @@ use sourceweaver_core::{
     validation_rule_set_by_id, verify_artifact_bytes, verify_signed_update_manifest,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
@@ -41,6 +42,33 @@ use status_labels::*;
 use update_helpers::*;
 
 fn main() -> eframe::Result {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("{}", desktop_help_text());
+        return Ok(());
+    }
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("Source Weaver Desktop {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if args.iter().any(|arg| arg == "--check-display") {
+        match graphical_session_status() {
+            Ok(message) => {
+                println!("{message}");
+                return Ok(());
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(2);
+            }
+        }
+    }
+
+    if let Err(message) = graphical_session_status() {
+        eprintln!("{message}");
+        std::process::exit(2);
+    }
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Source Weaver")
@@ -54,6 +82,63 @@ fn main() -> eframe::Result {
         native_options,
         Box::new(|cc| Ok(Box::new(SourceWeaverApp::new(cc)))),
     )
+}
+
+fn desktop_help_text() -> String {
+    format!(
+        "Source Weaver Desktop {}\n\nUSAGE:\n    sourceweaver-desktop [OPTIONS]\n\nOPTIONS:\n    -h, --help           Print this help text\n    -V, --version        Print the desktop app version\n        --check-display  Verify that a graphical display is visible to this process\n\nSource Weaver Desktop opens the native GUI. For headless merging, validation,\nand automation, use the sourceweaver CLI binary.",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn graphical_session_status() -> Result<String, String> {
+    let vars: Vec<(std::ffi::OsString, std::ffi::OsString)> = env::vars_os().collect();
+    linux_graphical_session_status_from(&vars)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn graphical_session_status() -> Result<String, String> {
+    Ok("Source Weaver Desktop can attempt GUI startup on this platform.".to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_graphical_session_status_from(
+    vars: &[(std::ffi::OsString, std::ffi::OsString)],
+) -> Result<String, String> {
+    let present = linux_graphical_session_vars(vars);
+    if present.is_empty() {
+        return Err(linux_missing_display_message());
+    }
+    Ok(format!(
+        "Source Weaver Desktop can attempt GUI startup; found {}.",
+        present.join(", ")
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_graphical_session_vars(
+    vars: &[(std::ffi::OsString, std::ffi::OsString)],
+) -> Vec<&'static str> {
+    ["WAYLAND_DISPLAY", "WAYLAND_SOCKET", "DISPLAY"]
+        .into_iter()
+        .filter(|name| linux_env_value_is_present(vars, name))
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn linux_env_value_is_present(
+    vars: &[(std::ffi::OsString, std::ffi::OsString)],
+    name: &str,
+) -> bool {
+    vars.iter()
+        .any(|(key, value)| key == name && !value.as_os_str().is_empty())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_missing_display_message() -> String {
+    "Source Weaver Desktop needs a graphical Linux session.\n\nThis process has no DISPLAY, WAYLAND_DISPLAY, or WAYLAND_SOCKET environment variable, so the GUI backend has nowhere to create a window.\n\nStart Source Weaver from a desktop app menu or from a terminal inside GNOME, KDE, Xfce, or another Linux desktop session. For SSH or headless hosts, use VNC/RDP/X forwarding, or run a smoke test with `xvfb-run -a sourceweaver-desktop`.\n\nFor command-line merging, validation, and automation, use the `sourceweaver` CLI binary."
+        .to_string()
 }
 
 const BSPSOURCE_DESKTOP_PRESETS: &[(&str, &str, &str, &str)] = &[
@@ -4852,6 +4937,45 @@ impl MergedPreviewSummary {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_display_check_rejects_headless_environment() {
+        let vars = vec![];
+        let error = linux_graphical_session_status_from(&vars).unwrap_err();
+        assert!(error.contains("Source Weaver Desktop needs a graphical Linux session"));
+        assert!(error.contains("DISPLAY"));
+        assert!(error.contains("xvfb-run"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_display_check_accepts_x11_environment() {
+        let vars = vec![(
+            std::ffi::OsString::from("DISPLAY"),
+            std::ffi::OsString::from(":1"),
+        )];
+        let message = linux_graphical_session_status_from(&vars).unwrap();
+        assert!(message.contains("DISPLAY"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_display_check_accepts_wayland_environment() {
+        let vars = vec![
+            (
+                std::ffi::OsString::from("WAYLAND_DISPLAY"),
+                std::ffi::OsString::from("wayland-0"),
+            ),
+            (
+                std::ffi::OsString::from("DISPLAY"),
+                std::ffi::OsString::new(),
+            ),
+        ];
+        let message = linux_graphical_session_status_from(&vars).unwrap();
+        assert!(message.contains("WAYLAND_DISPLAY"));
+        assert!(!message.contains("DISPLAY,"));
+    }
 
     #[test]
     fn material_preview_scan_finds_vmt_and_texture_files() {

@@ -45,6 +45,89 @@ validate_desktop_file() {
   fi
 }
 
+validate_headless_display_diagnostic() {
+  local executable="$1"
+  local stdout_path="$SMOKE_DIR/check-display.stdout"
+  local stderr_path="$SMOKE_DIR/check-display.stderr"
+  local status
+
+  set +e
+  env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
+    "$executable" --check-display > "$stdout_path" 2> "$stderr_path"
+  status=$?
+  set -e
+
+  if [[ "$status" != "2" ]]; then
+    printf 'expected no-display diagnostic exit 2 from %s, got %s\n' "$executable" "$status" >&2
+    cat "$stdout_path" >&2 || true
+    cat "$stderr_path" >&2 || true
+    exit 1
+  fi
+  grep -Fq 'Source Weaver Desktop needs a graphical Linux session.' "$stderr_path"
+  grep -Fq 'DISPLAY, WAYLAND_DISPLAY, or WAYLAND_SOCKET' "$stderr_path"
+}
+
+validate_virtual_display_startup() {
+  local executable="$1"
+  if ! command -v Xvfb >/dev/null 2>&1 || ! command -v xwininfo >/dev/null 2>&1; then
+    printf 'Skipping virtual display GUI startup probe; Xvfb or xwininfo is unavailable.\n'
+    return
+  fi
+
+  local display_number="${SOURCEWEAVER_XVFB_DISPLAY:-:$((200 + (RANDOM % 300)))}"
+  local xvfb_stdout="$SMOKE_DIR/xvfb.stdout"
+  local xvfb_stderr="$SMOKE_DIR/xvfb.stderr"
+  local app_stdout="$SMOKE_DIR/gui-startup.stdout"
+  local app_stderr="$SMOKE_DIR/gui-startup.stderr"
+  local xvfb_pid=""
+  local app_pid=""
+  local window_found=0
+
+  Xvfb "$display_number" -screen 0 1280x800x24 > "$xvfb_stdout" 2> "$xvfb_stderr" &
+  xvfb_pid=$!
+
+  cleanup_virtual_display() {
+    set +e
+    if [[ -n "$app_pid" ]]; then
+      kill "$app_pid" 2>/dev/null || true
+      wait "$app_pid" 2>/dev/null || true
+    fi
+    if [[ -n "$xvfb_pid" ]]; then
+      kill "$xvfb_pid" 2>/dev/null || true
+      wait "$xvfb_pid" 2>/dev/null || true
+    fi
+    set -e
+  }
+
+  sleep 1
+  DISPLAY="$display_number" "$executable" > "$app_stdout" 2> "$app_stderr" &
+  app_pid=$!
+
+  for _ in $(seq 1 30); do
+    if ! kill -0 "$app_pid" 2>/dev/null; then
+      printf 'Source Weaver exited before creating a GUI window.\n' >&2
+      cat "$app_stdout" >&2 || true
+      cat "$app_stderr" >&2 || true
+      cleanup_virtual_display
+      exit 1
+    fi
+    if DISPLAY="$display_number" xwininfo -root -tree 2>/dev/null | grep -Fq '"Source Weaver"'; then
+      window_found=1
+      break
+    fi
+    sleep 0.5
+  done
+
+  cleanup_virtual_display
+
+  if [[ "$window_found" != "1" ]]; then
+    printf 'Source Weaver did not create a visible X window under Xvfb.\n' >&2
+    cat "$app_stdout" >&2 || true
+    cat "$app_stderr" >&2 || true
+    exit 1
+  fi
+}
+
 if [[ ! -f "$ARCHIVE" ]]; then
   printf 'Linux package archive not found: %s\n' "$ARCHIVE" >&2
   printf 'Run scripts/package-linux.sh %s first.\n' "$VERSION" >&2
@@ -70,6 +153,9 @@ validate_desktop_file "$PKG/SourceWeaver.desktop"
 validate_desktop_file "$PKG/share/applications/io.github.dayflaree.SourceWeaver.desktop"
 
 "$PKG/bin/sourceweaver" --help >/dev/null
+"$PKG/bin/sourceweaver-desktop" --help >/dev/null
+validate_headless_display_diagnostic "$PKG/bin/sourceweaver-desktop"
+validate_virtual_display_startup "$PKG/SourceWeaver"
 
 INSTALL_HOME="$SMOKE_DIR/home with spaces"
 XDG_DATA_HOME="$SMOKE_DIR/xdg data"
@@ -85,6 +171,8 @@ validate_desktop_file "$XDG_DATA_HOME/applications/io.github.dayflaree.SourceWea
 [[ -L "$INSTALL_HOME/.local/bin/sourceweaver" ]]
 [[ -L "$INSTALL_HOME/.local/bin/sourceweaver-desktop" ]]
 HOME="$INSTALL_HOME" XDG_DATA_HOME="$XDG_DATA_HOME" "$INSTALL_HOME/.local/bin/sourceweaver" --help >/dev/null
+HOME="$INSTALL_HOME" XDG_DATA_HOME="$XDG_DATA_HOME" "$INSTALL_HOME/.local/bin/sourceweaver-desktop" --help >/dev/null
+validate_headless_display_diagnostic "$INSTALL_HOME/.local/bin/sourceweaver-desktop"
 
 grep -Fq "Exec=\"$INSTALLED_DIR/bin/sourceweaver-desktop\"" \
   "$XDG_DATA_HOME/applications/io.github.dayflaree.SourceWeaver.desktop"
