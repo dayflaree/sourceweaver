@@ -52,7 +52,7 @@ sudo apt-get install libgtk-3-0 libx11-6 libxcb1 libxkbcommon0 libwayland-client
 For local builds on CI-like Ubuntu systems, development packages are installed by the workflow:
 
 ```bash
-sudo apt-get install libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev
+sudo apt-get install libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-0 libxkbcommon-x11-dev libwayland-dev
 ```
 
 The Linux package is validated in GitHub Actions on `ubuntu-latest` by building the release binaries, creating the tarball, validating both `.desktop` files, extracting the archive, running CLI and desktop help from the portable package, checking the no-display diagnostic, creating a `Source Weaver` window under Xvfb when Xvfb is available, installing into a simulated user profile whose paths contain spaces, validating the installed app-menu entry, and running CLI/desktop help through the installed symlinks. Run the same tarball smoke test locally after packaging:
