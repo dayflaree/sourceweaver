@@ -10,6 +10,11 @@
 - `func_instance` preservation-only warnings, synthetic validation fixture, and expansion requirements documenting that Source Weaver preserves instance entities but does not resolve, inline, fix up, transform, or compile referenced instance VMFs.
 - Cubemap runtime launch scope locked to plan-only reports with explicit `runtime_launch_mode = "plan-only"` and direct-command construction tests that do not launch Steam or game runtimes.
 - Automatic update install roadmap and pure readiness-policy tests documenting that Source Weaver remains signed-check/download/manual-handoff only until installer execution, rollback, production signing, platform validation, and preference persistence are implemented.
+- Linux tarball install smoke validator for release packages, covering portable launch files, desktop-entry validity, user app-menu installation, quoted install paths with spaces, and installed CLI symlinks.
+
+### Changed
+
+- Compile-profile discovery now preserves explicit `--search-dir` priority over PATH and Steam-discovered tools, making fixture tests and user-selected tool directories deterministic on hosts with real Source tools installed.
 
 ### Known limitations
 

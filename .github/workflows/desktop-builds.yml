@@ -106,6 +106,8 @@ jobs:
           sudo apt-get install -y desktop-file-utils fuse libfuse2 libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev
       - name: Build Linux tarball
         run: scripts/package-linux.sh "${GITHUB_REF_NAME:-manual}"
+      - name: Validate Linux tarball install
+        run: scripts/validate-linux-package.sh "${GITHUB_REF_NAME:-manual}"
       - name: Download appimagetool
         run: |
           mkdir -p target/tools

@@ -42,7 +42,7 @@ Comment=Merge, preview, and validate Source Engine VMFs
 Exec=sourceweaver-desktop
 Icon=sourceweaver
 Terminal=false
-Categories=Development;Game;
+Categories=Development;
 Keywords=Source;Hammer;VMF;Half-Life;Black Mesa;Map;
 StartupWMClass=Source Weaver
 DESKTOP

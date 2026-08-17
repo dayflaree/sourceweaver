@@ -1842,8 +1842,7 @@ fn discover_compile_tools(config: &CompileProfileDiscoverConfig) -> CompileToolD
         search_dirs.extend(env::split_paths(&paths));
     }
     search_dirs.extend(steam_dirs.clone());
-    search_dirs.sort();
-    search_dirs.dedup();
+    dedup_paths_preserving_order(&mut search_dirs);
     let requested_steps = config
         .steps
         .clone()
@@ -1979,6 +1978,11 @@ fn discover_steam_tool_search_dirs(steam_roots: &[PathBuf]) -> Vec<PathBuf> {
     dirs
 }
 
+fn dedup_paths_preserving_order(paths: &mut Vec<PathBuf>) {
+    let mut seen = BTreeSet::new();
+    paths.retain(|path| seen.insert(path.clone()));
+}
+
 fn describe_tool_candidate(
     candidate: &str,
     steam_roots: &[PathBuf],
@@ -2024,16 +2028,17 @@ fn describe_tool_candidate(
 
 fn discover_tool_candidates(step: &str, search_dirs: &[PathBuf]) -> Vec<String> {
     let names = tool_binary_names(step);
-    let mut candidates = BTreeSet::new();
+    let mut candidates = Vec::new();
+    let mut seen = BTreeSet::new();
     for dir in search_dirs {
         for name in &names {
             let candidate = dir.join(name);
-            if is_executable_file(&candidate) {
-                candidates.insert(candidate.display().to_string());
+            if is_executable_file(&candidate) && seen.insert(candidate.clone()) {
+                candidates.push(candidate.display().to_string());
             }
         }
     }
-    candidates.into_iter().collect()
+    candidates
 }
 
 fn tool_binary_names(step: &str) -> Vec<String> {

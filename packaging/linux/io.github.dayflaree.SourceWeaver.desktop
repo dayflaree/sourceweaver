@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=Source Weaver
-Comment=Merge and clean Source Engine VMF campaign maps
+Comment=Merge, preview, and validate Source Engine VMFs
 Exec=sourceweaver-desktop
 Icon=sourceweaver
 Terminal=false
-Categories=Development;Graphics;Utility;
+Categories=Development;
 Keywords=Source;Hammer;VMF;Half-Life;Black Mesa;Map;
 StartupNotify=true

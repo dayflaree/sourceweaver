@@ -55,7 +55,12 @@ For local builds on CI-like Ubuntu systems, development packages are installed b
 sudo apt-get install libgtk-3-dev libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev
 ```
 
-The Linux package is validated in GitHub Actions on `ubuntu-latest` by building the release binaries and creating the tarball.
+The Linux package is validated in GitHub Actions on `ubuntu-latest` by building the release binaries, creating the tarball, validating both `.desktop` files, extracting the archive, running CLI help from the portable package, installing into a simulated user profile whose paths contain spaces, validating the installed app-menu entry, and running CLI help through the installed symlink. Run the same tarball smoke test locally after packaging:
+
+```bash
+scripts/package-linux.sh v0.1.0
+scripts/validate-linux-package.sh v0.1.0
+```
 
 ## Linux AppImage format
 

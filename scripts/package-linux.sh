@@ -34,10 +34,10 @@ cat > "$PACKAGE_DIR/SourceWeaver.desktop" <<'DESKTOP'
 Type=Application
 Name=Source Weaver
 Comment=Merge, preview, and validate Source Engine VMFs
-Exec=sh -c 'APPDIR="$(dirname "$1")"; exec "$APPDIR/SourceWeaver"' sourceweaver-desktop %k
+Exec=sh -c "APPDIR=\\$(dirname \\"\\$1\\"); shift; exec \\"\\$APPDIR/SourceWeaver\\" \\"\\$@\\"" sourceweaver-desktop %k
 Icon=sourceweaver
 Terminal=false
-Categories=Development;Game;
+Categories=Development;
 StartupWMClass=Source Weaver
 DESKTOP
 chmod +x "$PACKAGE_DIR/SourceWeaver.desktop"
@@ -54,6 +54,16 @@ ICON_DIR="$DATA_HOME/icons/hicolor/scalable/apps"
 BIN_DIR="$HOME/.local/bin"
 
 mkdir -p "$APPLICATIONS_DIR" "$ICON_DIR" "$BIN_DIR"
+
+desktop_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\\\$}"
+  value="${value//\`/\\\`}"
+  printf '"%s"' "$value"
+}
+
 TMP_INSTALL="${INSTALL_DIR}.tmp"
 rm -rf "$TMP_INSTALL"
 mkdir -p "$TMP_INSTALL"
@@ -73,18 +83,22 @@ ln -sf "$INSTALL_DIR/bin/sourceweaver" "$BIN_DIR/sourceweaver"
 ln -sf "$INSTALL_DIR/bin/sourceweaver-desktop" "$BIN_DIR/sourceweaver-desktop"
 cp "$INSTALL_DIR/share/icons/hicolor/scalable/apps/sourceweaver.svg" "$ICON_DIR/sourceweaver.svg"
 
+DESKTOP_EXEC="$(desktop_quote "$INSTALL_DIR/bin/sourceweaver-desktop")"
+
 cat > "$APPLICATIONS_DIR/io.github.dayflaree.SourceWeaver.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Source Weaver
 Comment=Merge, preview, and validate Source Engine VMFs
-Exec=$INSTALL_DIR/bin/sourceweaver-desktop
+Exec=$DESKTOP_EXEC
 Icon=sourceweaver
 Terminal=false
-Categories=Development;Game;
+Categories=Development;
 StartupWMClass=Source Weaver
 DESKTOP
 chmod +x "$APPLICATIONS_DIR/io.github.dayflaree.SourceWeaver.desktop"
+
+command -v desktop-file-validate >/dev/null 2>&1 && desktop-file-validate "$APPLICATIONS_DIR/io.github.dayflaree.SourceWeaver.desktop"
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPLICATIONS_DIR" || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache "$DATA_HOME/icons/hicolor" || true
@@ -124,6 +138,12 @@ After running `install-linux.sh`, launch **Source Weaver** from your desktop env
 
 See `docs/packaging.md` for required system libraries and troubleshooting.
 DOC
+
+if command -v desktop-file-validate >/dev/null 2>&1; then
+  desktop-file-validate "$PACKAGE_DIR/SourceWeaver.desktop"
+  desktop-file-validate "$PACKAGE_DIR/share/applications/io.github.dayflaree.SourceWeaver.desktop"
+fi
+"$PACKAGE_DIR/bin/sourceweaver" --help >/dev/null
 
 (
   cd "$ROOT/target/package"
